@@ -238,6 +238,7 @@ def build_quality_options(info: dict) -> list[dict]:
         h = int(f["height"])
         fps = int(f.get("fps") or 0)
         size = _fmt_size(f) or 0.0
+        is_h264 = str(f.get("vcodec") or "").startswith("avc1")
         cur = by_height.get(h)
         # 같은 해상도면 fps 높은 것, 그다음 tbr 높은 것을 대표로
         key = (fps, f.get("tbr") or 0)
@@ -247,7 +248,10 @@ def build_quality_options(info: dict) -> list[dict]:
                 "fps": fps,
                 "size": size,
                 "has_audio": f.get("acodec") not in (None, "none"),
+                "has_h264": is_h264 or bool(cur and cur["has_h264"]),
             }
+        elif is_h264:
+            cur["has_h264"] = True
 
     options = []
     for h in sorted(by_height, reverse=True):
@@ -262,7 +266,9 @@ def build_quality_options(info: dict) -> list[dict]:
         if d["size"]:
             total = d["size"] + (0 if d["has_audio"] else best_audio_size)
             label += f" · 약 {_human_size(total)}"
-        options.append({"id": str(h), "label": label, "kind": "video"})
+        if not d["has_h264"]:
+            label += " · ⚠ VP9/AV1 (QuickTime 재생 불가)"
+        options.append({"id": str(h), "label": label, "kind": "video", "h264": d["has_h264"]})
 
     options.append({
         "id": "audio",
@@ -291,8 +297,14 @@ def build_ydl_opts(quality: str, download_dir: Path, job: dict | None = None) ->
         }]
     else:
         h = int(quality)
+        lo = int(h * 0.9)  # 선택한 해상도와 "같은 급"으로 볼 하한 (1080 → 972, 720 → 648)
+        # 1) 선택한 해상도의 H.264(avc1) 영상을 최우선으로 고른다. VP9/AV1은 mp4
+        #    컨테이너라도 QuickTime Player 등 Apple 기본 앱에서 재생되지 않기 때문.
+        #    하한(lo)을 두는 이유: 4K를 골랐는데 1080p H.264로 조용히 내려가지 않도록.
+        # 2) 그 해상도에 H.264가 없으면(주로 4K) 같은 해상도의 VP9/AV1로 넘어간다.
         opts["format"] = (
-            f"bestvideo[height<={h}][ext=mp4]+bestaudio[ext=m4a]"
+            f"bestvideo[height<={h}][height>{lo}][vcodec^=avc1]+bestaudio[ext=m4a]"
+            f"/bestvideo[height<={h}][ext=mp4]+bestaudio[ext=m4a]"
             f"/bestvideo[height<={h}]+bestaudio"
             f"/best[height<={h}]/best"
         )

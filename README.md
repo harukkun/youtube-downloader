@@ -99,6 +99,11 @@ lsof -nP -iTCP:8765 -sTCP:LISTEN
 **ffmpeg 관련 오류**
 `brew install ffmpeg` 로 설치했는지, 터미널에서 `ffmpeg -version` 이 실행되는지 확인하세요.
 
+**QuickTime에서 "일부 미디어가 호환되지 않습니다" 경고가 뜬다**
+영상 코덱이 VP9 또는 AV1인 파일입니다. Apple 기본 앱은 H.264/HEVC만 재생합니다.
+현재 버전은 H.264를 우선 선택하므로 다시 다운로드하면 해결되고, 4K처럼 H.264가 없는 화질은
+VLC·IINA로 재생하거나 `ffmpeg -i in.mp4 -c:v libx264 -crf 18 -c:a copy out.mp4` 로 변환하세요.
+
 **연령 제한 / 비공개 / 멤버십 영상**
 로그인이 필요한 영상은 지원하지 않습니다.
 
@@ -140,7 +145,8 @@ youtube-downloader/
 | `DELETE` | `/api/history` | 기록 전체 삭제 |
 
 `quality` 값은 세로 해상도 숫자(`"1080"`, `"720"` …) 또는 `"audio"` 입니다.
-영상은 `bestvideo[height<=N]+bestaudio` 를 mp4로 병합하고, 오디오는 `bestaudio` 를 mp3로 변환합니다.
+영상은 **H.264(avc1) 코덱을 최우선**으로 골라 `bestaudio` 와 mp4로 병합하고, 오디오는 `bestaudio` 를 mp3로 변환합니다.
+해당 해상도에 H.264가 없을 때만(주로 4K 이상) VP9/AV1로 넘어가며, 이 경우 화질 목록에 `⚠ VP9/AV1 (QuickTime 재생 불가)` 가 표시됩니다.
 
 ## 참고
 
