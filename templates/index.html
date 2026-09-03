@@ -1,0 +1,435 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>유튜브 다운로더</title>
+<style>
+  :root {
+    --bg: #0f1115; --card: #181b22; --border: #2a2f3a; --text: #e8eaf0; --muted: #8b93a7;
+    --accent: #ff3d3d; --accent-hover: #ff5c5c; --ok: #3ecf8e; --err: #ff6b6b; --bar: #ff3d3d;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Segoe UI", Roboto, sans-serif;
+    display: flex; justify-content: center; padding: 48px 16px;
+  }
+  main { width: 100%; max-width: 720px; }
+  h1 { font-size: 26px; margin: 0 0 6px; display: flex; align-items: center; gap: 10px; }
+  h1 .logo { width: 30px; height: 21px; background: var(--accent); border-radius: 6px; position: relative; }
+  h1 .logo::after { content: ""; position: absolute; left: 12px; top: 5px; border-left: 9px solid #fff;
+    border-top: 5.5px solid transparent; border-bottom: 5.5px solid transparent; }
+  .sub { color: var(--muted); margin: 0 0 24px; font-size: 14px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 20px; margin-bottom: 16px; }
+  .row { display: flex; gap: 10px; }
+  input[type=text], select {
+    flex: 1; background: #0f1115; color: var(--text); border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px 14px; font-size: 15px; outline: none; min-width: 0;
+  }
+  input[type=text]:focus, select:focus { border-color: var(--accent); }
+  button {
+    background: var(--accent); color: #fff; border: 0; border-radius: 10px; padding: 12px 20px; font-size: 15px;
+    font-weight: 600; cursor: pointer; white-space: nowrap; transition: background .15s;
+  }
+  button:hover { background: var(--accent-hover); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.secondary { background: #2a2f3a; }
+  button.secondary:hover { background: #343a48; }
+  .hidden { display: none !important; }
+  .video { display: flex; gap: 16px; margin-bottom: 18px; }
+  .video img { width: 200px; aspect-ratio: 16/9; object-fit: cover; border-radius: 10px; background: #000; flex-shrink: 0; }
+  .video .title { font-weight: 600; font-size: 16px; line-height: 1.4; margin-bottom: 6px; }
+  .video .meta { color: var(--muted); font-size: 13px; }
+  label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+  .progress-wrap { margin-top: 18px; }
+  .bar { height: 10px; background: #0f1115; border: 1px solid var(--border); border-radius: 999px; overflow: hidden; }
+  .bar > div { height: 100%; width: 0%; background: var(--bar); transition: width .3s; }
+  .bar.indeterminate > div { width: 30%; animation: slide 1.2s infinite ease-in-out; }
+  @keyframes slide { 0% { margin-left: -30%; } 100% { margin-left: 100%; } }
+  .status { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); margin-top: 8px; }
+  .msg { margin-top: 14px; padding: 12px 14px; border-radius: 10px; font-size: 14px; line-height: 1.5; word-break: break-all; }
+  .msg.ok { background: rgba(62,207,142,.12); color: var(--ok); border: 1px solid rgba(62,207,142,.3); }
+  .msg.err { background: rgba(255,107,107,.12); color: var(--err); border: 1px solid rgba(255,107,107,.3); }
+  .done-row { display: flex; gap: 10px; align-items: stretch; margin-top: 14px; }
+  .done-row .msg { margin-top: 0; flex: 1; display: flex; align-items: center; }
+  .settings { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .settings .lbl { font-size: 13px; color: var(--muted); white-space: nowrap; }
+  .settings input { font-size: 13px; padding: 9px 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .settings button { padding: 9px 14px; font-size: 13px; }
+  .dir-msg { font-size: 12px; margin-top: 8px; min-height: 14px; }
+  .dir-msg.ok { color: var(--ok); } .dir-msg.err { color: var(--err); }
+  .hist-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .hist-head h2 { font-size: 16px; margin: 0; }
+  .hist-head .actions { display: flex; gap: 8px; }
+  .hist-head button { padding: 7px 12px; font-size: 12px; }
+  .hist-empty { color: var(--muted); font-size: 14px; text-align: center; padding: 18px 0; }
+  .hist-item { display: flex; gap: 12px; padding: 12px 0; border-top: 1px solid var(--border); }
+  .hist-item:first-child { border-top: 0; padding-top: 0; }
+  .hist-item img { width: 96px; aspect-ratio: 16/9; object-fit: cover; border-radius: 6px; background: #000; flex-shrink: 0; }
+  .hist-item .body { flex: 1; min-width: 0; }
+  .hist-item .t { font-weight: 600; font-size: 14px; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hist-item .m { color: var(--muted); font-size: 12px; margin-top: 3px; }
+  .hist-item .p { font-size: 12px; margin-top: 4px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; color: var(--muted); }
+  .hist-item .p b { color: var(--text); font-weight: 500; }
+  .badge { display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; margin-right: 6px; vertical-align: 1px; }
+  .badge.ok { background: rgba(62,207,142,.15); color: var(--ok); }
+  .badge.miss { background: rgba(255,176,32,.15); color: #ffb020; }
+  .badge.err { background: rgba(255,107,107,.15); color: var(--err); }
+  .badge.run { background: rgba(120,150,255,.15); color: #8fa6ff; }
+  .hist-item .btns { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
+  .hist-item .btns button { padding: 6px 10px; font-size: 12px; }
+  .hist-item .btns button.danger { background: transparent; border: 1px solid var(--border); color: var(--muted); }
+  .hist-item .btns button.danger:hover { color: var(--err); border-color: var(--err); }
+  @media (max-width: 560px) { .hist-item { flex-wrap: wrap; } .hist-item .btns { flex-direction: row; width: 100%; } }
+  .footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 20px; }
+  .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,.3);
+    border-top-color: #fff; border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -2px; margin-right: 6px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (max-width: 560px) { .video { flex-direction: column; } .video img { width: 100%; } }
+</style>
+</head>
+<body>
+<main>
+  <h1><span class="logo"></span>유튜브 다운로더</h1>
+  <p class="sub">링크를 붙여넣고 화질을 선택하면 아래 저장 위치에 다운로드됩니다.</p>
+
+  <section class="card">
+    <div class="settings">
+      <span class="lbl">📁 저장 위치</span>
+      <input type="text" id="dirInput" value="{{ download_dir }}" spellcheck="false" placeholder="/Users/이름/Movies">
+      <button type="button" class="secondary" id="chooseDirBtn" title="폴더 선택 창 열기">폴더 선택…</button>
+      <button type="button" id="saveDirBtn">저장</button>
+    </div>
+    <div class="dir-msg" id="dirMsg"></div>
+  </section>
+
+  <section class="card">
+    <form id="urlForm" class="row" autocomplete="off">
+      <input type="text" id="url" placeholder="https://www.youtube.com/watch?v=..." required>
+      <button type="submit" id="fetchBtn">조회</button>
+    </form>
+    <div id="fetchError" class="msg err hidden"></div>
+  </section>
+
+  <section class="card hidden" id="resultCard">
+    <div class="video">
+      <img id="thumb" alt="썸네일">
+      <div>
+        <div class="title" id="title"></div>
+        <div class="meta" id="meta"></div>
+      </div>
+    </div>
+
+    <label for="quality">화질 선택</label>
+    <div class="row">
+      <select id="quality"></select>
+      <button id="downloadBtn">다운로드</button>
+    </div>
+
+    <div class="progress-wrap hidden" id="progress">
+      <div class="bar" id="bar"><div id="barFill"></div></div>
+      <div class="status"><span id="statusText">준비 중…</span><span id="statusRight"></span></div>
+    </div>
+    <div class="done-row hidden" id="doneRow">
+      <div id="doneMsg" class="msg ok"></div>
+      <button type="button" class="secondary" id="openFolderBtn" title="Finder에서 저장 위치 열기">📂 폴더 열기</button>
+    </div>
+    <div id="errMsg" class="msg err hidden"></div>
+  </section>
+
+  <section class="card" id="historyCard">
+    <div class="hist-head">
+      <h2>다운로드 내역 <span id="histCount" style="color:var(--muted);font-weight:400;font-size:13px"></span></h2>
+      <div class="actions">
+        <button type="button" class="secondary" id="histRefreshBtn">새로고침</button>
+        <button type="button" class="secondary" id="histClearBtn">목록 비우기</button>
+      </div>
+    </div>
+    <div id="histList"></div>
+    <div class="hist-empty hidden" id="histEmpty">아직 다운로드한 영상이 없습니다.</div>
+  </section>
+
+  <p class="footer">yt-dlp + ffmpeg 기반 · 개인 소장 목적으로만 사용하세요.</p>
+</main>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  let currentUrl = null;
+  let currentJobId = null;
+  let pollTimer = null;
+
+  function show(el, on = true) { el.classList.toggle('hidden', !on); }
+  function fmtDuration(sec) {
+    if (sec == null) return '';
+    sec = Math.round(sec);
+    const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+    const mm = h ? String(m).padStart(2, '0') : m;
+    return (h ? h + ':' : '') + mm + ':' + String(s).padStart(2, '0');
+  }
+  function fmtBytes(n) {
+    if (!n) return '';
+    const u = ['B', 'KB', 'MB', 'GB'];
+    let i = 0; while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+    return n.toFixed(i === 0 ? 0 : 1) + u[i];
+  }
+  function fmtEta(sec) {
+    if (sec == null) return '';
+    sec = Math.round(sec);
+    if (sec < 60) return sec + '초';
+    return Math.floor(sec / 60) + '분 ' + (sec % 60) + '초';
+  }
+
+  async function postJSON(url, body) {
+    const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || ('요청 실패 (' + r.status + ')'));
+    return data;
+  }
+
+  // ---- 저장 위치 설정 --------------------------------------------------
+  let savedDir = $('dirInput').value;
+  function setDirMsg(text, kind) {
+    const el = $('dirMsg');
+    el.textContent = text; el.className = 'dir-msg' + (kind ? ' ' + kind : '');
+  }
+  $('dirInput').addEventListener('input', () => {
+    setDirMsg($('dirInput').value.trim() !== savedDir ? '변경됨 · 저장을 눌러 적용하세요' : '', '');
+  });
+  $('dirInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); $('saveDirBtn').click(); } });
+
+  $('saveDirBtn').addEventListener('click', async () => {
+    const btn = $('saveDirBtn'); btn.disabled = true;
+    try {
+      const r = await postJSON('/api/settings', { download_dir: $('dirInput').value });
+      savedDir = r.download_dir; $('dirInput').value = savedDir;
+      setDirMsg('저장 위치가 변경되었습니다: ' + savedDir, 'ok');
+    } catch (err) {
+      setDirMsg(err.message, 'err');
+    } finally { btn.disabled = false; }
+  });
+
+  $('chooseDirBtn').addEventListener('click', async () => {
+    const btn = $('chooseDirBtn'); btn.disabled = true;
+    setDirMsg('폴더 선택 창이 열렸습니다. (다른 창 뒤에 있을 수 있어요)', '');
+    try {
+      const r = await postJSON('/api/choose-folder', {});
+      if (r.cancelled) { setDirMsg('', ''); return; }
+      savedDir = r.download_dir; $('dirInput').value = savedDir;
+      setDirMsg('저장 위치가 변경되었습니다: ' + savedDir, 'ok');
+    } catch (err) {
+      setDirMsg(err.message, 'err');
+    } finally { btn.disabled = false; }
+  });
+
+  // ---- 조회 -------------------------------------------------------------
+  $('urlForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const url = $('url').value.trim();
+    if (!url) return;
+    resetDownloadUI();
+    show($('fetchError'), false);
+    show($('resultCard'), false);
+    $('fetchBtn').disabled = true;
+    $('fetchBtn').innerHTML = '<span class="spinner"></span>조회 중';
+    try {
+      const info = await postJSON('/api/info', { url });
+      currentUrl = info.webpage_url || url;
+      $('thumb').src = info.thumbnail || '';
+      $('title').textContent = info.title || '(제목 없음)';
+      $('meta').textContent = [info.uploader, fmtDuration(info.duration)].filter(Boolean).join(' · ');
+      const sel = $('quality');
+      sel.innerHTML = '';
+      for (const q of info.qualities) {
+        const o = document.createElement('option');
+        o.value = q.id; o.textContent = q.label; sel.appendChild(o);
+      }
+      show($('resultCard'));
+    } catch (err) {
+      $('fetchError').textContent = '조회 실패: ' + err.message;
+      show($('fetchError'));
+    } finally {
+      $('fetchBtn').disabled = false;
+      $('fetchBtn').textContent = '조회';
+    }
+  });
+
+  // ---- 다운로드 ---------------------------------------------------------
+  function resetDownloadUI() {
+    clearInterval(pollTimer); pollTimer = null;
+    show($('progress'), false); show($('doneRow'), false); show($('errMsg'), false);
+    $('bar').classList.remove('indeterminate');
+    $('barFill').style.width = '0%';
+    $('downloadBtn').disabled = false;
+    $('downloadBtn').textContent = '다운로드';
+    $('quality').disabled = false;
+  }
+
+  $('downloadBtn').addEventListener('click', async () => {
+    if (!currentUrl) return;
+    resetDownloadUI();
+    $('downloadBtn').disabled = true;
+    $('quality').disabled = true;
+    $('downloadBtn').innerHTML = '<span class="spinner"></span>다운로드 중';
+    show($('progress'));
+    $('statusText').textContent = '준비 중…'; $('statusRight').textContent = '';
+    $('bar').classList.add('indeterminate');
+    try {
+      const sel = $('quality');
+      const { job_id } = await postJSON('/api/download', {
+        url: currentUrl, quality: sel.value,
+        quality_label: sel.options[sel.selectedIndex]?.textContent.split(' · ')[0],
+        title: $('title').textContent, thumbnail: $('thumb').src,
+      });
+      currentJobId = job_id;
+      loadHistory();
+      pollTimer = setInterval(() => poll(job_id), 700);
+    } catch (err) {
+      fail(err.message);
+    }
+  });
+
+  async function poll(jobId) {
+    let job;
+    try {
+      const r = await fetch('/api/progress/' + jobId);
+      job = await r.json();
+      if (!r.ok) throw new Error(job.error || '상태 조회 실패');
+    } catch (err) { return fail(err.message); }
+
+    const bar = $('bar'), fill = $('barFill');
+    if (job.status === 'downloading') {
+      bar.classList.remove('indeterminate');
+      fill.style.width = (job.percent || 0) + '%';
+      $('statusText').textContent = '다운로드 중 ' + (job.percent || 0).toFixed(1) + '%';
+      const parts = [];
+      if (job.total) parts.push(fmtBytes(job.downloaded) + ' / ' + fmtBytes(job.total));
+      if (job.speed) parts.push(fmtBytes(job.speed) + '/s');
+      if (job.eta != null) parts.push('남은 시간 ' + fmtEta(job.eta));
+      $('statusRight').textContent = parts.join(' · ');
+    } else if (job.status === 'processing') {
+      bar.classList.add('indeterminate');
+      $('statusText').textContent = job.quality === 'audio' ? 'mp3로 변환 중…' : '영상과 오디오 병합 중…';
+      $('statusRight').textContent = '';
+    } else if (job.status === 'finished') {
+      clearInterval(pollTimer); pollTimer = null;
+      bar.classList.remove('indeterminate'); fill.style.width = '100%';
+      $('statusText').textContent = '완료'; $('statusRight').textContent = '';
+      $('doneMsg').textContent = '저장 완료: ' + (job.filename || job.filepath || '');
+      show($('doneRow'));
+      $('downloadBtn').disabled = false; $('downloadBtn').textContent = '다시 다운로드';
+      $('quality').disabled = false;
+      loadHistory();
+    } else if (job.status === 'error') {
+      fail(job.message || '알 수 없는 오류');
+    }
+  }
+
+  $('openFolderBtn').addEventListener('click', async () => {
+    const btn = $('openFolderBtn');
+    btn.disabled = true;
+    try {
+      await postJSON('/api/open-folder', { job_id: currentJobId });
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  function fail(message) {
+    clearInterval(pollTimer); pollTimer = null;
+    loadHistory();
+    show($('progress'), false);
+    $('errMsg').textContent = '다운로드 실패: ' + message;
+    show($('errMsg'));
+    $('downloadBtn').disabled = false; $('downloadBtn').textContent = '다운로드';
+    $('quality').disabled = false;
+  }
+
+  // ---- 다운로드 내역 -----------------------------------------------------
+  function esc(str) { return String(str ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+  function fmtDate(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    return isNaN(d) ? iso : d.toLocaleString('ko-KR', { year: '2-digit', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+  }
+  function badgeFor(it) {
+    if (it.status === 'downloading') return '<span class="badge run">⏳ 진행 중</span>';
+    if (it.status === 'error') return '<span class="badge err">❌ 실패</span>';
+    if (it.exists) return '<span class="badge ok">✅ 파일 있음</span>';
+    return '<span class="badge miss">⚠️ 파일 없음</span>';
+  }
+  function renderHistory(items) {
+    const list = $('histList');
+    $('histCount').textContent = items.length ? '(' + items.length + ')' : '';
+    show($('histEmpty'), items.length === 0);
+    $('histClearBtn').disabled = items.length === 0;
+    list.innerHTML = items.map(it => {
+      const dir = it.filepath ? it.filepath.slice(0, it.filepath.lastIndexOf('/') + 1) : (it.download_dir || '');
+      const file = it.filename || (it.filepath ? it.filepath.split('/').pop() : '');
+      let pathLine;
+      if (it.status === 'error') pathLine = '<span style="color:var(--err)">' + esc(it.message || '오류') + '</span>';
+      else if (file) pathLine = esc(dir) + '<b>' + esc(file) + '</b>' + (it.exists ? '' : ' <span style="color:#ffb020">(삭제되었거나 이동됨)</span>');
+      else pathLine = esc(dir) + '(다운로드 중…)';
+      const meta = [it.quality_label, fmtDate(it.finished_at || it.started_at), it.exists && it.size ? fmtBytes(it.size) : null].filter(Boolean).join(' · ');
+      return `<div class="hist-item" data-id="${esc(it.id)}">
+        <img src="${esc(it.thumbnail || '')}" alt="" onerror="this.style.visibility='hidden'">
+        <div class="body">
+          <div class="t" title="${esc(it.title || it.url)}">${badgeFor(it)}${esc(it.title || it.url)}</div>
+          <div class="m">${esc(meta)}</div>
+          <div class="p">${pathLine}</div>
+        </div>
+        <div class="btns">
+          ${it.exists ? '<button type="button" class="secondary" data-act="open">📂 폴더 열기</button>' : ''}
+          <button type="button" class="secondary" data-act="redo">↻ 다시 받기</button>
+          <button type="button" class="danger" data-act="del">기록 삭제</button>
+        </div>
+      </div>`;
+    }).join('');
+  }
+  async function loadHistory() {
+    try {
+      const r = await fetch('/api/history');
+      const data = await r.json();
+      renderHistory(data.items || []);
+    } catch (e) { /* 무시 */ }
+  }
+  $('histRefreshBtn').addEventListener('click', loadHistory);
+  $('histClearBtn').addEventListener('click', async () => {
+    if (!confirm('다운로드 내역을 모두 지울까요? (파일은 삭제되지 않습니다)')) return;
+    await fetch('/api/history', { method: 'DELETE' });
+    loadHistory();
+  });
+  $('histList').addEventListener('click', async (e) => {
+    const btn = e.target.closest('button[data-act]');
+    if (!btn) return;
+    const row = btn.closest('.hist-item');
+    const id = row.dataset.id;
+    const act = btn.dataset.act;
+    btn.disabled = true;
+    try {
+      if (act === 'open') {
+        await postJSON('/api/open-folder', { history_id: id });
+      } else if (act === 'redo') {
+        const url = row.querySelector('.t').getAttribute('title');
+        const item = (await (await fetch('/api/history')).json()).items.find(x => x.id === id);
+        $('url').value = item?.url || url;
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        $('urlForm').requestSubmit();
+      } else if (act === 'del') {
+        await fetch('/api/history/' + encodeURIComponent(id), { method: 'DELETE' });
+        loadHistory();
+      }
+    } catch (err) {
+      alert(err.message);
+    } finally { btn.disabled = false; }
+  });
+  loadHistory();
+  // 진행 중인 항목이 있으면 주기적으로 갱신
+  setInterval(() => { if (pollTimer) loadHistory(); }, 3000);
+
+  $('url').focus();
+</script>
+</body>
+</html>
