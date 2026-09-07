@@ -91,8 +91,11 @@
 </head>
 <body>
 <main>
-  <h1><span class="logo"></span>유튜브 다운로더</h1>
-  <p class="sub">링크를 붙여넣고 화질을 선택하면 아래 저장 위치에 다운로드됩니다.</p>
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
+    <h1 style="margin:0"><span class="logo"></span>유튜브 다운로더</h1>
+    <a href="/shorts" style="color:var(--muted);font-size:14px;text-decoration:none" onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--muted)'">쇼츠 현황판 →</a>
+  </div>
+  <p class="sub" style="margin-top:6px">링크를 붙여넣고 화질을 선택하면 아래 저장 위치에 다운로드됩니다.</p>
 
   <section class="card">
     <div class="settings">

@@ -1,0 +1,659 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>쇼츠 현황판</title>
+<style>
+  :root {
+    --bg: #0f1115; --card: #181b22; --border: #2a2f3a; --text: #e8eaf0; --muted: #8b93a7;
+    --accent: #ff3d3d; --accent-hover: #ff5c5c; --ok: #3ecf8e; --err: #ff6b6b; --warn: #ffb020; --info: #8fa6ff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Segoe UI", Roboto, sans-serif;
+    padding: 36px 20px;
+  }
+  main { max-width: 1280px; margin: 0 auto; }
+  a { color: var(--info); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 18px; flex-wrap: wrap; }
+  h1 { font-size: 24px; margin: 0; display: flex; align-items: center; gap: 10px; }
+  h1 .logo { width: 28px; height: 20px; background: var(--accent); border-radius: 6px; position: relative; }
+  h1 .logo::after { content: ""; position: absolute; left: 11px; top: 5px; border-left: 8px solid #fff; border-top: 5px solid transparent; border-bottom: 5px solid transparent; }
+  .nav a { color: var(--muted); font-size: 14px; }
+  .nav a:hover { color: var(--text); }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 16px 18px; margin-bottom: 14px; }
+
+  button {
+    background: var(--accent); color: #fff; border: 0; border-radius: 10px; padding: 9px 14px; font-size: 13px;
+    font-weight: 600; cursor: pointer; white-space: nowrap; transition: background .15s; font-family: inherit;
+  }
+  button:hover { background: var(--accent-hover); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.secondary { background: #2a2f3a; }
+  button.secondary:hover { background: #343a48; }
+  button.ghost { background: transparent; border: 1px solid var(--border); color: var(--muted); }
+  button.ghost:hover { color: var(--text); border-color: #444b5a; }
+  button.danger:hover { color: var(--err); border-color: var(--err); }
+  button.mini { padding: 4px 8px; font-size: 12px; border-radius: 7px; }
+  input[type=text], input[type=url], select, textarea {
+    background: #0f1115; color: var(--text); border: 1px solid var(--border); border-radius: 9px;
+    padding: 9px 12px; font-size: 14px; outline: none; font-family: inherit; width: 100%;
+  }
+  input:focus, select:focus, textarea:focus { border-color: var(--accent); }
+  textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
+  textarea.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+  .hidden { display: none !important; }
+
+  /* 요약 칩 */
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; }
+  .chip { border: 1px solid var(--border); border-radius: 999px; padding: 6px 14px; font-size: 13px; color: var(--muted); cursor: pointer; background: transparent; font-weight: 500; display: flex; gap: 8px; align-items: center; }
+  .chip b { color: var(--text); font-weight: 700; }
+  .chip:hover { border-color: #444b5a; background: transparent; color: var(--text); }
+  .chip.active { border-color: var(--accent); color: var(--text); background: rgba(255,61,61,.08); }
+  .chip .dot { width: 8px; height: 8px; border-radius: 50%; }
+
+  /* 툴바 */
+  .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .toolbar input[type=text] { flex: 1; min-width: 200px; }
+  .toolbar select { width: auto; }
+  .toolbar .spacer { flex: 1; }
+
+  /* 표 */
+  .tbl-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; min-width: 1080px; }
+  th, td { text-align: left; padding: 10px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  td.date { white-space: nowrap; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; white-space: nowrap; user-select: none; }
+  th.sortable { cursor: pointer; }
+  th.sortable:hover { color: var(--text); }
+  th .arrow { opacity: .6; margin-left: 4px; }
+  tbody tr:hover { background: rgba(255,255,255,.025); }
+  tbody tr:last-child td { border-bottom: 0; }
+  td.title { font-weight: 600; cursor: pointer; max-width: 260px; }
+  td.title .sub { display: block; color: var(--muted); font-weight: 400; font-size: 12px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; }
+  td.title:hover { color: var(--info); }
+  td .muted { color: var(--muted); font-size: 12px; }
+  .status-sel { padding: 6px 28px 6px 10px; font-size: 12px; font-weight: 600; border-radius: 999px; width: auto; appearance: none; -webkit-appearance: none; cursor: pointer;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6'><path d='M0 0l5 6 5-6z' fill='%238b93a7'/></svg>"); background-repeat: no-repeat; background-position: right 10px center; }
+  .st-before   { color: var(--muted); border-color: var(--border) !important; }
+  .st-making   { color: var(--info); border-color: rgba(143,166,255,.4) !important; background-color: rgba(143,166,255,.1) !important; }
+  .st-ready    { color: var(--warn); border-color: rgba(255,176,32,.4) !important; background-color: rgba(255,176,32,.1) !important; }
+  .st-uploaded { color: var(--ok); border-color: rgba(62,207,142,.4) !important; background-color: rgba(62,207,142,.1) !important; }
+  .refs { display: flex; flex-direction: column; gap: 2px; }
+  .refs a { font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px; display: block; }
+  .plats { display: flex; gap: 4px 10px; flex-wrap: wrap; min-width: 190px; max-width: 230px; }
+  .plat { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); cursor: pointer; user-select: none; white-space: nowrap; }
+  .plat input { accent-color: var(--accent); margin: 0; cursor: pointer; }
+  .plat.on { color: var(--text); }
+  .plat a { font-size: 11px; }
+  .thumb { width: 56px; height: 32px; object-fit: cover; border-radius: 5px; background: #000; display: block; cursor: zoom-in; }
+  .thumb.none { display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 10px; background: #0f1115; border: 1px dashed var(--border); }
+  td.actions { white-space: nowrap; text-align: right; }
+  .empty { text-align: center; color: var(--muted); padding: 40px 0; font-size: 14px; }
+
+  /* 썸네일 호버 미리보기 */
+  #hoverPreview { position: fixed; z-index: 50; pointer-events: none; display: none; background: #000; border: 1px solid var(--border); border-radius: 10px; padding: 4px; box-shadow: 0 10px 30px rgba(0,0,0,.5); }
+  #hoverPreview img { display: block; max-width: 320px; max-height: 400px; border-radius: 7px; }
+
+  /* 드로어 */
+  #overlay { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 90; display: none; }
+  #drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(680px, 100%); background: var(--card); border-left: 1px solid var(--border); z-index: 100;
+    transform: translateX(100%); transition: transform .22s ease; display: flex; flex-direction: column; }
+  body.drawer-open #overlay { display: block; }
+  body.drawer-open #drawer { transform: translateX(0); }
+  .d-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--border); }
+  .d-head h2 { font-size: 17px; margin: 0; }
+  .d-body { flex: 1; overflow-y: auto; padding: 18px 20px 30px; }
+  .d-foot { display: flex; gap: 10px; padding: 14px 20px; border-top: 1px solid var(--border); background: var(--card); }
+  .d-foot .spacer { flex: 1; }
+  fieldset { border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px 16px; margin: 0 0 16px; }
+  legend { color: var(--muted); font-size: 12px; font-weight: 600; padding: 0 6px; }
+  label.f { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 5px; }
+  label.f:first-child { margin-top: 0; }
+  .f-row { display: flex; gap: 8px; align-items: center; }
+  .f-row input { flex: 1; }
+  .lbl-row { display: flex; align-items: center; justify-content: space-between; margin: 10px 0 5px; }
+  .lbl-row label { margin: 0; font-size: 12px; color: var(--muted); }
+  .counter { font-size: 11px; color: var(--muted); }
+  .counter.over { color: var(--err); font-weight: 700; }
+  .src-meta { display: flex; gap: 12px; align-items: center; margin-top: 10px; }
+  .src-meta img { width: 120px; aspect-ratio: 16/9; object-fit: cover; border-radius: 8px; background: #000; }
+  .src-meta .t { font-size: 13px; font-weight: 600; line-height: 1.4; }
+  .src-meta .c { font-size: 12px; color: var(--muted); margin-top: 3px; }
+  .ref-row { display: grid; grid-template-columns: 150px 1fr auto auto; gap: 8px; margin-bottom: 8px; align-items: center; }
+  .radios { display: flex; gap: 8px; flex-wrap: wrap; }
+  .radio { border: 1px solid var(--border); border-radius: 999px; padding: 7px 14px; font-size: 13px; cursor: pointer; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+  .radio input { accent-color: var(--accent); margin: 0; }
+  .radio.on { color: var(--text); border-color: #444b5a; background: rgba(255,255,255,.04); }
+  .plat-row { display: grid; grid-template-columns: 130px 1fr; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .plat-row label { display: flex; gap: 8px; align-items: center; font-size: 13px; cursor: pointer; }
+  .plat-row input[type=checkbox] { accent-color: var(--accent); }
+  .thumb-edit { display: flex; gap: 14px; align-items: flex-start; }
+  .thumb-edit img { width: 180px; aspect-ratio: 9/16; max-height: 200px; object-fit: contain; border-radius: 8px; background: #000; border: 1px solid var(--border); }
+  .thumb-edit .btns { display: flex; flex-direction: column; gap: 8px; }
+  .thumb-edit .hint { font-size: 12px; color: var(--muted); line-height: 1.5; }
+  .err-inline { color: var(--err); font-size: 12px; margin-top: 6px; min-height: 14px; }
+
+  /* 토스트 */
+  #toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%) translateY(20px); background: #222733; color: var(--text); border: 1px solid var(--border);
+    padding: 10px 18px; border-radius: 10px; font-size: 13px; opacity: 0; transition: all .2s; z-index: 200; pointer-events: none; }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  #toast.err { border-color: var(--err); color: var(--err); }
+  .footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 16px; }
+</style>
+</head>
+<body>
+<main>
+  <div class="head">
+    <h1><span class="logo"></span>쇼츠 현황판</h1>
+    <div class="nav"><a href="/">← 유튜브 다운로더</a></div>
+  </div>
+
+  <section class="card">
+    <div class="chips" id="chips"></div>
+  </section>
+
+  <section class="card toolbar">
+    <input type="text" id="q" placeholder="요리 제목, 영상 제목, 채널 검색…">
+    <select id="fStatus">
+      <option value="">모든 상태</option>
+      {% for k, v in statuses.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}
+    </select>
+    <select id="fPlat">
+      <option value="">모든 플랫폼</option>
+      {% for k, v in platforms.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}
+    </select>
+    <span class="spacer"></span>
+    <button type="button" class="secondary" id="exportBtn">내보내기</button>
+    <button type="button" class="secondary" id="importBtn">가져오기</button>
+    <input type="file" id="importFile" accept="application/json,.json" class="hidden">
+    <button type="button" id="newBtn">+ 새 항목</button>
+  </section>
+
+  <section class="card" style="padding: 6px 18px 10px;">
+    <div class="tbl-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th class="sortable" data-sort="status">상태<span class="arrow"></span></th>
+            <th class="sortable" data-sort="dish_title">요리 제목<span class="arrow"></span></th>
+            <th>원본 영상</th>
+            <th>참고 쇼츠</th>
+            <th>업로드 플랫폼</th>
+            <th>썸네일</th>
+            <th class="sortable" data-sort="updated_at">수정<span class="arrow"></span></th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+    <div class="empty hidden" id="empty">항목이 없습니다. <b>+ 새 항목</b>으로 첫 쇼츠를 등록해 보세요.</div>
+  </section>
+
+  <p class="footer">데이터는 이 컴퓨터의 <code>~/.youtube-downloader/shorts.json</code> 에 저장됩니다.</p>
+</main>
+
+<div id="hoverPreview"><img alt=""></div>
+<div id="overlay"></div>
+
+<aside id="drawer" aria-hidden="true">
+  <div class="d-head">
+    <h2 id="dTitle">새 항목</h2>
+    <button type="button" class="ghost mini" id="dClose">닫기 ✕</button>
+  </div>
+  <div class="d-body">
+    <fieldset>
+      <legend>기본 정보</legend>
+      <label class="f" for="fDish">요리 제목</label>
+      <input type="text" id="fDish" placeholder="예: 어남선생 - 만원찜닭">
+      <label class="f" for="fSrcUrl">원본 영상 링크</label>
+      <div class="f-row">
+        <input type="url" id="fSrcUrl" placeholder="https://www.youtube.com/watch?v=...">
+        <button type="button" class="secondary" id="srcLookupBtn">가져오기</button>
+      </div>
+      <div class="src-meta hidden" id="srcMeta">
+        <img id="srcThumb" alt="">
+        <div><div class="t" id="srcTitle"></div><div class="c" id="srcChannel"></div></div>
+      </div>
+      <div class="err-inline" id="srcErr"></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>참고 쇼츠 (다른 채널)</legend>
+      <div id="refRows"></div>
+      <button type="button" class="ghost mini" id="addRefBtn">+ 링크 추가</button>
+    </fieldset>
+
+    <fieldset>
+      <legend>진행 상태</legend>
+      <div class="radios" id="statusRadios">
+        {% for k, v in statuses.items() %}
+        <label class="radio"><input type="radio" name="status" value="{{ k }}"> {{ v }}</label>
+        {% endfor %}
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>업로드 플랫폼 <span style="font-weight:400">· 체크하면 내 업로드 링크를 적을 수 있어요</span></legend>
+      <div id="platRows">
+        {% for k, v in platforms.items() %}
+        <div class="plat-row" data-plat="{{ k }}">
+          <label><input type="checkbox" class="plat-chk"> {{ v }}</label>
+          <input type="url" class="plat-url" placeholder="내 업로드 링크 (선택)" disabled>
+        </div>
+        {% endfor %}
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>영상 세부 정보</legend>
+      <div class="lbl-row"><label for="fVTitle">제목</label>
+        <span><span class="counter" id="cTitle">0 / 100</span> <button type="button" class="ghost mini" data-copy="fVTitle">복사</button></span></div>
+      <input type="text" id="fVTitle" placeholder="예: 어남선생 류수영 안동찜닭 레시피 #cooking #kfood">
+
+      <label class="f">썸네일</label>
+      <div class="thumb-edit">
+        <img id="fThumb" alt="" class="hidden">
+        <div class="btns">
+          <input type="file" id="thumbFile" accept="image/jpeg,image/png,image/webp" class="hidden">
+          <button type="button" class="secondary" id="thumbPickBtn">이미지 선택…</button>
+          <button type="button" class="ghost danger hidden" id="thumbDelBtn">썸네일 삭제</button>
+          <div class="hint" id="thumbHint">jpg · png · webp, 10MB 이하<br>없으면 원본 영상 썸네일이 표시됩니다.</div>
+        </div>
+      </div>
+
+      <div class="lbl-row"><label for="fDesc">Description</label>
+        <span><span class="counter" id="cDesc">0 / 5000</span> <button type="button" class="ghost mini" data-copy="fDesc">복사</button></span></div>
+      <textarea id="fDesc" rows="3" placeholder="영상 설명"></textarea>
+
+      <div class="lbl-row"><label for="fPinned">고정 댓글</label>
+        <span><span class="counter" id="cPinned"></span> <button type="button" class="ghost mini" data-copy="fPinned">복사</button></span></div>
+      <textarea id="fPinned" class="mono" rows="8" placeholder="재료, 해시태그 등 고정 댓글 내용"></textarea>
+    </fieldset>
+
+    <fieldset>
+      <legend>메모</legend>
+      <textarea id="fMemo" rows="2" placeholder="작업 메모 (선택)"></textarea>
+    </fieldset>
+    <div class="err-inline" id="formErr"></div>
+  </div>
+  <div class="d-foot">
+    <button type="button" class="ghost danger hidden" id="dDelete">삭제</button>
+    <span class="spacer"></span>
+    <button type="button" class="secondary" id="dCancel">취소</button>
+    <button type="button" id="dSave">저장</button>
+  </div>
+</aside>
+
+<div id="toast"></div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const STATUSES = {{ statuses | tojson }};
+  const PLATFORMS = {{ platforms | tojson }};
+  const STATUS_ORDER = Object.keys(STATUSES);
+  const PLAT_ICON = { youtube: '▶', instagram: '◎', tiktok: '♪', naver_clip: 'N' };
+
+  let items = [];
+  let filters = loadFilters();
+  let editing = null;       // 편집 중 항목 (null = 새 항목)
+  let pendingThumb = null;  // 새 항목에서 저장 전 선택한 썸네일 파일
+  let toastTimer = null;
+
+  // ---- 유틸 ---------------------------------------------------------------
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  function toast(msg, isErr = false) {
+    const t = $('toast'); t.textContent = msg; t.className = 'show' + (isErr ? ' err' : '');
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => t.className = '', 1800);
+  }
+  async function api(method, url, body, isForm = false) {
+    const opt = { method, headers: {} };
+    if (body !== undefined) {
+      if (isForm) opt.body = body; else { opt.headers['Content-Type'] = 'application/json'; opt.body = JSON.stringify(body); }
+    }
+    const r = await fetch(url, opt);
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || ('요청 실패 (' + r.status + ')'));
+    return data;
+  }
+  function fmtDate(iso) {
+    if (!iso) return '';
+    const d = new Date(iso); if (isNaN(d)) return iso;
+    return d.toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+  }
+  function thumbUrl(it) {
+    if (it.video?.thumbnail) return '/thumbnails/' + encodeURIComponent(it.video.thumbnail) + '?v=' + encodeURIComponent(it.updated_at || '');
+    return it.source?.thumbnail || '';
+  }
+  function host(url) { try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return url; } }
+  function loadFilters() {
+    try { return Object.assign({ q: '', status: '', plat: '', sort: 'updated_at', dir: 'desc' }, JSON.parse(localStorage.getItem('shorts.filters') || '{}')); }
+    catch { return { q: '', status: '', plat: '', sort: 'updated_at', dir: 'desc' }; }
+  }
+  function saveFilters() { try { localStorage.setItem('shorts.filters', JSON.stringify(filters)); } catch {} }
+
+  // ---- 데이터 ---------------------------------------------------------------
+  async function load() {
+    const data = await api('GET', '/api/shorts');
+    items = data.items || [];
+    render();
+  }
+
+  // ---- 요약 칩 ----------------------------------------------------------------
+  function renderChips() {
+    const counts = Object.fromEntries(STATUS_ORDER.map(k => [k, 0]));
+    items.forEach(it => { if (counts[it.status] !== undefined) counts[it.status]++; });
+    const colors = { before: 'var(--muted)', making: 'var(--info)', ready: 'var(--warn)', uploaded: 'var(--ok)' };
+    let html = `<button type="button" class="chip ${filters.status === '' ? 'active' : ''}" data-st="">전체 <b>${items.length}</b></button>`;
+    for (const k of STATUS_ORDER) {
+      html += `<button type="button" class="chip ${filters.status === k ? 'active' : ''}" data-st="${k}"><span class="dot" style="background:${colors[k]}"></span>${esc(STATUSES[k])} <b>${counts[k]}</b></button>`;
+    }
+    $('chips').innerHTML = html;
+  }
+  $('chips').addEventListener('click', (e) => {
+    const c = e.target.closest('.chip'); if (!c) return;
+    filters.status = c.dataset.st; $('fStatus').value = filters.status; saveFilters(); render();
+  });
+
+  // ---- 표 ---------------------------------------------------------------------
+  function visibleItems() {
+    const q = filters.q.trim().toLowerCase();
+    let list = items.filter(it => {
+      if (filters.status && it.status !== filters.status) return false;
+      if (filters.plat && !it.platforms?.[filters.plat]?.checked) return false;
+      if (q) {
+        const hay = [it.dish_title, it.video?.title, it.source?.title, it.source?.channel, ...(it.reference_shorts || []).map(r => r.channel), it.memo].join(' ').toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+    const dir = filters.dir === 'asc' ? 1 : -1;
+    list.sort((a, b) => {
+      let va, vb;
+      if (filters.sort === 'status') { va = STATUS_ORDER.indexOf(a.status); vb = STATUS_ORDER.indexOf(b.status); }
+      else if (filters.sort === 'dish_title') { va = (a.dish_title || '').toLowerCase(); vb = (b.dish_title || '').toLowerCase(); }
+      else { va = a.updated_at || ''; vb = b.updated_at || ''; }
+      return va < vb ? -dir : va > vb ? dir : 0;
+    });
+    return list;
+  }
+  function render() {
+    renderChips();
+    $('q').value = filters.q; $('fStatus').value = filters.status; $('fPlat').value = filters.plat;
+    document.querySelectorAll('th.sortable').forEach(th => {
+      th.querySelector('.arrow').textContent = th.dataset.sort === filters.sort ? (filters.dir === 'asc' ? '▲' : '▼') : '';
+    });
+    const list = visibleItems();
+    $('empty').classList.toggle('hidden', list.length > 0);
+    $('rows').innerHTML = list.map(it => {
+      const refs = (it.reference_shorts || []).filter(r => r.url || r.channel);
+      const refsHtml = refs.length
+        ? `<div class="refs">${refs.slice(0, 3).map(r => `<a href="${esc(r.url)}" target="_blank" rel="noopener" title="${esc(r.url)}">${esc(r.channel || host(r.url))}</a>`).join('')}${refs.length > 3 ? `<span class="muted">+${refs.length - 3}개 더</span>` : ''}</div>`
+        : '<span class="muted">—</span>';
+      const plats = Object.keys(PLATFORMS).map(k => {
+        const p = it.platforms?.[k] || {}; const on = !!p.checked;
+        const link = on && p.url ? `<a href="${esc(p.url)}" target="_blank" rel="noopener" title="${esc(p.url)}">↗</a>` : '';
+        return `<label class="plat ${on ? 'on' : ''}" title="${esc(PLATFORMS[k])}"><input type="checkbox" data-plat="${k}" ${on ? 'checked' : ''}>${esc(PLATFORMS[k])}${link}</label>`;
+      }).join('');
+      const tu = thumbUrl(it);
+      const thumb = tu ? `<img class="thumb" src="${esc(tu)}" alt="" data-full="${esc(tu)}" loading="lazy">` : `<div class="thumb none">없음</div>`;
+      const src = it.source?.url
+        ? `<a href="${esc(it.source.url)}" target="_blank" rel="noopener" title="${esc(it.source.title || it.source.url)}">${esc(it.source.channel || host(it.source.url))} ↗</a>${it.source.title ? `<div class="muted" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(it.source.title)}</div>` : ''}`
+        : '<span class="muted">—</span>';
+      return `<tr data-id="${esc(it.id)}">
+        <td><select class="status-sel st-${esc(it.status)}" data-act="status">${STATUS_ORDER.map(k => `<option value="${k}" ${k === it.status ? 'selected' : ''}>${esc(STATUSES[k])}</option>`).join('')}</select></td>
+        <td class="title" data-act="edit">${esc(it.dish_title) || '<span class="muted">(제목 없음)</span>'}${it.video?.title ? `<span class="sub" title="${esc(it.video.title)}">${esc(it.video.title)}</span>` : ''}</td>
+        <td>${src}</td>
+        <td>${refsHtml}</td>
+        <td><div class="plats">${plats}</div></td>
+        <td>${thumb}</td>
+        <td class="muted date" title="${esc(it.updated_at)}">${fmtDate(it.updated_at)}</td>
+        <td class="actions"><button type="button" class="ghost mini" data-act="edit">편집</button> <button type="button" class="ghost mini danger" data-act="del">삭제</button></td>
+      </tr>`;
+    }).join('');
+  }
+
+  // 표 이벤트: 상태/플랫폼 즉시 저장, 편집, 삭제
+  $('rows').addEventListener('change', async (e) => {
+    const tr = e.target.closest('tr'); if (!tr) return;
+    const it = items.find(x => x.id === tr.dataset.id); if (!it) return;
+    try {
+      if (e.target.dataset.act === 'status') {
+        const upd = await api('PUT', '/api/shorts/' + it.id, { status: e.target.value });
+        Object.assign(it, upd); toast('상태 변경: ' + STATUSES[it.status]); render();
+      } else if (e.target.dataset.plat) {
+        const plats = JSON.parse(JSON.stringify(it.platforms || {}));
+        plats[e.target.dataset.plat] = Object.assign({ url: '' }, plats[e.target.dataset.plat], { checked: e.target.checked });
+        const upd = await api('PUT', '/api/shorts/' + it.id, { platforms: plats });
+        Object.assign(it, upd); render();
+      }
+    } catch (err) { toast(err.message, true); render(); }
+  });
+  $('rows').addEventListener('click', async (e) => {
+    const tr = e.target.closest('tr'); if (!tr) return;
+    const it = items.find(x => x.id === tr.dataset.id); if (!it) return;
+    const act = e.target.closest('[data-act]')?.dataset.act;
+    if (act === 'edit' && !e.target.closest('a')) openDrawer(it);
+    else if (act === 'del') {
+      if (!confirm(`"${it.dish_title || '(제목 없음)'}" 항목을 삭제할까요?`)) return;
+      try { await api('DELETE', '/api/shorts/' + it.id); items = items.filter(x => x.id !== it.id); toast('삭제됨'); render(); }
+      catch (err) { toast(err.message, true); }
+    }
+  });
+  // 정렬
+  document.querySelectorAll('th.sortable').forEach(th => th.addEventListener('click', () => {
+    if (filters.sort === th.dataset.sort) filters.dir = filters.dir === 'asc' ? 'desc' : 'asc';
+    else { filters.sort = th.dataset.sort; filters.dir = th.dataset.sort === 'updated_at' ? 'desc' : 'asc'; }
+    saveFilters(); render();
+  }));
+  // 필터
+  $('q').addEventListener('input', () => { filters.q = $('q').value; saveFilters(); render(); });
+  $('fStatus').addEventListener('change', () => { filters.status = $('fStatus').value; saveFilters(); render(); });
+  $('fPlat').addEventListener('change', () => { filters.plat = $('fPlat').value; saveFilters(); render(); });
+
+  // 썸네일 호버 미리보기
+  const hp = $('hoverPreview');
+  document.addEventListener('mouseover', (e) => {
+    const img = e.target.closest('img.thumb'); if (!img) return;
+    hp.querySelector('img').src = img.dataset.full; hp.style.display = 'block'; moveHp(e);
+  });
+  document.addEventListener('mousemove', (e) => { if (hp.style.display === 'block') moveHp(e); });
+  document.addEventListener('mouseout', (e) => { if (e.target.closest && e.target.closest('img.thumb')) hp.style.display = 'none'; });
+  function moveHp(e) {
+    const pad = 16, w = hp.offsetWidth || 330, h = hp.offsetHeight || 200;
+    let x = e.clientX + pad, y = e.clientY + pad;
+    if (x + w > innerWidth) x = e.clientX - w - pad;
+    if (y + h > innerHeight) y = Math.max(8, innerHeight - h - 8);
+    hp.style.left = x + 'px'; hp.style.top = y + 'px';
+  }
+
+  // ---- 드로어(편집 패널) ------------------------------------------------------------
+  function openDrawer(it) {
+    editing = it || null; pendingThumb = null;
+    $('dTitle').textContent = it ? '항목 편집' : '새 항목';
+    $('dDelete').classList.toggle('hidden', !it);
+    $('formErr').textContent = ''; $('srcErr').textContent = '';
+    const v = it || { source: {}, reference_shorts: [], platforms: {}, video: {} };
+    $('fDish').value = v.dish_title || '';
+    $('fSrcUrl').value = v.source?.url || '';
+    setSrcMeta(v.source || {});
+    renderRefRows(v.reference_shorts?.length ? v.reference_shorts : [{ channel: '', url: '' }]);
+    setStatus(v.status || 'before');
+    document.querySelectorAll('.plat-row').forEach(row => {
+      const p = v.platforms?.[row.dataset.plat] || {};
+      row.querySelector('.plat-chk').checked = !!p.checked;
+      const u = row.querySelector('.plat-url'); u.value = p.url || ''; u.disabled = !p.checked;
+    });
+    $('fVTitle').value = v.video?.title || '';
+    $('fDesc').value = v.video?.description || '';
+    $('fPinned').value = v.video?.pinned_comment || '';
+    $('fMemo').value = v.memo || '';
+    updateCounters();
+    setThumbPreview(it ? thumbUrl(it) : '', !!it?.video?.thumbnail);
+    document.body.classList.add('drawer-open'); $('drawer').setAttribute('aria-hidden', 'false');
+    setTimeout(() => $('fDish').focus(), 230);
+  }
+  function closeDrawer() { document.body.classList.remove('drawer-open'); $('drawer').setAttribute('aria-hidden', 'true'); editing = null; pendingThumb = null; }
+  $('dClose').addEventListener('click', closeDrawer); $('dCancel').addEventListener('click', closeDrawer); $('overlay').addEventListener('click', closeDrawer);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && document.body.classList.contains('drawer-open')) closeDrawer(); });
+  $('newBtn').addEventListener('click', () => openDrawer(null));
+
+  function setSrcMeta(src) {
+    const has = src.title || src.channel || src.thumbnail;
+    $('srcMeta').classList.toggle('hidden', !has);
+    $('srcMeta').dataset.title = src.title || ''; $('srcMeta').dataset.channel = src.channel || ''; $('srcMeta').dataset.thumbnail = src.thumbnail || '';
+    $('srcTitle').textContent = src.title || ''; $('srcChannel').textContent = src.channel || '';
+    $('srcThumb').src = src.thumbnail || ''; $('srcThumb').classList.toggle('hidden', !src.thumbnail);
+    if (!editing?.video?.thumbnail && !pendingThumb) setThumbPreview(src.thumbnail || '', false);
+  }
+  $('srcLookupBtn').addEventListener('click', async () => {
+    const url = $('fSrcUrl').value.trim(); if (!url) { $('srcErr').textContent = '원본 링크를 입력해 주세요.'; return; }
+    const b = $('srcLookupBtn'); b.disabled = true; b.textContent = '조회 중…'; $('srcErr').textContent = '';
+    try {
+      const m = await api('POST', '/api/shorts/lookup', { url });
+      setSrcMeta({ title: m.title, channel: m.channel, thumbnail: m.thumbnail });
+      if (m.webpage_url && !url.includes('&t=')) $('fSrcUrl').value = url; // 사용자가 넣은 링크(타임스탬프 포함) 유지
+      toast('원본 정보를 가져왔습니다');
+    } catch (err) { $('srcErr').textContent = err.message; }
+    finally { b.disabled = false; b.textContent = '가져오기'; }
+  });
+
+  // 참고 쇼츠 행
+  function renderRefRows(refs) {
+    $('refRows').innerHTML = refs.map((r, i) => `<div class="ref-row" data-i="${i}">
+      <input type="text" class="ref-ch" placeholder="채널명" value="${esc(r.channel)}">
+      <input type="url" class="ref-url" placeholder="https://www.youtube.com/shorts/..." value="${esc(r.url)}">
+      <button type="button" class="ghost mini" data-ref="lookup" title="링크에서 채널명 가져오기">채널</button>
+      <button type="button" class="ghost mini danger" data-ref="del" title="삭제">✕</button>
+    </div>`).join('');
+  }
+  function readRefRows() {
+    return [...document.querySelectorAll('.ref-row')].map(r => ({ channel: r.querySelector('.ref-ch').value.trim(), url: r.querySelector('.ref-url').value.trim() })).filter(r => r.channel || r.url);
+  }
+  $('addRefBtn').addEventListener('click', () => { renderRefRows([...readRefRows(), { channel: '', url: '' }]); $('refRows').lastElementChild?.querySelector('.ref-ch').focus(); });
+  $('refRows').addEventListener('click', async (e) => {
+    const b = e.target.closest('button[data-ref]'); if (!b) return;
+    const row = b.closest('.ref-row');
+    if (b.dataset.ref === 'del') { row.remove(); if (!$('refRows').children.length) renderRefRows([{ channel: '', url: '' }]); return; }
+    const url = row.querySelector('.ref-url').value.trim(); if (!url) { toast('링크를 먼저 입력해 주세요', true); return; }
+    b.disabled = true; b.textContent = '…';
+    try { const m = await api('POST', '/api/shorts/lookup', { url }); row.querySelector('.ref-ch').value = m.channel || ''; toast('채널명: ' + (m.channel || '(없음)')); }
+    catch (err) { toast(err.message, true); }
+    finally { b.disabled = false; b.textContent = '채널'; }
+  });
+
+  // 상태 라디오
+  function setStatus(k) {
+    document.querySelectorAll('#statusRadios .radio').forEach(l => { const on = l.querySelector('input').value === k; l.classList.toggle('on', on); l.querySelector('input').checked = on; });
+  }
+  $('statusRadios').addEventListener('change', (e) => setStatus(e.target.value));
+  // 플랫폼 체크 → 링크 입력 활성화
+  $('platRows').addEventListener('change', (e) => {
+    if (!e.target.classList.contains('plat-chk')) return;
+    const u = e.target.closest('.plat-row').querySelector('.plat-url'); u.disabled = !e.target.checked; if (e.target.checked) u.focus();
+  });
+
+  // 글자 수
+  function counter(id, cid, max) {
+    const n = [...$(id).value].length; const c = $(cid);
+    c.textContent = max ? `${n} / ${max}` : `${n}자`; c.classList.toggle('over', !!max && n > max);
+  }
+  function updateCounters() { counter('fVTitle', 'cTitle', 100); counter('fDesc', 'cDesc', 5000); counter('fPinned', 'cPinned', 0); }
+  ['fVTitle', 'fDesc', 'fPinned'].forEach(id => $(id).addEventListener('input', updateCounters));
+
+  // 복사 버튼
+  document.querySelectorAll('button[data-copy]').forEach(b => b.addEventListener('click', async () => {
+    const text = $(b.dataset.copy).value;
+    if (!text) { toast('복사할 내용이 없습니다', true); return; }
+    try { await navigator.clipboard.writeText(text); }
+    catch { const el = $(b.dataset.copy); el.focus(); el.select(); document.execCommand('copy'); }
+    toast('클립보드에 복사했습니다');
+  }));
+
+  // 썸네일
+  function setThumbPreview(url, isUploaded) {
+    $('fThumb').src = url || ''; $('fThumb').classList.toggle('hidden', !url);
+    $('thumbDelBtn').classList.toggle('hidden', !isUploaded);
+    $('thumbHint').innerHTML = isUploaded ? '업로드한 썸네일' : (url ? '원본 영상 썸네일 (대체 표시)' : 'jpg · png · webp, 10MB 이하<br>없으면 원본 영상 썸네일이 표시됩니다.');
+  }
+  $('thumbPickBtn').addEventListener('click', () => $('thumbFile').click());
+  $('thumbFile').addEventListener('change', async () => {
+    const f = $('thumbFile').files[0]; $('thumbFile').value = ''; if (!f) return;
+    if (f.size > 10 * 1024 * 1024) { toast('10MB 이하 이미지만 가능합니다', true); return; }
+    if (editing) {
+      try { const r = await uploadThumb(editing.id, f); editing.video.thumbnail = r.thumbnail; editing.updated_at = new Date().toISOString(); setThumbPreview(r.url, true); toast('썸네일 업로드 완료'); render(); }
+      catch (err) { toast(err.message, true); }
+    } else {
+      pendingThumb = f; setThumbPreview(URL.createObjectURL(f), true); $('thumbHint').textContent = '저장하면 업로드됩니다';
+    }
+  });
+  $('thumbDelBtn').addEventListener('click', async () => {
+    if (!editing) { pendingThumb = null; setThumbPreview($('srcMeta').dataset.thumbnail || '', false); return; }
+    if (!confirm('업로드한 썸네일을 삭제할까요?')) return;
+    try { await api('DELETE', `/api/shorts/${editing.id}/thumbnail`); editing.video.thumbnail = ''; setThumbPreview($('srcMeta').dataset.thumbnail || '', false); toast('썸네일 삭제됨'); render(); }
+    catch (err) { toast(err.message, true); }
+  });
+  async function uploadThumb(id, file) { const fd = new FormData(); fd.append('file', file); return api('POST', `/api/shorts/${id}/thumbnail`, fd, true); }
+
+  // 저장 / 삭제
+  function readForm() {
+    const platforms = {};
+    document.querySelectorAll('.plat-row').forEach(row => { platforms[row.dataset.plat] = { checked: row.querySelector('.plat-chk').checked, url: row.querySelector('.plat-url').value.trim() }; });
+    const sm = $('srcMeta').dataset;
+    return {
+      dish_title: $('fDish').value.trim(),
+      source: { url: $('fSrcUrl').value.trim(), title: sm.title || '', channel: sm.channel || '', thumbnail: sm.thumbnail || '' },
+      reference_shorts: readRefRows(),
+      status: document.querySelector('#statusRadios input:checked')?.value || 'before',
+      platforms,
+      video: { title: $('fVTitle').value.trim(), description: $('fDesc').value, pinned_comment: $('fPinned').value },
+      memo: $('fMemo').value.trim(),
+    };
+  }
+  $('dSave').addEventListener('click', async () => {
+    const body = readForm();
+    if (!body.dish_title && !body.source.url && !body.video.title) { $('formErr').textContent = '요리 제목이나 원본 링크 중 하나는 입력해 주세요.'; return; }
+    const b = $('dSave'); b.disabled = true; $('formErr').textContent = '';
+    try {
+      let saved;
+      if (editing) { saved = await api('PUT', '/api/shorts/' + editing.id, body); const i = items.findIndex(x => x.id === editing.id); if (i >= 0) items[i] = saved; }
+      else {
+        saved = await api('POST', '/api/shorts', body);
+        if (pendingThumb) { try { const r = await uploadThumb(saved.id, pendingThumb); saved.video.thumbnail = r.thumbnail; } catch (err) { toast('썸네일 업로드 실패: ' + err.message, true); } }
+        items.unshift(saved);
+      }
+      toast('저장했습니다'); closeDrawer(); render();
+    } catch (err) { $('formErr').textContent = err.message; }
+    finally { b.disabled = false; }
+  });
+  $('dDelete').addEventListener('click', async () => {
+    if (!editing || !confirm(`"${editing.dish_title || '(제목 없음)'}" 항목을 삭제할까요?`)) return;
+    try { await api('DELETE', '/api/shorts/' + editing.id); items = items.filter(x => x.id !== editing.id); toast('삭제됨'); closeDrawer(); render(); }
+    catch (err) { $('formErr').textContent = err.message; }
+  });
+
+  // ---- 내보내기 / 가져오기 ---------------------------------------------------------
+  $('exportBtn').addEventListener('click', () => { window.location.href = '/api/shorts/export'; });
+  $('importBtn').addEventListener('click', () => $('importFile').click());
+  $('importFile').addEventListener('change', async () => {
+    const f = $('importFile').files[0]; $('importFile').value = ''; if (!f) return;
+    let data;
+    try { data = JSON.parse(await f.text()); } catch { toast('JSON 파일을 읽을 수 없습니다', true); return; }
+    const list = Array.isArray(data) ? data : data.items;
+    if (!Array.isArray(list)) { toast('items 배열이 없는 파일입니다', true); return; }
+    const replace = confirm(`${list.length}개 항목을 가져옵니다.\n\n[확인] 기존 목록에 병합 (같은 id는 덮어씀)\n[취소] 기존 목록을 모두 교체`);
+    // confirm: OK → merge, Cancel → replace 로 매핑 (교체는 위험해서 한 번 더 확인)
+    const mode = replace ? 'merge' : 'replace';
+    if (mode === 'replace' && !confirm('정말 기존 목록을 모두 지우고 교체할까요? 되돌릴 수 없습니다.')) return;
+    try { const r = await api('POST', '/api/shorts/import', { items: list, mode }); toast(`가져오기 완료: 추가 ${r.added} · 갱신 ${r.updated} · 전체 ${r.total}`); await load(); }
+    catch (err) { toast(err.message, true); }
+  });
+
+  load().catch(err => toast(err.message, true));
+</script>
+</body>
+</html>

@@ -15,7 +15,7 @@ import webbrowser
 from pathlib import Path
 
 import yt_dlp
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, Response, jsonify, render_template, request, send_from_directory
 
 HOST = "127.0.0.1"
 PORT = 8765
@@ -24,6 +24,24 @@ DEFAULT_DOWNLOAD_DIR = Path.home() / "Downloads"
 CONFIG_FILE = Path.home() / ".youtube-downloader" / "config.json"
 HISTORY_FILE = Path.home() / ".youtube-downloader" / "history.json"
 HISTORY_MAX = 500
+SHORTS_FILE = Path.home() / ".youtube-downloader" / "shorts.json"
+THUMB_DIR = Path.home() / ".youtube-downloader" / "thumbnails"
+THUMB_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
+THUMB_MAX_BYTES = 10 * 1024 * 1024
+
+# 쇼츠 현황판 상태/플랫폼 정의 (키는 저장값, 값은 화면 라벨)
+STATUSES = {
+    "before": "제작 전",
+    "making": "제작 중",
+    "ready": "제작 완료·업로드 대기",
+    "uploaded": "업로드 완료",
+}
+PLATFORMS = {
+    "youtube": "유튜브",
+    "instagram": "인스타그램",
+    "tiktok": "틱톡",
+    "naver_clip": "네이버 클립",
+}
 
 app = Flask(__name__)
 
@@ -32,6 +50,7 @@ jobs: dict[str, dict] = {}
 jobs_lock = threading.Lock()
 settings_lock = threading.Lock()
 history_lock = threading.Lock()
+shorts_lock = threading.Lock()
 
 
 # ---------------------------------------------------------------------------
@@ -97,6 +116,125 @@ def history_with_file_state() -> list[dict]:
 
 def _now() -> str:
     return datetime.now().isoformat(timespec="seconds")
+
+
+# ---------------------------------------------------------------------------
+# 쇼츠 현황판 (사용자별 shorts.json + thumbnails/)
+# ---------------------------------------------------------------------------
+def load_shorts() -> list[dict]:
+    try:
+        with open(SHORTS_FILE, encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, list) else []
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return []
+
+
+def save_shorts(items: list[dict]) -> None:
+    _write_json_atomic(SHORTS_FILE, items)
+
+
+def _s(v, limit: int = 20000) -> str:
+    """문자열 정리: None → '', 공백 제거, 길이 제한."""
+    if v is None:
+        return ""
+    return str(v).strip()[:limit]
+
+
+def _empty_platforms() -> dict:
+    return {k: {"checked": False, "url": ""} for k in PLATFORMS}
+
+
+def normalize_item(data: dict, base: dict | None = None) -> dict:
+    """요청 데이터를 검증해 항목으로 만든다. base가 있으면 그 위에 덮어쓴다(부분 수정)."""
+    item = json.loads(json.dumps(base)) if base else {}
+
+    if "dish_title" in data:
+        item["dish_title"] = _s(data.get("dish_title"), 200)
+    if "source" in data:
+        src = data.get("source") or {}
+        item["source"] = {
+            "url": _s(src.get("url"), 2000),
+            "title": _s(src.get("title"), 500),
+            "channel": _s(src.get("channel"), 200),
+            "thumbnail": _s(src.get("thumbnail"), 2000),
+        }
+    if "reference_shorts" in data:
+        refs = []
+        for r in data.get("reference_shorts") or []:
+            if not isinstance(r, dict):
+                continue
+            ch, url = _s(r.get("channel"), 200), _s(r.get("url"), 2000)
+            if ch or url:
+                refs.append({"channel": ch, "url": url})
+        item["reference_shorts"] = refs
+    if "status" in data:
+        st = data.get("status")
+        if st not in STATUSES:
+            raise ValueError(f"알 수 없는 상태값입니다: {st!r}")
+        item["status"] = st
+    if "platforms" in data:
+        raw = data.get("platforms") or {}
+        plats = _empty_platforms()
+        if isinstance(raw, list):  # ["youtube", ...] 형태도 허용
+            for k in raw:
+                if k in plats:
+                    plats[k]["checked"] = True
+        elif isinstance(raw, dict):
+            for k in plats:
+                pv = raw.get(k) or {}
+                if isinstance(pv, bool):
+                    pv = {"checked": pv}
+                plats[k] = {"checked": bool(pv.get("checked")), "url": _s(pv.get("url"), 2000)}
+        item["platforms"] = plats
+    if "video" in data:
+        v = data.get("video") or {}
+        prev_thumb = (item.get("video") or {}).get("thumbnail", "")
+        item["video"] = {
+            "title": _s(v.get("title"), 500),
+            "description": _s(v.get("description"), 20000),
+            "pinned_comment": _s(v.get("pinned_comment"), 20000),
+            "thumbnail": prev_thumb,  # 썸네일은 업로드 API로만 변경
+        }
+    if "memo" in data:
+        item["memo"] = _s(data.get("memo"), 5000)
+
+    # 기본값 채우기
+    item.setdefault("dish_title", "")
+    item.setdefault("source", {"url": "", "title": "", "channel": "", "thumbnail": ""})
+    item.setdefault("reference_shorts", [])
+    item.setdefault("status", "before")
+    item.setdefault("platforms", _empty_platforms())
+    item.setdefault("video", {"title": "", "description": "", "pinned_comment": "", "thumbnail": ""})
+    item.setdefault("memo", "")
+    return item
+
+
+def _find_item(items: list[dict], item_id: str) -> dict | None:
+    return next((it for it in items if it.get("id") == item_id), None)
+
+
+def _remove_thumb_files(item_id: str) -> None:
+    if not THUMB_DIR.exists():
+        return
+    for f in THUMB_DIR.glob(f"{item_id}.*"):
+        try:
+            f.unlink()
+        except OSError:
+            pass
+
+
+def fetch_video_meta(url: str) -> dict:
+    """원본 영상/참고 쇼츠 링크의 제목·채널·썸네일을 가져온다."""
+    with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "noplaylist": True}) as ydl:
+        info = ydl.extract_info(url, download=False)
+    return {
+        "title": info.get("title") or "",
+        "channel": info.get("uploader") or info.get("channel") or "",
+        "thumbnail": info.get("thumbnail") or "",
+        "webpage_url": info.get("webpage_url") or url,
+        "duration": info.get("duration"),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -542,6 +680,177 @@ def api_history_delete(record_id: str):
 @app.delete("/api/history")
 def api_history_clear():
     return jsonify({"removed": history_remove(None)})
+
+
+# ---- 쇼츠 현황판 ------------------------------------------------------------
+@app.get("/shorts")
+def shorts_page():
+    return render_template("shorts.html", statuses=STATUSES, platforms=PLATFORMS)
+
+
+@app.get("/api/shorts")
+def api_shorts_list():
+    return jsonify({"items": load_shorts(), "statuses": STATUSES, "platforms": PLATFORMS})
+
+
+@app.post("/api/shorts")
+def api_shorts_create():
+    data = request.get_json(silent=True) or {}
+    try:
+        item = normalize_item(data)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    item["id"] = uuid.uuid4().hex[:12]
+    item["created_at"] = item["updated_at"] = _now()
+    with shorts_lock:
+        items = load_shorts()
+        items.insert(0, item)
+        save_shorts(items)
+    return jsonify(item), 201
+
+
+@app.put("/api/shorts/<item_id>")
+def api_shorts_update(item_id: str):
+    data = request.get_json(silent=True) or {}
+    with shorts_lock:
+        items = load_shorts()
+        cur = _find_item(items, item_id)
+        if cur is None:
+            return jsonify({"error": "항목을 찾을 수 없습니다."}), 404
+        try:
+            new = normalize_item(data, cur)
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+        new["updated_at"] = _now()
+        items[items.index(cur)] = new
+        save_shorts(items)
+    return jsonify(new)
+
+
+@app.delete("/api/shorts/<item_id>")
+def api_shorts_delete(item_id: str):
+    with shorts_lock:
+        items = load_shorts()
+        kept = [it for it in items if it.get("id") != item_id]
+        if len(kept) == len(items):
+            return jsonify({"error": "항목을 찾을 수 없습니다."}), 404
+        save_shorts(kept)
+    _remove_thumb_files(item_id)
+    return jsonify({"ok": True})
+
+
+@app.post("/api/shorts/<item_id>/thumbnail")
+def api_shorts_thumbnail(item_id: str):
+    f = request.files.get("file")
+    if f is None or not f.filename:
+        return jsonify({"error": "이미지 파일을 선택해 주세요."}), 400
+    ext = os.path.splitext(f.filename)[1].lower()
+    if ext == ".jpeg":
+        ext = ".jpg"
+    if ext not in THUMB_EXTS:
+        return jsonify({"error": "jpg, png, webp 이미지만 업로드할 수 있습니다."}), 400
+    blob = f.read(THUMB_MAX_BYTES + 1)
+    if len(blob) > THUMB_MAX_BYTES:
+        return jsonify({"error": "이미지는 10MB 이하만 가능합니다."}), 400
+    with shorts_lock:
+        items = load_shorts()
+        cur = _find_item(items, item_id)
+        if cur is None:
+            return jsonify({"error": "항목을 찾을 수 없습니다."}), 404
+        THUMB_DIR.mkdir(parents=True, exist_ok=True)
+        _remove_thumb_files(item_id)
+        name = f"{item_id}{ext}"
+        (THUMB_DIR / name).write_bytes(blob)
+        cur.setdefault("video", {})["thumbnail"] = name
+        cur["updated_at"] = _now()
+        save_shorts(items)
+    return jsonify({"thumbnail": name, "url": f"/thumbnails/{name}?v={int(datetime.now().timestamp())}"})
+
+
+@app.delete("/api/shorts/<item_id>/thumbnail")
+def api_shorts_thumbnail_delete(item_id: str):
+    with shorts_lock:
+        items = load_shorts()
+        cur = _find_item(items, item_id)
+        if cur is None:
+            return jsonify({"error": "항목을 찾을 수 없습니다."}), 404
+        cur.setdefault("video", {})["thumbnail"] = ""
+        cur["updated_at"] = _now()
+        save_shorts(items)
+    _remove_thumb_files(item_id)
+    return jsonify({"ok": True})
+
+
+@app.get("/thumbnails/<path:name>")
+def thumbnails(name: str):
+    return send_from_directory(THUMB_DIR, name, max_age=0)
+
+
+@app.post("/api/shorts/lookup")
+def api_shorts_lookup():
+    data = request.get_json(silent=True) or {}
+    url = _s(data.get("url"), 2000)
+    if not url:
+        return jsonify({"error": "URL을 입력해 주세요."}), 400
+    try:
+        return jsonify(fetch_video_meta(url))
+    except Exception as e:  # noqa: BLE001
+        return jsonify({"error": _clean_error(e)}), 400
+
+
+@app.get("/api/shorts/export")
+def api_shorts_export():
+    payload = {"version": 1, "exported_at": _now(), "items": load_shorts()}
+    body = json.dumps(payload, ensure_ascii=False, indent=2)
+    fname = f"shorts-{datetime.now().strftime('%Y%m%d-%H%M')}.json"
+    return Response(body, mimetype="application/json",
+                    headers={"Content-Disposition": f"attachment; filename*=UTF-8''{fname}"})
+
+
+@app.post("/api/shorts/import")
+def api_shorts_import():
+    data = request.get_json(silent=True) or {}
+    raw_items = data.get("items")
+    if isinstance(raw_items, dict):  # export 파일 전체를 그대로 보낸 경우
+        raw_items = raw_items.get("items")
+    if not isinstance(raw_items, list):
+        return jsonify({"error": "items 배열이 필요합니다."}), 400
+    mode = data.get("mode", "merge")
+    if mode not in ("merge", "replace"):
+        return jsonify({"error": "mode는 merge 또는 replace 여야 합니다."}), 400
+
+    incoming: list[dict] = []
+    for raw in raw_items:
+        if not isinstance(raw, dict):
+            continue
+        try:
+            it = normalize_item(raw)
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+        it["id"] = _s(raw.get("id"), 64) or uuid.uuid4().hex[:12]
+        it["created_at"] = _s(raw.get("created_at"), 40) or _now()
+        it["updated_at"] = _s(raw.get("updated_at"), 40) or _now()
+        # 썸네일 파일이 실제로 있을 때만 유지
+        th = _s((raw.get("video") or {}).get("thumbnail"), 200)
+        it["video"]["thumbnail"] = th if th and (THUMB_DIR / th).is_file() else ""
+        incoming.append(it)
+
+    with shorts_lock:
+        if mode == "replace":
+            result, added, updated = incoming, len(incoming), 0
+        else:
+            result = load_shorts()
+            by_id = {it["id"]: i for i, it in enumerate(result)}
+            added = updated = 0
+            for it in incoming:
+                if it["id"] in by_id:
+                    result[by_id[it["id"]]] = it
+                    updated += 1
+                else:
+                    result.insert(0, it)
+                    added += 1
+        save_shorts(result)
+    return jsonify({"ok": True, "added": added, "updated": updated, "total": len(result)})
 
 
 @app.get("/api/settings")
