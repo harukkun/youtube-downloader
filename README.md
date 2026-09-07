@@ -14,7 +14,7 @@
 | 저장 위치 선택 | 경로 직접 입력 또는 macOS 폴더 선택 창으로 지정. 사용자 계정별로 기억 |
 | 폴더 열기 | 완료 후 Finder에서 저장된 파일이 선택된 상태로 열기 |
 | 다운로드 내역 | 받은 영상 목록, 파일 존재 여부, 저장 경로, 크기, 시각 표시. 다시 받기 / 기록 삭제 |
-| 쇼츠 현황판 | 재가공 쇼츠 제작 현황을 표로 관리. 원본·참고 링크, 상태, 업로드 플랫폼, 제목·썸네일·설명·고정 댓글 |
+| 쇼츠 현황판 | 재가공 쇼츠 제작 현황을 표로 관리. **구글 스프레드시트로 이전 중** → [sheets/README.md](sheets/README.md) |
 | 업로드 헬퍼 | 유튜브 업로드에 필요한 텍스트를 Claude로 만드는 도구 모음. 첫 기능: 다른 채널의 레시피 설명을 내 채널 템플릿 형식으로 변형 |
 
 ## 요구 사항
@@ -83,6 +83,10 @@ python3 -m venv .venv
 - 내역은 `~/.youtube-downloader/history.json` 에 최근 500건까지 저장됩니다
 
 ## 쇼츠 현황판 (`/shorts`)
+
+> **구글 스프레드시트로 이전 중입니다.** 링크 공유·휴대폰 사용을 위해 현황판은 시트 + Apps Script로 옮겼습니다.
+> 설정 방법과 시트 구조는 [sheets/README.md](sheets/README.md), 스크립트는 [sheets/Code.gs](sheets/Code.gs)를 보세요.
+> 아래 웹 현황판은 시트 동작을 확인한 뒤 제거할 예정입니다.
 
 원본 요리 영상을 쇼츠로 재가공해 여러 플랫폼에 올리는 작업의 진행 상황을 한눈에 보는 페이지입니다.
 메인 화면 오른쪽 위 **쇼츠 현황판 →** 링크로 이동합니다.
@@ -187,6 +191,9 @@ youtube-downloader/
 │   ├── index.html        다운로더 페이지 (인라인 CSS/JS, 프레임워크 없음)
 │   ├── shorts.html       쇼츠 현황판 페이지
 │   └── helper.html       유튜브 업로드 헬퍼 페이지
+├── sheets/
+│   ├── Code.gs           쇼츠 현황판 구글 시트용 Apps Script
+│   └── README.md         시트 설정 안내
 ├── static/
 │   └── favicon.svg       파비콘 (세 페이지 공통, /favicon.ico 도 이 파일로 응답)
 ├── requirements.txt      flask, yt-dlp, anthropic(선택)
