@@ -4,11 +4,18 @@
 선택한 화질(또는 mp3 오디오)로 ~/Downloads 에 저장한다.
 """
 
+import csv
+import io
 import json
 import os
+import re
+import time
 from datetime import datetime
 import shutil
 import subprocess
+import urllib.error
+import urllib.parse
+import urllib.request
 import sys
 import threading
 import uuid
@@ -16,7 +23,7 @@ import webbrowser
 from pathlib import Path
 
 import yt_dlp
-from flask import Flask, Response, jsonify, render_template, request, send_from_directory
+from flask import Flask, jsonify, render_template, request, send_from_directory
 
 HOST = "127.0.0.1"
 PORT = 8765
@@ -25,10 +32,9 @@ DEFAULT_DOWNLOAD_DIR = Path.home() / "Downloads"
 CONFIG_FILE = Path.home() / ".youtube-downloader" / "config.json"
 HISTORY_FILE = Path.home() / ".youtube-downloader" / "history.json"
 HISTORY_MAX = 500
-SHORTS_FILE = Path.home() / ".youtube-downloader" / "shorts.json"
-THUMB_DIR = Path.home() / ".youtube-downloader" / "thumbnails"
-THUMB_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
-THUMB_MAX_BYTES = 10 * 1024 * 1024
+# 쇼츠 현황판: 데이터는 구글 스프레드시트(sheets/Code.gs 로 만든 '현황판' 탭)에 있고, 여기서는 CSV로 읽어 보여주기만 한다.
+SHEET_CACHE_TTL = 30          # 초. 시트 CSV 를 다시 받기 전까지 캐시 유지
+SHEET_FETCH_TIMEOUT = 15
 HELPER_FILE = Path.home() / ".youtube-downloader" / "helper.json"
 
 # 업로드 헬퍼: LLM 호출 방식/모델 (키는 저장값)
@@ -116,7 +122,7 @@ jobs: dict[str, dict] = {}
 jobs_lock = threading.Lock()
 settings_lock = threading.Lock()
 history_lock = threading.Lock()
-shorts_lock = threading.Lock()
+sheet_lock = threading.Lock()
 helper_lock = threading.Lock()
 
 
@@ -186,21 +192,8 @@ def _now() -> str:
 
 
 # ---------------------------------------------------------------------------
-# 쇼츠 현황판 (사용자별 shorts.json + thumbnails/)
+# 쇼츠 현황판 (구글 스프레드시트 읽기 전용 뷰어)
 # ---------------------------------------------------------------------------
-def load_shorts() -> list[dict]:
-    try:
-        with open(SHORTS_FILE, encoding="utf-8") as f:
-            data = json.load(f)
-        return data if isinstance(data, list) else []
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        return []
-
-
-def save_shorts(items: list[dict]) -> None:
-    _write_json_atomic(SHORTS_FILE, items)
-
-
 def _s(v, limit: int = 20000) -> str:
     """문자열 정리: None → '', 공백 제거, 길이 제한."""
     if v is None:
@@ -208,100 +201,173 @@ def _s(v, limit: int = 20000) -> str:
     return str(v).strip()[:limit]
 
 
-def _empty_platforms() -> dict:
-    return {k: {"checked": False, "url": ""} for k in PLATFORMS}
+# 시트 헤더(이모지·'☑' 제거 후) → 내부 키. sheets/Code.gs 의 COLUMNS 와 맞춘다.
+SHEET_HEADER_KEYS = {
+    "상태": "status", "요리 제목": "dish", "원본 링크": "src_url", "원본 제목": "src_title", "원본 채널": "src_channel",
+    "썸네일": "thumb", "참고 쇼츠 링크": "ref_urls", "참고 채널": "ref_channels",
+    "유튜브": "youtube_on", "유튜브 링크": "youtube_url",
+    "인스타그램": "instagram_on", "인스타그램 링크": "instagram_url",
+    "틱톡": "tiktok_on", "틱톡 링크": "tiktok_url",
+    "네이버 클립": "naver_clip_on", "네이버 클립 링크": "naver_clip_url",
+    "영상 제목": "title", "제목 글자수": "title_len", "설명": "desc", "설명 글자수": "desc_len",
+    "고정 댓글": "pinned", "메모": "memo", "수정일": "updated", "등록일": "created",
+}
+# 시트 상태 라벨(이모지 제거 후) → 상태 키. 예전 라벨도 받아 준다.
+SHEET_STATUS_KEYS = {
+    "제작 전": "before", "제작 중": "making", "업로드 대기": "ready", "제작 완료·업로드 대기": "ready", "업로드 완료": "uploaded",
+}
+_YT_ID_RE = re.compile(r"(?:v=|/shorts/|youtu\.be/|/embed/|/live/)([A-Za-z0-9_-]{11})")
 
 
-def normalize_item(data: dict, base: dict | None = None) -> dict:
-    """요청 데이터를 검증해 항목으로 만든다. base가 있으면 그 위에 덮어쓴다(부분 수정)."""
-    item = json.loads(json.dumps(base)) if base else {}
-
-    if "dish_title" in data:
-        item["dish_title"] = _s(data.get("dish_title"), 200)
-    if "source" in data:
-        src = data.get("source") or {}
-        item["source"] = {
-            "url": _s(src.get("url"), 2000),
-            "title": _s(src.get("title"), 500),
-            "channel": _s(src.get("channel"), 200),
-            "thumbnail": _s(src.get("thumbnail"), 2000),
-        }
-    if "reference_shorts" in data:
-        refs = []
-        for r in data.get("reference_shorts") or []:
-            if not isinstance(r, dict):
-                continue
-            ch, url = _s(r.get("channel"), 200), _s(r.get("url"), 2000)
-            if ch or url:
-                refs.append({"channel": ch, "url": url})
-        item["reference_shorts"] = refs
-    if "status" in data:
-        st = data.get("status")
-        if st not in STATUSES:
-            raise ValueError(f"알 수 없는 상태값입니다: {st!r}")
-        item["status"] = st
-    if "platforms" in data:
-        raw = data.get("platforms") or {}
-        plats = _empty_platforms()
-        if isinstance(raw, list):  # ["youtube", ...] 형태도 허용
-            for k in raw:
-                if k in plats:
-                    plats[k]["checked"] = True
-        elif isinstance(raw, dict):
-            for k in plats:
-                pv = raw.get(k) or {}
-                if isinstance(pv, bool):
-                    pv = {"checked": pv}
-                plats[k] = {"checked": bool(pv.get("checked")), "url": _s(pv.get("url"), 2000)}
-        item["platforms"] = plats
-    if "video" in data:
-        v = data.get("video") or {}
-        prev_thumb = (item.get("video") or {}).get("thumbnail", "")
-        item["video"] = {
-            "title": _s(v.get("title"), 500),
-            "description": _s(v.get("description"), 20000),
-            "pinned_comment": _s(v.get("pinned_comment"), 20000),
-            "thumbnail": prev_thumb,  # 썸네일은 업로드 API로만 변경
-        }
-    if "memo" in data:
-        item["memo"] = _s(data.get("memo"), 5000)
-
-    # 기본값 채우기
-    item.setdefault("dish_title", "")
-    item.setdefault("source", {"url": "", "title": "", "channel": "", "thumbnail": ""})
-    item.setdefault("reference_shorts", [])
-    item.setdefault("status", "before")
-    item.setdefault("platforms", _empty_platforms())
-    item.setdefault("video", {"title": "", "description": "", "pinned_comment": "", "thumbnail": ""})
-    item.setdefault("memo", "")
-    return item
+def _clean_header(v) -> str:
+    """'📌 상태' → '상태', '유튜브 ☑' → '유튜브'."""
+    t = re.sub(r"^[^\w가-힣]+", "", str(v or "").strip())
+    return re.sub(r"\s*☑\s*$", "", t).strip()
 
 
-def _find_item(items: list[dict], item_id: str) -> dict | None:
-    return next((it for it in items if it.get("id") == item_id), None)
+def parse_sheet_url(url: str) -> tuple[str, str | None]:
+    """구글 시트 링크에서 (문서 ID, gid) 를 뽑는다. 문서 ID 가 없으면 ValueError."""
+    url = _s(url, 2000)
+    m = re.search(r"/spreadsheets/d/([A-Za-z0-9_-]+)", url)
+    if not m:
+        raise ValueError("구글 스프레드시트 링크가 아닙니다. 주소창의 링크를 그대로 붙여 주세요.")
+    g = re.search(r"[#?&]gid=(\d+)", url)
+    return m.group(1), (g.group(1) if g else None)
 
 
-def _remove_thumb_files(item_id: str) -> None:
-    if not THUMB_DIR.exists():
-        return
-    for f in THUMB_DIR.glob(f"{item_id}.*"):
+def sheet_csv_url(sheet_id: str, gid: str | None) -> str:
+    u = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
+    return u + (f"&gid={gid}" if gid is not None else "")
+
+
+def sheet_edit_url(sheet_id: str, gid: str | None, row: int | None = None) -> str:
+    u = f"https://docs.google.com/spreadsheets/d/{sheet_id}/edit"
+    frag = []
+    if gid is not None:
+        frag.append(f"gid={gid}")
+    if row:
+        frag.append(f"range=A{row}")
+    return u + ("#" + "&".join(frag) if frag else "")
+
+
+def fetch_sheet_csv(url: str) -> str:
+    """공개(링크가 있는 사용자) 시트의 CSV 를 받아 온다. 접근 불가면 RuntimeError."""
+    req = urllib.request.Request(url, headers={"User-Agent": "youtube-downloader/1.0"})
+    try:
+        with urllib.request.urlopen(req, timeout=SHEET_FETCH_TIMEOUT) as resp:
+            ctype = resp.headers.get("Content-Type", "")
+            body = resp.read()
+    except urllib.error.HTTPError as e:
+        if e.code in (401, 403):
+            raise RuntimeError("시트에 접근할 수 없습니다. 공유 설정을 '링크가 있는 모든 사용자'로 바꿔 주세요.") from e
+        if e.code == 404:
+            raise RuntimeError("시트를 찾을 수 없습니다. 링크를 확인해 주세요.") from e
+        raise RuntimeError(f"시트를 받는 중 오류가 났습니다 (HTTP {e.code}).") from e
+    except (urllib.error.URLError, TimeoutError, OSError) as e:
+        raise RuntimeError(f"시트에 연결할 수 없습니다: {getattr(e, 'reason', e)}") from e
+    if "text/html" in ctype:   # 로그인 페이지로 넘어간 경우 = 비공개 시트
+        raise RuntimeError("시트가 비공개입니다. 공유 설정을 '링크가 있는 모든 사용자'(뷰어)로 바꿔 주세요.")
+    return body.decode("utf-8-sig", errors="replace")
+
+
+def youtube_thumbnail(url: str) -> str:
+    m = _YT_ID_RE.search(url or "")
+    return f"https://i.ytimg.com/vi/{m.group(1)}/hqdefault.jpg" if m else ""
+
+
+def _iso(v: str) -> str:
+    """시트의 '2026-09-07 11:23' → '2026-09-07T11:23' (브라우저 Date 파싱용)."""
+    v = _s(v, 40)
+    return v.replace(" ", "T", 1) if re.match(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}", v) else v
+
+
+def parse_sheet_items(text: str) -> list[dict]:
+    """현황판 탭 CSV → 웹 현황판 항목 목록. 헤더 행('상태'로 시작)을 찾지 못하면 ValueError."""
+    rows = list(csv.reader(io.StringIO(text)))
+    header_idx = next((i for i, r in enumerate(rows) if r and _clean_header(r[0]) == "상태"), None)
+    if header_idx is None:
+        raise ValueError("'현황판' 탭의 헤더(상태, 요리 제목 …)를 찾지 못했습니다. 현황판 탭을 열어 둔 상태의 링크를 넣어 주세요.")
+    col = {}
+    for i, h in enumerate(rows[header_idx]):
+        key = SHEET_HEADER_KEYS.get(_clean_header(h))
+        if key and key not in col:
+            col[key] = i
+
+    def cell(r, key, limit=20000):
+        i = col.get(key)
+        return _s(r[i], limit) if i is not None and i < len(r) else ""
+
+    items = []
+    for offset, r in enumerate(rows[header_idx + 1:], start=1):
+        dish, src_url, title = cell(r, "dish", 200), cell(r, "src_url", 2000), cell(r, "title", 500)
+        if not (dish or src_url or title):
+            continue
+        sheet_row = header_idx + 1 + offset   # 1부터 시작하는 실제 시트 행 번호
+        ref_urls = [u for u in cell(r, "ref_urls").splitlines() if u.strip()]
+        ref_chs = [c for c in cell(r, "ref_channels").splitlines()]
+        refs = [{"url": u.strip(), "channel": (ref_chs[i].strip() if i < len(ref_chs) else "")} for i, u in enumerate(ref_urls)]
+        plats = {}
+        for k in PLATFORMS:
+            plats[k] = {"checked": cell(r, f"{k}_on", 10).upper() == "TRUE", "url": cell(r, f"{k}_url", 2000)}
+        items.append({
+            "id": f"r{sheet_row}",
+            "row": sheet_row,
+            "dish_title": dish,
+            "source": {"url": src_url, "title": cell(r, "src_title", 500), "channel": cell(r, "src_channel", 200),
+                       "thumbnail": youtube_thumbnail(src_url)},
+            "reference_shorts": refs,
+            "status": SHEET_STATUS_KEYS.get(_clean_header(cell(r, "status", 50)), "before"),
+            "platforms": plats,
+            "video": {"title": title, "description": cell(r, "desc"), "pinned_comment": cell(r, "pinned"), "thumbnail": ""},
+            "memo": cell(r, "memo", 5000),
+            "updated_at": _iso(cell(r, "updated")),
+            "created_at": _iso(cell(r, "created")),
+        })
+    return items
+
+
+def get_sheet_setting() -> dict | None:
+    """저장된 시트 링크 → {url, sheet_id, gid} 또는 None."""
+    with settings_lock:
+        url = load_settings().get("shorts_sheet_url") or ""
+    if not url:
+        return None
+    try:
+        sheet_id, gid = parse_sheet_url(url)
+    except ValueError:
+        return None
+    return {"url": url, "sheet_id": sheet_id, "gid": gid}
+
+
+def load_sheet_items(sheet_id: str, gid: str | None) -> tuple[list[dict], str | None]:
+    """CSV 를 받아 항목으로 만든다. gid 탭에서 헤더를 못 찾으면 첫 탭으로 한 번 더 시도. (items, 실제 사용한 gid)."""
+    text = fetch_sheet_csv(sheet_csv_url(sheet_id, gid))
+    try:
+        return parse_sheet_items(text), gid
+    except ValueError:
+        if gid is None:
+            raise
+    text = fetch_sheet_csv(sheet_csv_url(sheet_id, None))
+    return parse_sheet_items(text), None
+
+
+_sheet_cache: dict = {"key": None, "at": 0.0, "items": [], "gid": None}
+
+
+def sheet_items_cached(cfg: dict, force: bool = False) -> tuple[list[dict], bool, str | None]:
+    """(items, 캐시 사용 여부, 오류 메시지). 오류가 나도 이전 캐시가 있으면 그것을 돌려준다."""
+    key = (cfg["sheet_id"], cfg["gid"])
+    with sheet_lock:
+        fresh = _sheet_cache["key"] == key and (time.time() - _sheet_cache["at"]) < SHEET_CACHE_TTL
+        if fresh and not force:
+            return _sheet_cache["items"], True, None
         try:
-            f.unlink()
-        except OSError:
-            pass
-
-
-def fetch_video_meta(url: str) -> dict:
-    """원본 영상/참고 쇼츠 링크의 제목·채널·썸네일을 가져온다."""
-    with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "noplaylist": True}) as ydl:
-        info = ydl.extract_info(url, download=False)
-    return {
-        "title": info.get("title") or "",
-        "channel": info.get("uploader") or info.get("channel") or "",
-        "thumbnail": info.get("thumbnail") or "",
-        "webpage_url": info.get("webpage_url") or url,
-        "duration": info.get("duration"),
-    }
+            items, used_gid = load_sheet_items(cfg["sheet_id"], cfg["gid"])
+        except (RuntimeError, ValueError) as e:
+            stale = _sheet_cache["items"] if _sheet_cache["key"] == key else []
+            return stale, bool(stale), str(e)
+        _sheet_cache.update({"key": key, "at": time.time(), "items": items, "gid": used_gid})
+        return items, False, None
 
 
 # ---------------------------------------------------------------------------
@@ -755,175 +821,67 @@ def api_history_clear():
     return jsonify({"removed": history_remove(None)})
 
 
-# ---- 쇼츠 현황판 ------------------------------------------------------------
+# ---- 쇼츠 현황판 (시트 뷰어) ----------------------------------------------------
 @app.get("/shorts")
 def shorts_page():
     return render_template("shorts.html", statuses=STATUSES, platforms=PLATFORMS)
 
 
+def _sheet_public(cfg: dict | None, fetched_at: float | None = None, cached: bool = False) -> dict:
+    if not cfg:
+        return {"configured": False}
+    gid = _sheet_cache["gid"] if _sheet_cache["key"] == (cfg["sheet_id"], cfg["gid"]) else cfg["gid"]
+    return {
+        "configured": True,
+        "url": cfg["url"],
+        "edit_url": sheet_edit_url(cfg["sheet_id"], gid),
+        "row_url_template": sheet_edit_url(cfg["sheet_id"], gid, 1).replace("range=A1", "range=A{row}"),
+        "fetched_at": datetime.fromtimestamp(fetched_at).isoformat(timespec="seconds") if fetched_at else None,
+        "cached": cached,
+        "cache_ttl": SHEET_CACHE_TTL,
+    }
+
+
 @app.get("/api/shorts")
 def api_shorts_list():
-    return jsonify({"items": load_shorts(), "statuses": STATUSES, "platforms": PLATFORMS})
+    cfg = get_sheet_setting()
+    if not cfg:
+        return jsonify({"items": [], "statuses": STATUSES, "platforms": PLATFORMS, "sheet": _sheet_public(None), "error": None})
+    force = request.args.get("refresh") in ("1", "true")
+    items, cached, error = sheet_items_cached(cfg, force=force)
+    return jsonify({
+        "items": items, "statuses": STATUSES, "platforms": PLATFORMS,
+        "sheet": _sheet_public(cfg, _sheet_cache["at"] or None, cached),
+        "error": error,
+    })
 
 
-@app.post("/api/shorts")
-def api_shorts_create():
-    data = request.get_json(silent=True) or {}
-    try:
-        item = normalize_item(data)
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 400
-    item["id"] = uuid.uuid4().hex[:12]
-    item["created_at"] = item["updated_at"] = _now()
-    with shorts_lock:
-        items = load_shorts()
-        items.insert(0, item)
-        save_shorts(items)
-    return jsonify(item), 201
+@app.get("/api/shorts/sheet")
+def api_shorts_sheet_get():
+    return jsonify({"sheet": _sheet_public(get_sheet_setting())})
 
 
-@app.put("/api/shorts/<item_id>")
-def api_shorts_update(item_id: str):
-    data = request.get_json(silent=True) or {}
-    with shorts_lock:
-        items = load_shorts()
-        cur = _find_item(items, item_id)
-        if cur is None:
-            return jsonify({"error": "항목을 찾을 수 없습니다."}), 404
-        try:
-            new = normalize_item(data, cur)
-        except ValueError as e:
-            return jsonify({"error": str(e)}), 400
-        new["updated_at"] = _now()
-        items[items.index(cur)] = new
-        save_shorts(items)
-    return jsonify(new)
-
-
-@app.delete("/api/shorts/<item_id>")
-def api_shorts_delete(item_id: str):
-    with shorts_lock:
-        items = load_shorts()
-        kept = [it for it in items if it.get("id") != item_id]
-        if len(kept) == len(items):
-            return jsonify({"error": "항목을 찾을 수 없습니다."}), 404
-        save_shorts(kept)
-    _remove_thumb_files(item_id)
-    return jsonify({"ok": True})
-
-
-@app.post("/api/shorts/<item_id>/thumbnail")
-def api_shorts_thumbnail(item_id: str):
-    f = request.files.get("file")
-    if f is None or not f.filename:
-        return jsonify({"error": "이미지 파일을 선택해 주세요."}), 400
-    ext = os.path.splitext(f.filename)[1].lower()
-    if ext == ".jpeg":
-        ext = ".jpg"
-    if ext not in THUMB_EXTS:
-        return jsonify({"error": "jpg, png, webp 이미지만 업로드할 수 있습니다."}), 400
-    blob = f.read(THUMB_MAX_BYTES + 1)
-    if len(blob) > THUMB_MAX_BYTES:
-        return jsonify({"error": "이미지는 10MB 이하만 가능합니다."}), 400
-    with shorts_lock:
-        items = load_shorts()
-        cur = _find_item(items, item_id)
-        if cur is None:
-            return jsonify({"error": "항목을 찾을 수 없습니다."}), 404
-        THUMB_DIR.mkdir(parents=True, exist_ok=True)
-        _remove_thumb_files(item_id)
-        name = f"{item_id}{ext}"
-        (THUMB_DIR / name).write_bytes(blob)
-        cur.setdefault("video", {})["thumbnail"] = name
-        cur["updated_at"] = _now()
-        save_shorts(items)
-    return jsonify({"thumbnail": name, "url": f"/thumbnails/{name}?v={int(datetime.now().timestamp())}"})
-
-
-@app.delete("/api/shorts/<item_id>/thumbnail")
-def api_shorts_thumbnail_delete(item_id: str):
-    with shorts_lock:
-        items = load_shorts()
-        cur = _find_item(items, item_id)
-        if cur is None:
-            return jsonify({"error": "항목을 찾을 수 없습니다."}), 404
-        cur.setdefault("video", {})["thumbnail"] = ""
-        cur["updated_at"] = _now()
-        save_shorts(items)
-    _remove_thumb_files(item_id)
-    return jsonify({"ok": True})
-
-
-@app.get("/thumbnails/<path:name>")
-def thumbnails(name: str):
-    return send_from_directory(THUMB_DIR, name, max_age=0)
-
-
-@app.post("/api/shorts/lookup")
-def api_shorts_lookup():
+@app.post("/api/shorts/sheet")
+def api_shorts_sheet_set():
+    """시트 링크 저장. 빈 값이면 연결 해제. 저장 전에 실제로 읽어 봐서 실패하면 저장하지 않는다."""
     data = request.get_json(silent=True) or {}
     url = _s(data.get("url"), 2000)
     if not url:
-        return jsonify({"error": "URL을 입력해 주세요."}), 400
+        with settings_lock:
+            cfg = load_settings(); cfg.pop("shorts_sheet_url", None); save_settings(cfg)
+        with sheet_lock:
+            _sheet_cache.update({"key": None, "at": 0.0, "items": [], "gid": None})
+        return jsonify({"ok": True, "sheet": _sheet_public(None), "count": 0})
     try:
-        return jsonify(fetch_video_meta(url))
-    except Exception as e:  # noqa: BLE001
-        return jsonify({"error": _clean_error(e)}), 400
-
-
-@app.get("/api/shorts/export")
-def api_shorts_export():
-    payload = {"version": 1, "exported_at": _now(), "items": load_shorts()}
-    body = json.dumps(payload, ensure_ascii=False, indent=2)
-    fname = f"shorts-{datetime.now().strftime('%Y%m%d-%H%M')}.json"
-    return Response(body, mimetype="application/json",
-                    headers={"Content-Disposition": f"attachment; filename*=UTF-8''{fname}"})
-
-
-@app.post("/api/shorts/import")
-def api_shorts_import():
-    data = request.get_json(silent=True) or {}
-    raw_items = data.get("items")
-    if isinstance(raw_items, dict):  # export 파일 전체를 그대로 보낸 경우
-        raw_items = raw_items.get("items")
-    if not isinstance(raw_items, list):
-        return jsonify({"error": "items 배열이 필요합니다."}), 400
-    mode = data.get("mode", "merge")
-    if mode not in ("merge", "replace"):
-        return jsonify({"error": "mode는 merge 또는 replace 여야 합니다."}), 400
-
-    incoming: list[dict] = []
-    for raw in raw_items:
-        if not isinstance(raw, dict):
-            continue
-        try:
-            it = normalize_item(raw)
-        except ValueError as e:
-            return jsonify({"error": str(e)}), 400
-        it["id"] = _s(raw.get("id"), 64) or uuid.uuid4().hex[:12]
-        it["created_at"] = _s(raw.get("created_at"), 40) or _now()
-        it["updated_at"] = _s(raw.get("updated_at"), 40) or _now()
-        # 썸네일 파일이 실제로 있을 때만 유지
-        th = _s((raw.get("video") or {}).get("thumbnail"), 200)
-        it["video"]["thumbnail"] = th if th and (THUMB_DIR / th).is_file() else ""
-        incoming.append(it)
-
-    with shorts_lock:
-        if mode == "replace":
-            result, added, updated = incoming, len(incoming), 0
-        else:
-            result = load_shorts()
-            by_id = {it["id"]: i for i, it in enumerate(result)}
-            added = updated = 0
-            for it in incoming:
-                if it["id"] in by_id:
-                    result[by_id[it["id"]]] = it
-                    updated += 1
-                else:
-                    result.insert(0, it)
-                    added += 1
-        save_shorts(result)
-    return jsonify({"ok": True, "added": added, "updated": updated, "total": len(result)})
+        sheet_id, gid = parse_sheet_url(url)
+        items, used_gid = load_sheet_items(sheet_id, gid)
+    except (ValueError, RuntimeError) as e:
+        return jsonify({"error": str(e)}), 400
+    with settings_lock:
+        cfg = load_settings(); cfg["shorts_sheet_url"] = url; save_settings(cfg)
+    with sheet_lock:
+        _sheet_cache.update({"key": (sheet_id, gid), "at": time.time(), "items": items, "gid": used_gid})
+    return jsonify({"ok": True, "sheet": _sheet_public({"url": url, "sheet_id": sheet_id, "gid": gid}, time.time(), False), "count": len(items)})
 
 
 # ---- 유튜브 업로드 헬퍼 ------------------------------------------------------
