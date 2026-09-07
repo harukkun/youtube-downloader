@@ -88,6 +88,11 @@
   .plat { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); cursor: pointer; user-select: none; white-space: nowrap; }
   .plat input { accent-color: var(--accent); margin: 0; cursor: pointer; }
   .plat.on { color: var(--text); }
+  .plats.locked { opacity: .45; }
+  .plats.locked .plat { cursor: not-allowed; }
+  .plats.locked .plat input { cursor: not-allowed; }
+  fieldset.locked .plat-row { opacity: .45; }
+  .lock-hint { font-size: 12px; color: var(--warn); margin: 0 0 10px; }
   .plat a { font-size: 11px; }
   .thumb { width: 56px; height: 32px; object-fit: cover; border-radius: 5px; background: #000; display: block; cursor: zoom-in; }
   .thumb.none { display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 10px; background: #0f1115; border: 1px dashed var(--border); }
@@ -237,8 +242,9 @@
       </div>
     </fieldset>
 
-    <fieldset>
+    <fieldset id="platFieldset">
       <legend>업로드 플랫폼 <span style="font-weight:400">· 체크하면 내 업로드 링크를 적을 수 있어요</span></legend>
+      <div class="lock-hint" id="platLockHint">진행 상태가 <b>업로드 완료</b>일 때만 입력할 수 있습니다.</div>
       <div id="platRows">
         {% for k, v in platforms.items() %}
         <div class="plat-row" data-plat="{{ k }}">
@@ -394,10 +400,11 @@
       const refsHtml = refs.length
         ? `<div class="refs">${refs.slice(0, 3).map(r => `<a href="${esc(r.url)}" target="_blank" rel="noopener" title="${esc(r.url)}">${esc(r.channel || host(r.url))}</a>`).join('')}${refs.length > 3 ? `<span class="muted">+${refs.length - 3}개 더</span>` : ''}</div>`
         : '<span class="muted">—</span>';
+      const unlocked = it.status === 'uploaded';
       const plats = Object.keys(PLATFORMS).map(k => {
         const p = it.platforms?.[k] || {}; const on = !!p.checked;
         const link = on && p.url ? `<a href="${esc(p.url)}" target="_blank" rel="noopener" title="${esc(p.url)}">↗</a>` : '';
-        return `<label class="plat ${on ? 'on' : ''}" title="${esc(PLATFORMS[k])}"><input type="checkbox" data-plat="${k}" ${on ? 'checked' : ''}>${esc(PLATFORMS[k])}${link}</label>`;
+        return `<label class="plat ${on ? 'on' : ''}" title="${unlocked ? esc(PLATFORMS[k]) : '업로드 완료 상태에서만 변경할 수 있습니다'}"><input type="checkbox" data-plat="${k}" ${on ? 'checked' : ''} ${unlocked ? '' : 'disabled'}>${esc(PLATFORMS[k])}${link}</label>`;
       }).join('');
       const tu = thumbUrl(it);
       const thumb = tu ? `<img class="thumb" src="${esc(tu)}" alt="" data-full="${esc(tu)}" loading="lazy">` : `<div class="thumb none">없음</div>`;
@@ -409,7 +416,7 @@
         <td class="title" data-act="edit">${esc(it.dish_title) || '<span class="muted">(제목 없음)</span>'}${it.video?.title ? `<span class="sub" title="${esc(it.video.title)}">${esc(it.video.title)}</span>` : ''}</td>
         <td>${src}</td>
         <td>${refsHtml}</td>
-        <td><div class="plats">${plats}</div></td>
+        <td><div class="plats ${unlocked ? '' : 'locked'}">${plats}</div></td>
         <td>${thumb}</td>
         <td class="muted date" title="${esc(it.updated_at)}">${fmtDate(it.updated_at)}</td>
         <td class="actions"><button type="button" class="ghost mini" data-act="edit">편집</button> <button type="button" class="ghost mini danger" data-act="del">삭제</button></td>
@@ -482,12 +489,12 @@
     $('fSrcUrl').value = v.source?.url || '';
     setSrcMeta(v.source || {});
     renderRefRows(v.reference_shorts?.length ? v.reference_shorts : [{ channel: '', url: '' }]);
-    setStatus(v.status || 'before');
     document.querySelectorAll('.plat-row').forEach(row => {
       const p = v.platforms?.[row.dataset.plat] || {};
       row.querySelector('.plat-chk').checked = !!p.checked;
-      const u = row.querySelector('.plat-url'); u.value = p.url || ''; u.disabled = !p.checked;
+      row.querySelector('.plat-url').value = p.url || '';
     });
+    setStatus(v.status || 'before');  // 플랫폼 입력 잠금도 함께 동기화
     $('fVTitle').value = v.video?.title || '';
     $('fDesc').value = v.video?.description || '';
     $('fPinned').value = v.video?.pinned_comment || '';
@@ -549,6 +556,18 @@
   // 상태 라디오
   function setStatus(k) {
     document.querySelectorAll('#statusRadios .radio').forEach(l => { const on = l.querySelector('input').value === k; l.classList.toggle('on', on); l.querySelector('input').checked = on; });
+    syncPlatformLock();
+  }
+  // 업로드 플랫폼은 진행 상태가 '업로드 완료'일 때만 입력 가능
+  function syncPlatformLock() {
+    const unlocked = document.querySelector('#statusRadios input:checked')?.value === 'uploaded';
+    $('platFieldset').classList.toggle('locked', !unlocked);
+    $('platLockHint').classList.toggle('hidden', unlocked);
+    document.querySelectorAll('.plat-row').forEach(row => {
+      const chk = row.querySelector('.plat-chk'), url = row.querySelector('.plat-url');
+      chk.disabled = !unlocked;
+      url.disabled = !unlocked || !chk.checked;
+    });
   }
   $('statusRadios').addEventListener('change', (e) => setStatus(e.target.value));
   // 플랫폼 체크 → 링크 입력 활성화
