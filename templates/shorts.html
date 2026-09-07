@@ -84,10 +84,15 @@
   .st-uploaded { color: var(--ok); border-color: rgba(62,207,142,.4) !important; background-color: rgba(62,207,142,.1) !important; }
   .refs { display: flex; flex-direction: column; gap: 2px; }
   .refs a { font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px; display: block; }
-  .plats { display: flex; gap: 4px 10px; flex-wrap: wrap; min-width: 190px; max-width: 230px; }
+  .plats { display: flex; gap: 6px; flex-wrap: nowrap; }
   .plat { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); cursor: pointer; user-select: none; white-space: nowrap; }
   .plat input { accent-color: var(--accent); margin: 0; cursor: pointer; }
   .plat.on { color: var(--text); }
+  .picon { display: inline-flex; align-items: center; justify-content: center; line-height: 0; }
+  .picon svg { width: 18px; height: 18px; display: block; }
+  .plat .picon svg { width: 22px; height: 22px; }
+  .plat:not(.on) .picon { filter: grayscale(1); opacity: .45; }
+  .plat-row label .picon svg { width: 20px; height: 20px; }
   .plats.locked { opacity: .45; }
   .plats.locked .plat { cursor: not-allowed; }
   .plats.locked .plat input { cursor: not-allowed; }
@@ -134,7 +139,7 @@
   .radio input { accent-color: var(--accent); margin: 0; }
   .radio.on { color: var(--text); border-color: #444b5a; background: rgba(255,255,255,.04); }
   .plat-row { display: grid; grid-template-columns: 130px 1fr; gap: 8px; align-items: center; margin-bottom: 8px; }
-  .plat-row label { display: flex; gap: 8px; align-items: center; font-size: 13px; cursor: pointer; }
+  .plat-row label { display: flex; gap: 8px; align-items: center; font-size: 13px; cursor: pointer; white-space: nowrap; }
   .plat-row input[type=checkbox] { accent-color: var(--accent); }
   .thumb-edit { display: flex; gap: 14px; align-items: flex-start; }
   .thumb-edit img { width: 180px; aspect-ratio: 9/16; max-height: 200px; object-fit: contain; border-radius: 8px; background: #000; border: 1px solid var(--border); }
@@ -248,7 +253,7 @@
       <div id="platRows">
         {% for k, v in platforms.items() %}
         <div class="plat-row" data-plat="{{ k }}">
-          <label><input type="checkbox" class="plat-chk"> {{ v }}</label>
+          <label><input type="checkbox" class="plat-chk"><span class="picon" data-icon="{{ k }}"></span>{{ v }}</label>
           <input type="url" class="plat-url" placeholder="내 업로드 링크 (선택)" disabled>
         </div>
         {% endfor %}
@@ -301,8 +306,17 @@
   const $ = (id) => document.getElementById(id);
   const STATUSES = {{ statuses | tojson }};
   const PLATFORMS = {{ platforms | tojson }};
-  const STATUS_ORDER = Object.keys(STATUSES);
-  const PLAT_ICON = { youtube: '▶', instagram: '◎', tiktok: '♪', naver_clip: 'N' };
+  const STATUS_ORDER = ['before', 'making', 'ready', 'uploaded'].filter(k => k in STATUSES);
+  const PLAT_ORDER = [...document.querySelectorAll('.plat-row')].map(r => r.dataset.plat);  // 편집 패널과 같은 순서
+  // 플랫폼 아이콘 (인라인 SVG, 단순화한 형태)
+  const PLAT_ICON = {
+    youtube: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="5" width="20" height="14" rx="4" fill="#FF0000"/><path d="M10 8.8l5.2 3.2L10 15.2z" fill="#fff"/></svg>`,
+    instagram: `<svg viewBox="0 0 24 24" aria-hidden="true"><defs><linearGradient id="igg" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#F9CE34"/><stop offset=".5" stop-color="#EE2A7B"/><stop offset="1" stop-color="#6228D7"/></linearGradient></defs><rect x="2.5" y="2.5" width="19" height="19" rx="5.5" fill="url(#igg)"/><circle cx="12" cy="12" r="4.2" fill="none" stroke="#fff" stroke-width="2"/><circle cx="17.2" cy="6.8" r="1.3" fill="#fff"/></svg>`,
+    tiktok: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="2" width="20" height="20" rx="5" fill="#111"/><path d="M13.6 5.5v8.7a2.5 2.5 0 1 1-2.5-2.5V9.2a5 5 0 1 0 5 5v-4.4c.9.6 2 1 3.2 1V8.3a3.3 3.3 0 0 1-3.2-2.8z" fill="#69C9D0"/><path d="M12.8 6.3v8.7a2.5 2.5 0 1 1-2.5-2.5V10a5 5 0 1 0 5 5v-4.4c.9.6 2 1 3.2 1V9.1a3.3 3.3 0 0 1-3.2-2.8z" fill="#EE1D52" opacity=".9"/><path d="M13.2 5.9v8.7a2.5 2.5 0 1 1-2.5-2.5V9.6a5 5 0 1 0 5 5v-4.4c.9.6 2 1 3.2 1V8.7a3.3 3.3 0 0 1-3.2-2.8z" fill="#fff"/></svg>`,
+    naver_clip: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="2" width="20" height="20" rx="5" fill="#03C75A"/><path d="M7 6.5h3.3l3.4 5.2V6.5H17v11h-3.3l-3.4-5.2v5.2H7z" fill="#fff"/></svg>`,
+  };
+  const platIcon = (k) => `<span class="picon">${PLAT_ICON[k] || ''}</span>`;
+  document.querySelectorAll('.picon[data-icon]').forEach(el => { el.innerHTML = PLAT_ICON[el.dataset.icon] || ''; });
 
   let items = [];
   let filters = loadFilters();
@@ -401,10 +415,11 @@
         ? `<div class="refs">${refs.slice(0, 3).map(r => `<a href="${esc(r.url)}" target="_blank" rel="noopener" title="${esc(r.url)}">${esc(r.channel || host(r.url))}</a>`).join('')}${refs.length > 3 ? `<span class="muted">+${refs.length - 3}개 더</span>` : ''}</div>`
         : '<span class="muted">—</span>';
       const unlocked = it.status === 'uploaded';
-      const plats = Object.keys(PLATFORMS).map(k => {
+      const plats = PLAT_ORDER.map(k => {
         const p = it.platforms?.[k] || {}; const on = !!p.checked;
         const link = on && p.url ? `<a href="${esc(p.url)}" target="_blank" rel="noopener" title="${esc(p.url)}">↗</a>` : '';
-        return `<label class="plat ${on ? 'on' : ''}" title="${unlocked ? esc(PLATFORMS[k]) : '업로드 완료 상태에서만 변경할 수 있습니다'}"><input type="checkbox" data-plat="${k}" ${on ? 'checked' : ''} ${unlocked ? '' : 'disabled'}>${esc(PLATFORMS[k])}${link}</label>`;
+        const tip = esc(PLATFORMS[k]) + (unlocked ? '' : ' · 업로드 완료 상태에서만 변경할 수 있습니다') + (on && p.url ? ' · ' + esc(p.url) : '');
+        return `<label class="plat ${on ? 'on' : ''}" title="${tip}"><input type="checkbox" data-plat="${k}" ${on ? 'checked' : ''} ${unlocked ? '' : 'disabled'}>${platIcon(k)}${link}</label>`;
       }).join('');
       const tu = thumbUrl(it);
       const thumb = tu ? `<img class="thumb" src="${esc(tu)}" alt="" data-full="${esc(tu)}" loading="lazy">` : `<div class="thumb none">없음</div>`;
