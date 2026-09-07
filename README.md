@@ -15,6 +15,7 @@
 | 폴더 열기 | 완료 후 Finder에서 저장된 파일이 선택된 상태로 열기 |
 | 다운로드 내역 | 받은 영상 목록, 파일 존재 여부, 저장 경로, 크기, 시각 표시. 다시 받기 / 기록 삭제 |
 | 쇼츠 현황판 | 재가공 쇼츠 제작 현황을 표로 관리. 원본·참고 링크, 상태, 업로드 플랫폼, 제목·썸네일·설명·고정 댓글 |
+| 업로드 헬퍼 | 유튜브 업로드에 필요한 텍스트를 Claude로 만드는 도구 모음. 첫 기능: 다른 채널의 레시피 설명을 내 채널 템플릿 형식으로 변형 |
 
 ## 요구 사항
 
@@ -113,6 +114,43 @@ python3 -m venv .venv
 ```
 썸네일은 jpg · png · webp, 10MB 이하. 썸네일을 올리지 않으면 원본 영상 썸네일이 대신 표시됩니다.
 
+## 유튜브 업로드 헬퍼 (`/helper`)
+
+영상을 올릴 때 필요한 텍스트를 만드는 도구 모음 페이지입니다. 왼쪽 목록에서 기능을 고르고, 오른쪽에서 작업합니다.
+기능은 계속 추가할 예정이며, 새 기능은 `helper.html`에 목록 버튼 하나와 `section.panel` 하나를 추가하면 됩니다.
+
+### 기능 1 · 레시피 설명 텍스트 제작
+
+다른 채널의 레시피 설명(재료·분량·조리 순서)을 붙여 넣으면, 사실 정보는 그대로 살리고
+**내 채널 템플릿** 형식으로 다시 쓴 설명 텍스트를 만듭니다.
+
+1. **내 채널 템플릿**을 펼쳐 템플릿을 내 채널 형식으로 고치고 **템플릿 저장** (처음 한 번)
+   - 그대로 남길 글자(이모지, 구분선, 소제목, 고정 문구)는 그냥 적고
+   - 채울 자리는 `{{ 여기에 무엇을 넣을지 설명 }}` 형식으로 적습니다 (예: `{{재료를 "· 재료 분량" 형식으로 한 줄씩}}`)
+   - **추가 지시**에는 말투, 제거할 문구 등 채널 고유 규칙을 적습니다
+2. 왼쪽 칸에 원본 레시피 설명을 붙여 넣고 **내 템플릿으로 변형 →**
+3. 오른쪽 결과를 확인·수정하고 **결과 복사** → 유튜브 설명란에 붙여넣기
+   - **⚠ 업로드 전 확인** 상자에는 원본에 없어서 채우지 못한 항목(인분, 시간 등)이 표시됩니다
+
+항상 적용되는 규칙: 원본에 없는 재료·분량·시간은 만들어 넣지 않음, 원본의 채널명·링크·광고 문구 제거,
+문장은 다시 쓰되 사실 정보는 유지, 5000자 이내.
+
+### Claude 호출 방식
+
+| 방식 | 조건 | 비고 |
+|---|---|---|
+| **Claude Code CLI** (기본) | 이 컴퓨터에 `claude` 명령이 설치되어 있고 로그인된 상태 | 구독으로 처리. `claude -p` 를 헤드리스로 실행 |
+| **Anthropic API** | `ANTHROPIC_API_KEY` 환경 변수 + `anthropic` 패키지 (`.venv/bin/pip install anthropic`) | 사용량 과금 |
+
+모델은 Sonnet(빠름, 기본)과 Opus(품질 우선) 중 선택합니다. 한 번 변형에 보통 10~40초 걸립니다.
+
+### 저장 위치
+```
+~/.youtube-downloader/
+└── helper.json           템플릿, 추가 지시, 모델·호출 방식
+```
+원본 텍스트 입력칸은 브라우저(localStorage)에만 임시 보관됩니다.
+
 ## 문제 해결
 
 **다운로드가 갑자기 실패한다**
@@ -147,8 +185,11 @@ youtube-downloader/
 ├── app.py                Flask 서버, yt-dlp 다운로드 로직, 설정/내역 저장
 ├── templates/
 │   ├── index.html        다운로더 페이지 (인라인 CSS/JS, 프레임워크 없음)
-│   └── shorts.html       쇼츠 현황판 페이지
-├── requirements.txt      flask, yt-dlp
+│   ├── shorts.html       쇼츠 현황판 페이지
+│   └── helper.html       유튜브 업로드 헬퍼 페이지
+├── static/
+│   └── favicon.svg       파비콘 (세 페이지 공통, /favicon.ico 도 이 파일로 응답)
+├── requirements.txt      flask, yt-dlp, anthropic(선택)
 ├── run.sh                가상환경 생성 + 서버 실행 스크립트
 └── .venv/                가상환경 (자동 생성, git 제외 대상)
 ```
@@ -160,7 +201,8 @@ youtube-downloader/
 ├── config.json           저장 위치 설정
 ├── history.json          다운로드 내역
 ├── shorts.json           쇼츠 현황판 목록
-└── thumbnails/           현황판 썸네일 이미지
+├── thumbnails/           현황판 썸네일 이미지
+└── helper.json           업로드 헬퍼 설정(템플릿 등)
 ```
 
 ## API
@@ -189,6 +231,9 @@ youtube-downloader/
 | `POST` | `/api/shorts/lookup` | `{url}` → 제목·채널·썸네일 (자동 채우기) |
 | `GET` | `/api/shorts/export` | 목록 JSON 파일 다운로드 |
 | `POST` | `/api/shorts/import` | `{items, mode: "merge"\|"replace"}` → 가져오기 |
+| `GET` | `/api/helper/settings` | 헬퍼 설정(레시피 템플릿·모델·호출 방식) + 기본값 + 환경(CLI/API 키 유무) |
+| `PUT` | `/api/helper/settings` | `{recipe: {template, instructions, model, backend}}` → 보낸 필드만 저장 |
+| `POST` | `/api/helper/recipe-description` | `{source_text, template?, instructions?, model?, backend?}` → `{description, notes, usage}` (설정 미전송 시 저장값 사용, 저장하지 않음) |
 
 `quality` 값은 세로 해상도 숫자(`"1080"`, `"720"` …) 또는 `"audio"` 입니다.
 영상은 **H.264(avc1) 코덱을 최우선**으로 골라 `bestaudio` 와 mp4로 병합하고, 오디오는 `bestaudio` 를 mp3로 변환합니다.

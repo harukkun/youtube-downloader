@@ -7,6 +7,7 @@
 import json
 import os
 from datetime import datetime
+import shutil
 import subprocess
 import sys
 import threading
@@ -28,6 +29,71 @@ SHORTS_FILE = Path.home() / ".youtube-downloader" / "shorts.json"
 THUMB_DIR = Path.home() / ".youtube-downloader" / "thumbnails"
 THUMB_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
 THUMB_MAX_BYTES = 10 * 1024 * 1024
+HELPER_FILE = Path.home() / ".youtube-downloader" / "helper.json"
+
+# 업로드 헬퍼: LLM 호출 방식/모델 (키는 저장값)
+LLM_BACKENDS = {
+    "cli": "Claude Code CLI (구독, claude -p)",
+    "api": "Anthropic API (ANTHROPIC_API_KEY)",
+}
+LLM_MODELS = {
+    "sonnet": {"label": "Claude Sonnet (빠름, 기본)", "cli": "sonnet", "api": "claude-sonnet-5"},
+    "opus": {"label": "Claude Opus (품질 우선)", "cli": "opus", "api": "claude-opus-5"},
+}
+LLM_TIMEOUT_SEC = 300
+LLM_MAX_INPUT_CHARS = 30000
+
+# 레시피 설명 템플릿 기본값. {{ }} 안의 문장은 그 자리에 무엇을 채울지 LLM에게 주는 설명이다.
+DEFAULT_RECIPE_TEMPLATE = """🍳 {{요리명}} 만들기
+
+{{요리를 한두 문장으로 소개. 원본에 드러난 특징(맛, 간편함, 포인트)을 담는다}}
+
+━━━━━━━━━━━━━━━━━━━━
+🧂 재료 ({{인분. 원본에 없으면 "분량 참고" 라고만 적기}})
+{{주재료를 "· 재료 분량" 형식으로 한 줄씩}}
+
+[양념]
+{{양념·소스 재료를 "· 재료 분량" 형식으로 한 줄씩. 없으면 [양념] 소제목까지 생략}}
+
+━━━━━━━━━━━━━━━━━━━━
+👩‍🍳 만드는 법
+{{조리 순서를 "1. " 번호 목록으로. 한 단계는 한두 문장, 불 세기·시간·온도는 원본 그대로 유지}}
+
+━━━━━━━━━━━━━━━━━━━━
+💡 이렇게 하면 더 맛있어요
+{{원본에 있는 팁·주의점만 "· " 목록으로. 없으면 이 섹션(소제목·구분선 포함) 전체 생략}}
+
+#레시피 #{{요리명 띄어쓰기 없이}} #집밥 #요리 #kfood {{요리와 어울리는 해시태그 2~3개}}
+"""
+DEFAULT_RECIPE_INSTRUCTIONS = """- 존댓말(~해요 체)로 친근하게. 이모지는 템플릿에 있는 것만 사용.
+- 원본의 채널명, 링크, 구독·좋아요 요청, 광고·협찬 문구, 타임스탬프는 모두 제거.
+- 재료 분량 단위는 원본 그대로(큰술/작은술/g/ml). 통일할 필요 없음.
+"""
+
+RECIPE_SYSTEM_PROMPT = """당신은 요리 유튜브 채널의 영상 설명(Description) 작성 도우미입니다.
+사용자가 붙여 넣은 '원본 레시피 설명'의 내용(재료, 분량, 조리 순서, 팁)을 살려서,
+'채널 템플릿' 형식에 맞는 새 설명 텍스트로 다시 씁니다.
+
+규칙:
+1. 템플릿의 {{ }} 자리에는 그 안의 설명대로 내용을 채우고, {{ }} 표시 자체는 결과에 남기지 않습니다.
+   템플릿의 나머지 글자(이모지, 구분선, 소제목, 고정 문구, 줄바꿈 구조)는 그대로 유지합니다.
+2. 원본에 없는 사실(재료, 분량, 시간, 온도, 인분)은 만들어 넣지 않습니다.
+   원본에 없어서 채울 수 없는 항목은 비워두거나 템플릿 지시대로 처리하고, notes에 그 사실을 적습니다.
+3. 문장은 원본을 그대로 복사하지 말고 자연스럽게 다시 씁니다. 사실 정보(재료명, 분량, 순서)는 정확히 유지합니다.
+4. 원본이 레시피가 아니거나 재료·조리 정보가 거의 없으면, 있는 정보만으로 작성하고 notes에 그 점을 적습니다.
+5. 결과는 한국어, 유튜브 설명란 한도인 5000자 이내.
+6. description에는 완성된 설명 텍스트만 넣습니다(머리말·설명·코드블록 없이).
+   notes에는 사용자가 업로드 전에 확인해야 할 점을 짧은 한국어 문장 배열로 넣습니다(없으면 빈 배열).
+"""
+RECIPE_OUTPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "description": {"type": "string", "description": "완성된 유튜브 설명 텍스트"},
+        "notes": {"type": "array", "items": {"type": "string"}, "description": "업로드 전 확인할 점"},
+    },
+    "required": ["description", "notes"],
+    "additionalProperties": False,
+}
 
 # 쇼츠 현황판 상태/플랫폼 정의 (키는 저장값, 값은 화면 라벨)
 STATUSES = {
@@ -51,6 +117,7 @@ jobs_lock = threading.Lock()
 settings_lock = threading.Lock()
 history_lock = threading.Lock()
 shorts_lock = threading.Lock()
+helper_lock = threading.Lock()
 
 
 # ---------------------------------------------------------------------------
@@ -559,6 +626,12 @@ def run_download(job_id: str, url: str, quality: str) -> None:
 # ---------------------------------------------------------------------------
 # 라우트
 # ---------------------------------------------------------------------------
+@app.get("/favicon.ico")
+def favicon():
+    """브라우저가 기본으로 요청하는 /favicon.ico → SVG 파비콘으로 응답."""
+    return send_from_directory(app.static_folder, "favicon.svg", mimetype="image/svg+xml", max_age=86400)
+
+
 @app.get("/")
 def index():
     return render_template("index.html", download_dir=str(get_download_dir()))
@@ -851,6 +924,200 @@ def api_shorts_import():
                     added += 1
         save_shorts(result)
     return jsonify({"ok": True, "added": added, "updated": updated, "total": len(result)})
+
+
+# ---- 유튜브 업로드 헬퍼 ------------------------------------------------------
+def load_helper() -> dict:
+    try:
+        with open(HELPER_FILE, encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return {}
+
+
+def recipe_defaults() -> dict:
+    return {
+        "template": DEFAULT_RECIPE_TEMPLATE,
+        "instructions": DEFAULT_RECIPE_INSTRUCTIONS,
+        "model": "sonnet",
+        "backend": "cli",
+    }
+
+
+def normalize_recipe_settings(data: dict, base: dict | None = None) -> dict:
+    """레시피 설명 도구 설정을 검증한다. base 위에 보낸 필드만 덮어쓴다."""
+    cur = dict(base or recipe_defaults())
+    if "template" in data:
+        cur["template"] = _s(data.get("template"), LLM_MAX_INPUT_CHARS)
+    if "instructions" in data:
+        cur["instructions"] = _s(data.get("instructions"), 5000)
+    if "model" in data:
+        m = data.get("model")
+        if m not in LLM_MODELS:
+            raise ValueError(f"알 수 없는 모델입니다: {m!r}")
+        cur["model"] = m
+    if "backend" in data:
+        b = data.get("backend")
+        if b not in LLM_BACKENDS:
+            raise ValueError(f"알 수 없는 호출 방식입니다: {b!r}")
+        cur["backend"] = b
+    return cur
+
+
+def get_recipe_settings() -> dict:
+    saved = load_helper().get("recipe") or {}
+    try:
+        return normalize_recipe_settings(saved)
+    except ValueError:
+        return recipe_defaults()
+
+
+def llm_environment() -> dict:
+    return {
+        "cli_available": shutil.which("claude") is not None,
+        "api_key_set": bool(os.environ.get("ANTHROPIC_API_KEY")),
+    }
+
+
+def _llm_via_cli(system: str, user: str, schema: dict, model: str) -> dict:
+    """로컬 Claude Code CLI(구독)를 헤드리스로 실행해 JSON 결과를 받는다."""
+    exe = shutil.which("claude")
+    if exe is None:
+        raise RuntimeError("Claude Code CLI(claude)를 찾을 수 없습니다. 설치하거나 호출 방식을 API로 바꿔 주세요.")
+    cmd = [
+        exe, "-p",
+        "--output-format", "json",
+        "--json-schema", json.dumps(schema, ensure_ascii=False),
+        "--system-prompt", system,
+        "--model", model,
+        "--max-turns", "4",
+        "--no-session-persistence",
+        "--tools", "",
+        "--permission-mode", "dontAsk",
+    ]  # 프롬프트는 stdin으로: 가변 인자 옵션(--tools)이 뒤따르는 인자를 삼키지 않도록
+    env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}  # Claude Code 안에서 실행해도 중첩 허용
+    try:
+        proc = subprocess.run(cmd, input=user, capture_output=True, text=True, timeout=LLM_TIMEOUT_SEC, env=env)
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError(f"Claude 응답이 {LLM_TIMEOUT_SEC}초 안에 오지 않았습니다.") from e
+    if proc.returncode != 0:
+        raise RuntimeError(f"claude -p 실패 ({proc.returncode}): {(proc.stderr or proc.stdout)[-800:].strip()}")
+    try:
+        data = json.loads(proc.stdout)
+    except json.JSONDecodeError as e:
+        raise RuntimeError(f"claude -p 출력이 JSON이 아닙니다: {proc.stdout[:300]}") from e
+    if data.get("is_error"):
+        raise RuntimeError(f"claude -p 오류: {str(data.get('result'))[:500]}")
+    payload = data.get("structured_output")
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"구조화된 결과가 없습니다 ({data.get('subtype')}): {str(data.get('result'))[:300]}")
+    payload["_usage"] = {"cost_usd": data.get("total_cost_usd"), "duration_ms": data.get("duration_ms"), "backend": "cli", "model": model}
+    return payload
+
+
+def _llm_via_api(system: str, user: str, schema: dict, model: str) -> dict:
+    """Anthropic API(구조화 출력)로 JSON 결과를 받는다. anthropic 패키지가 필요하다."""
+    try:
+        import anthropic
+    except ImportError as e:
+        raise RuntimeError("anthropic 패키지가 없습니다: .venv/bin/pip install anthropic") from e
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        raise RuntimeError("ANTHROPIC_API_KEY 환경 변수가 설정되어 있지 않습니다.")
+    client = anthropic.Anthropic(timeout=LLM_TIMEOUT_SEC)
+    try:
+        resp = client.messages.create(
+            model=model,
+            max_tokens=16000,
+            system=system,
+            messages=[{"role": "user", "content": user}],
+            output_config={"format": {"type": "json_schema", "schema": schema}},
+        )
+    except anthropic.APIStatusError as e:
+        raise RuntimeError(f"API 오류 ({e.status_code}): {e.message}") from e
+    except anthropic.APIConnectionError as e:
+        raise RuntimeError(f"API 연결 실패: {e}") from e
+    if resp.stop_reason == "refusal":
+        raise RuntimeError("모델이 요청을 거절했습니다.")
+    text = next((b.text for b in resp.content if b.type == "text"), "")
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError as e:
+        raise RuntimeError(f"API 응답이 JSON이 아닙니다: {text[:300]}") from e
+    payload["_usage"] = {"input_tokens": resp.usage.input_tokens, "output_tokens": resp.usage.output_tokens,
+                         "backend": "api", "model": model}
+    return payload
+
+
+def llm_structured(system: str, user: str, schema: dict, backend: str, model_key: str) -> dict:
+    spec = LLM_MODELS[model_key]
+    if backend == "api":
+        return _llm_via_api(system, user, schema, spec["api"])
+    return _llm_via_cli(system, user, schema, spec["cli"])
+
+
+def build_recipe_user_prompt(template: str, instructions: str, source_text: str) -> str:
+    parts = ["[채널 템플릿]", template.strip(), ""]
+    if instructions.strip():
+        parts += ["[추가 지시]", instructions.strip(), ""]
+    parts += ["[원본 레시피 설명]", source_text.strip()]
+    return "\n".join(parts)
+
+
+@app.get("/helper")
+def helper_page():
+    return render_template("helper.html", models=LLM_MODELS, backends=LLM_BACKENDS)
+
+
+@app.get("/api/helper/settings")
+def api_helper_settings():
+    return jsonify({
+        "recipe": get_recipe_settings(),
+        "recipe_defaults": recipe_defaults(),
+        "models": LLM_MODELS,
+        "backends": LLM_BACKENDS,
+        "env": llm_environment(),
+    })
+
+
+@app.put("/api/helper/settings")
+def api_helper_settings_save():
+    data = request.get_json(silent=True) or {}
+    with helper_lock:
+        store = load_helper()
+        if "recipe" in data:
+            try:
+                store["recipe"] = normalize_recipe_settings(data.get("recipe") or {}, get_recipe_settings())
+            except ValueError as e:
+                return jsonify({"error": str(e)}), 400
+        _write_json_atomic(HELPER_FILE, store)
+    return jsonify({"ok": True, "recipe": get_recipe_settings()})
+
+
+@app.post("/api/helper/recipe-description")
+def api_helper_recipe_description():
+    """원본 레시피 설명을 내 채널 템플릿 형식으로 변형한다. 보낸 설정은 저장하지 않는다."""
+    data = request.get_json(silent=True) or {}
+    source = _s(data.get("source_text"), LLM_MAX_INPUT_CHARS + 1)
+    if not source:
+        return jsonify({"error": "원본 레시피 설명을 붙여 넣어 주세요."}), 400
+    if len(source) > LLM_MAX_INPUT_CHARS:
+        return jsonify({"error": f"원본 텍스트는 {LLM_MAX_INPUT_CHARS:,}자 이하만 가능합니다."}), 400
+    try:
+        cfg = normalize_recipe_settings(data, get_recipe_settings())
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    if not cfg["template"].strip():
+        return jsonify({"error": "채널 템플릿이 비어 있습니다."}), 400
+
+    user_prompt = build_recipe_user_prompt(cfg["template"], cfg["instructions"], source)
+    try:
+        result = llm_structured(RECIPE_SYSTEM_PROMPT, user_prompt, RECIPE_OUTPUT_SCHEMA, cfg["backend"], cfg["model"])
+    except RuntimeError as e:
+        return jsonify({"error": str(e)}), 502
+    description = _s(result.get("description"), 20000)
+    notes = [_s(n, 500) for n in (result.get("notes") or []) if isinstance(n, str) and _s(n)]
+    return jsonify({"description": description, "notes": notes, "usage": result.get("_usage")})
 
 
 @app.get("/api/settings")

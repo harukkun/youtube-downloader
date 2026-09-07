@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+<title>유튜브 업로드 헬퍼</title>
+<style>
+  :root {
+    --bg: #0f1115; --card: #181b22; --border: #2a2f3a; --text: #e8eaf0; --muted: #8b93a7;
+    --accent: #ff3d3d; --accent-hover: #ff5c5c; --ok: #3ecf8e; --err: #ff6b6b; --warn: #ffb020; --info: #8fa6ff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Segoe UI", Roboto, sans-serif;
+    padding: 36px 20px;
+  }
+  main { max-width: 1280px; margin: 0 auto; }
+  a { color: var(--info); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 18px; flex-wrap: wrap; }
+  h1 { font-size: 24px; margin: 0; display: flex; align-items: center; gap: 10px; }
+  h1 .logo { width: 28px; height: 20px; background: var(--accent); border-radius: 6px; position: relative; }
+  h1 .logo::after { content: ""; position: absolute; left: 11px; top: 5px; border-left: 8px solid #fff; border-top: 5px solid transparent; border-bottom: 5px solid transparent; }
+  .nav { display: flex; gap: 14px; }
+  .nav a { color: var(--muted); font-size: 14px; }
+  .nav a:hover { color: var(--text); }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 16px 18px; margin-bottom: 14px; }
+
+  button {
+    background: var(--accent); color: #fff; border: 0; border-radius: 10px; padding: 9px 14px; font-size: 13px;
+    font-weight: 600; cursor: pointer; white-space: nowrap; transition: background .15s; font-family: inherit;
+  }
+  button:hover { background: var(--accent-hover); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.secondary { background: #2a2f3a; }
+  button.secondary:hover { background: #343a48; }
+  button.ghost { background: transparent; border: 1px solid var(--border); color: var(--muted); }
+  button.ghost:hover { color: var(--text); border-color: #444b5a; }
+  button.big { padding: 12px 22px; font-size: 15px; }
+  select, textarea {
+    background: #0f1115; color: var(--text); border: 1px solid var(--border); border-radius: 9px;
+    padding: 9px 12px; font-size: 14px; outline: none; font-family: inherit; width: 100%;
+  }
+  select { width: auto; }
+  select:focus, textarea:focus { border-color: var(--accent); }
+  textarea { resize: vertical; line-height: 1.55; }
+  textarea.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+  .hidden { display: none !important; }
+
+  /* 레이아웃: 왼쪽 기능 목록 + 오른쪽 작업 영역 */
+  .layout { display: grid; grid-template-columns: 240px 1fr; gap: 14px; align-items: start; }
+  .tools { padding: 10px; position: sticky; top: 20px; }
+  .tools h2 { font-size: 12px; color: var(--muted); font-weight: 600; margin: 6px 8px 10px; letter-spacing: .02em; }
+  .tool { display: block; width: 100%; text-align: left; background: transparent; border: 1px solid transparent; border-radius: 10px;
+    padding: 10px 12px; color: var(--text); font-weight: 600; font-size: 14px; }
+  .tool small { display: block; color: var(--muted); font-weight: 400; font-size: 12px; margin-top: 3px; line-height: 1.4; }
+  .tool:hover { background: rgba(255,255,255,.04); }
+  .tool.active { background: rgba(255,61,61,.1); border-color: rgba(255,61,61,.35); }
+  .tool.soon { color: var(--muted); cursor: default; font-weight: 500; }
+  .tool.soon:hover { background: transparent; }
+  .panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+  .panel-head h2 { font-size: 18px; margin: 0; }
+  .panel-head p { margin: 0; color: var(--muted); font-size: 13px; }
+
+  /* 템플릿 설정 (접이식) */
+  details.tpl > summary { cursor: pointer; font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 10px; list-style: none; }
+  details.tpl > summary::-webkit-details-marker { display: none; }
+  details.tpl > summary::before { content: "▸"; color: var(--muted); font-size: 12px; transition: transform .15s; }
+  details.tpl[open] > summary::before { transform: rotate(90deg); }
+  details.tpl > summary .state { font-size: 12px; color: var(--muted); font-weight: 400; }
+  details.tpl > summary .state.dirty { color: var(--warn); }
+  .tpl-body { margin-top: 14px; }
+  .tpl-grid { display: grid; grid-template-columns: 3fr 2fr; gap: 14px; }
+  label.f { display: block; font-size: 12px; color: var(--muted); margin: 0 0 6px; }
+  .hint { font-size: 12px; color: var(--muted); line-height: 1.5; margin-top: 6px; }
+  .hint code { background: #0f1115; border: 1px solid var(--border); border-radius: 5px; padding: 1px 5px; font-size: 11.5px; }
+  .tpl-foot { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+  .tpl-foot .spacer { flex: 1; }
+  .tpl-foot label { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+  .env { font-size: 12px; color: var(--muted); }
+  .env .bad { color: var(--warn); }
+
+  /* 입력 / 결과 */
+  .io { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .io .card { margin-bottom: 0; display: flex; flex-direction: column; }
+  .lbl-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+  .lbl-row label { margin: 0; font-size: 13px; font-weight: 600; }
+  .counter { font-size: 11px; color: var(--muted); }
+  .counter.over { color: var(--err); font-weight: 700; }
+  .io textarea { flex: 1; min-height: 420px; }
+  .btns { display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+  .btns .spacer { flex: 1; }
+  .notes { margin-top: 12px; padding: 10px 14px; border-radius: 10px; background: rgba(255,176,32,.08); border: 1px solid rgba(255,176,32,.3); font-size: 13px; }
+  .notes b { color: var(--warn); display: block; margin-bottom: 4px; font-size: 12px; }
+  .notes ul { margin: 0; padding-left: 18px; line-height: 1.6; }
+  .msg { margin-top: 12px; padding: 10px 14px; border-radius: 10px; font-size: 13px; line-height: 1.5; }
+  .msg.err { background: rgba(255,107,107,.12); color: var(--err); border: 1px solid rgba(255,107,107,.3); }
+  .msg.ok { background: rgba(62,207,142,.12); color: var(--ok); border: 1px solid rgba(62,207,142,.3); }
+  .usage { font-size: 11.5px; color: var(--muted); }
+  .spinner { display: inline-block; width: 13px; height: 13px; border: 2px solid rgba(255,255,255,.3);
+    border-top-color: #fff; border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -2px; margin-right: 6px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .placeholder { color: var(--muted); font-size: 14px; text-align: center; padding: 40px 0; }
+
+  #toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%) translateY(20px); background: #222733; color: var(--text); border: 1px solid var(--border);
+    padding: 10px 18px; border-radius: 10px; font-size: 13px; opacity: 0; transition: all .2s; z-index: 200; pointer-events: none; }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  #toast.err { border-color: var(--err); color: var(--err); }
+  .footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 16px; }
+
+  @media (max-width: 980px) {
+    .layout { grid-template-columns: 1fr; }
+    .tools { position: static; }
+    .io, .tpl-grid { grid-template-columns: 1fr; }
+    .io textarea { min-height: 260px; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <div class="head">
+    <h1><span class="logo"></span>유튜브 업로드 헬퍼</h1>
+    <div class="nav"><a href="/">← 유튜브 다운로더</a><a href="/shorts">쇼츠 현황판 →</a></div>
+  </div>
+
+  <div class="layout">
+    <!-- 기능 목록: 새 기능은 여기 버튼 하나 + 아래 section.panel 하나를 추가한다 -->
+    <aside class="card tools">
+      <h2>기능</h2>
+      <button type="button" class="tool active" data-tool="recipe">📝 레시피 설명 텍스트<small>다른 레시피 설명 → 내 채널 템플릿 형식</small></button>
+      <div class="tool soon">＋ 더 많은 기능 준비 중<small>제목·태그·고정 댓글 등</small></div>
+    </aside>
+
+    <div>
+      <!-- 기능 1: 레시피 설명 텍스트 제작 -->
+      <section class="panel" data-tool="recipe">
+        <div class="panel-head">
+          <h2>레시피 설명 텍스트 제작</h2>
+          <p>다른 채널의 레시피 설명을 붙여 넣으면, 재료·조리 순서는 그대로 살리고 내 채널 템플릿 형식으로 다시 씁니다.</p>
+        </div>
+
+        <section class="card">
+          <details class="tpl" id="tplBox">
+            <summary>내 채널 템플릿 <span class="state" id="tplState"></span></summary>
+            <div class="tpl-body">
+              <div class="tpl-grid">
+                <div>
+                  <label class="f" for="tplText">설명 템플릿</label>
+                  <textarea id="tplText" class="mono" rows="18" spellcheck="false"></textarea>
+                  <div class="hint">그대로 남길 글자(이모지·구분선·소제목·고정 문구)는 그냥 쓰고, 채울 자리는 <code>{% raw %}{{ 여기에 무엇을 넣을지 설명 }}{% endraw %}</code> 형식으로 적습니다.</div>
+                </div>
+                <div>
+                  <label class="f" for="insText">추가 지시 (말투, 제거할 것 등)</label>
+                  <textarea id="insText" rows="8" spellcheck="false"></textarea>
+                  <div class="hint">원본에 없는 재료·분량·시간은 만들어 넣지 않도록 항상 지시됩니다. 여기에는 채널 고유의 규칙만 적으면 됩니다.</div>
+                </div>
+              </div>
+              <div class="tpl-foot">
+                <label>모델
+                  <select id="modelSel">
+                    {% for k, m in models.items() %}<option value="{{ k }}">{{ m.label }}</option>{% endfor %}
+                  </select>
+                </label>
+                <label>호출 방식
+                  <select id="backendSel">
+                    {% for k, v in backends.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}
+                  </select>
+                </label>
+                <span class="env" id="envInfo"></span>
+                <span class="spacer"></span>
+                <button type="button" class="ghost" id="tplResetBtn">기본값 복원</button>
+                <button type="button" class="secondary" id="tplSaveBtn">템플릿 저장</button>
+              </div>
+              <div class="msg hidden" id="tplMsg"></div>
+            </div>
+          </details>
+        </section>
+
+        <div class="io">
+          <section class="card">
+            <div class="lbl-row">
+              <label for="srcText">원본 레시피 설명</label>
+              <span class="counter" id="srcCount">0자</span>
+            </div>
+            <textarea id="srcText" placeholder="다른 채널의 영상 설명란에 있는 레시피 텍스트를 여기에 붙여 넣으세요.&#10;(재료, 분량, 만드는 순서가 포함된 부분이면 충분합니다)"></textarea>
+            <div class="btns">
+              <button type="button" class="ghost" id="pasteBtn">클립보드에서 붙여넣기</button>
+              <button type="button" class="ghost" id="clearSrcBtn">지우기</button>
+              <span class="spacer"></span>
+              <button type="button" class="big" id="genBtn">내 템플릿으로 변형 →</button>
+            </div>
+          </section>
+
+          <section class="card">
+            <div class="lbl-row">
+              <label for="outText">내 채널 형식 결과</label>
+              <span class="counter" id="outCount">0 / 5000자</span>
+            </div>
+            <textarea id="outText" placeholder="변형된 설명 텍스트가 여기에 표시됩니다. 직접 고쳐서 복사할 수 있습니다."></textarea>
+            <div class="notes hidden" id="notesBox"><b>⚠ 업로드 전 확인</b><ul id="notesList"></ul></div>
+            <div class="btns">
+              <span class="usage" id="usageInfo"></span>
+              <span class="spacer"></span>
+              <button type="button" class="ghost" id="clearOutBtn">지우기</button>
+              <button type="button" id="copyBtn">📋 결과 복사</button>
+            </div>
+          </section>
+        </div>
+        <div class="msg err hidden" id="genErr"></div>
+      </section>
+    </div>
+  </div>
+
+  <p class="footer">Claude로 생성합니다 · 결과는 업로드 전에 꼭 한 번 읽어 보세요.</p>
+</main>
+
+<div id="toast"></div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const MODELS = {{ models | tojson }};
+  let toastTimer = null;
+  let saved = null;        // 서버에 저장된 레시피 설정
+  let defaults = null;     // 기본값 (기본값 복원용)
+
+  function toast(msg, isErr = false) {
+    const t = $('toast'); t.textContent = msg; t.className = 'show' + (isErr ? ' err' : '');
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => t.className = '', 1800);
+  }
+  async function api(method, url, body) {
+    const opt = { method, headers: {} };
+    if (body !== undefined) { opt.headers['Content-Type'] = 'application/json'; opt.body = JSON.stringify(body); }
+    const r = await fetch(url, opt);
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || ('요청 실패 (' + r.status + ')'));
+    return data;
+  }
+  function showMsg(el, text, kind) {
+    el.textContent = text; el.className = 'msg ' + kind; el.classList.toggle('hidden', !text);
+  }
+
+  // ---- 기능 전환 (왼쪽 목록) -------------------------------------------------
+  document.querySelectorAll('.tool[data-tool]').forEach(b => b.addEventListener('click', () => selectTool(b.dataset.tool)));
+  function selectTool(key) {
+    document.querySelectorAll('.tool[data-tool]').forEach(b => b.classList.toggle('active', b.dataset.tool === key));
+    document.querySelectorAll('.panel[data-tool]').forEach(p => p.classList.toggle('hidden', p.dataset.tool !== key));
+    try { localStorage.setItem('helper.tool', key); } catch {}
+  }
+  selectTool((() => { try { return localStorage.getItem('helper.tool'); } catch { return null; } })() || 'recipe');
+
+  // ---- 템플릿 설정 ------------------------------------------------------------
+  function currentRecipeSettings() {
+    return { template: $('tplText').value, instructions: $('insText').value, model: $('modelSel').value, backend: $('backendSel').value };
+  }
+  function fillRecipeSettings(s) {
+    $('tplText').value = s.template || ''; $('insText').value = s.instructions || '';
+    $('modelSel').value = s.model || 'sonnet'; $('backendSel').value = s.backend || 'cli';
+    updateTplState();
+  }
+  function isDirty() {
+    if (!saved) return false;
+    const c = currentRecipeSettings();
+    return ['template', 'instructions', 'model', 'backend'].some(k => (c[k] || '') !== (saved[k] || ''));
+  }
+  function updateTplState() {
+    const st = $('tplState');
+    const dirty = isDirty();
+    st.textContent = dirty ? '· 저장되지 않은 변경 있음 (변형에는 현재 내용이 쓰입니다)' : ('· ' + (MODELS[$('modelSel').value]?.label || ''));
+    st.classList.toggle('dirty', dirty);
+  }
+  ['tplText', 'insText', 'modelSel', 'backendSel'].forEach(id => {
+    $(id).addEventListener('input', updateTplState); $(id).addEventListener('change', updateTplState);
+  });
+
+  function renderEnv(env) {
+    const parts = [];
+    parts.push(env.cli_available ? 'CLI 사용 가능' : '<span class="bad">CLI(claude) 없음</span>');
+    parts.push(env.api_key_set ? 'API 키 있음' : '<span class="bad">API 키 없음</span>');
+    $('envInfo').innerHTML = parts.join(' · ');
+  }
+
+  async function loadSettings() {
+    try {
+      const d = await api('GET', '/api/helper/settings');
+      saved = d.recipe; defaults = d.recipe_defaults;
+      fillRecipeSettings(saved);
+      renderEnv(d.env || {});
+    } catch (e) { showMsg($('tplMsg'), '설정을 불러오지 못했습니다: ' + e.message, 'err'); }
+  }
+
+  $('tplSaveBtn').addEventListener('click', async () => {
+    const btn = $('tplSaveBtn'); btn.disabled = true;
+    try {
+      const d = await api('PUT', '/api/helper/settings', { recipe: currentRecipeSettings() });
+      saved = d.recipe; updateTplState();
+      showMsg($('tplMsg'), '템플릿을 저장했습니다. 다음 실행 때도 유지됩니다.', 'ok');
+      setTimeout(() => showMsg($('tplMsg'), '', ''), 2500);
+    } catch (e) { showMsg($('tplMsg'), e.message, 'err'); }
+    finally { btn.disabled = false; }
+  });
+  $('tplResetBtn').addEventListener('click', () => {
+    if (!defaults) return;
+    if (!confirm('템플릿과 추가 지시를 기본값으로 되돌릴까요? (저장을 눌러야 적용됩니다)')) return;
+    fillRecipeSettings({ ...defaults, model: $('modelSel').value, backend: $('backendSel').value });
+  });
+
+  // ---- 입력 / 결과 ------------------------------------------------------------
+  function updateCounts() {
+    const n = $('srcText').value.length;
+    $('srcCount').textContent = n.toLocaleString() + '자';
+    const m = $('outText').value.length;
+    $('outCount').textContent = m.toLocaleString() + ' / 5,000자';
+    $('outCount').classList.toggle('over', m > 5000);
+  }
+  $('srcText').addEventListener('input', () => { updateCounts(); try { localStorage.setItem('helper.recipe.src', $('srcText').value); } catch {} });
+  $('outText').addEventListener('input', updateCounts);
+  try { $('srcText').value = localStorage.getItem('helper.recipe.src') || ''; } catch {}
+  updateCounts();
+
+  $('pasteBtn').addEventListener('click', async () => {
+    try {
+      const t = await navigator.clipboard.readText();
+      if (!t) { toast('클립보드가 비어 있습니다', true); return; }
+      $('srcText').value = t; $('srcText').dispatchEvent(new Event('input'));
+    } catch { toast('클립보드를 읽을 수 없습니다. 직접 붙여 넣어 주세요 (⌘V)', true); $('srcText').focus(); }
+  });
+  $('clearSrcBtn').addEventListener('click', () => { $('srcText').value = ''; $('srcText').dispatchEvent(new Event('input')); $('srcText').focus(); });
+  $('clearOutBtn').addEventListener('click', () => { setResult('', [], null); });
+
+  function setResult(text, notes, usage) {
+    $('outText').value = text || '';
+    $('notesList').innerHTML = (notes || []).map(n => '<li>' + n.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])) + '</li>').join('');
+    $('notesBox').classList.toggle('hidden', !(notes && notes.length));
+    let u = '';
+    if (usage) {
+      const bits = [];
+      if (usage.model) bits.push(usage.model);
+      if (usage.duration_ms) bits.push((usage.duration_ms / 1000).toFixed(1) + '초');
+      if (usage.cost_usd != null) bits.push('$' + Number(usage.cost_usd).toFixed(3) + ' 상당');
+      if (usage.input_tokens != null) bits.push(usage.input_tokens + '→' + usage.output_tokens + ' 토큰');
+      u = bits.join(' · ');
+    }
+    $('usageInfo').textContent = u;
+    updateCounts();
+  }
+
+  let generating = false;
+  $('genBtn').addEventListener('click', async () => {
+    if (generating) return;
+    const src = $('srcText').value.trim();
+    if (!src) { toast('원본 레시피 설명을 붙여 넣어 주세요', true); $('srcText').focus(); return; }
+    generating = true;
+    const btn = $('genBtn'); const label = btn.innerHTML;
+    btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>변형 중… (수십 초 걸릴 수 있어요)';
+    showMsg($('genErr'), '', 'err');
+    const started = Date.now();
+    try {
+      const d = await api('POST', '/api/helper/recipe-description', { source_text: src, ...currentRecipeSettings() });
+      setResult(d.description, d.notes, d.usage);
+      toast('완료 (' + ((Date.now() - started) / 1000).toFixed(0) + '초)');
+    } catch (e) {
+      showMsg($('genErr'), e.message, 'err');
+    } finally {
+      generating = false; btn.disabled = false; btn.innerHTML = label;
+    }
+  });
+
+  $('copyBtn').addEventListener('click', async () => {
+    const text = $('outText').value;
+    if (!text) { toast('복사할 내용이 없습니다', true); return; }
+    try { await navigator.clipboard.writeText(text); }
+    catch { $('outText').focus(); $('outText').select(); document.execCommand('copy'); }
+    toast('클립보드에 복사했습니다');
+  });
+
+  loadSettings();
+</script>
+</body>
+</html>
