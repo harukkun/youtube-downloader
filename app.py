@@ -116,6 +116,8 @@ PLATFORMS = {
 }
 
 app = Flask(__name__)
+# 로컬 UI 수정 시 이전 HTML과 최신 정적 스크립트가 섞이지 않도록 한다.
+app.config["TEMPLATES_AUTO_RELOAD"] = True
 
 # job_id -> 진행 상태 딕셔너리
 jobs: dict[str, dict] = {}
@@ -822,6 +824,11 @@ def api_history_clear():
 
 
 # ---- 쇼츠 현황판 (시트 뷰어) ----------------------------------------------------
+@app.get("/thumbnail")
+def thumbnail_page():
+    return render_template("thumbnail.html")
+
+
 @app.get("/shorts")
 def shorts_page():
     return render_template("shorts.html", statuses=STATUSES, platforms=PLATFORMS)
