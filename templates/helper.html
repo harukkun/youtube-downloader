@@ -129,16 +129,16 @@
     <!-- 기능 목록: 새 기능은 여기 버튼 하나 + 아래 section.panel 하나를 추가한다 -->
     <aside class="card tools">
       <h2>기능</h2>
-      <button type="button" class="tool active" data-tool="recipe">📝 레시피 설명 텍스트<small>다른 레시피 설명 → 내 채널 템플릿 형식</small></button>
+      <button type="button" class="tool active" data-tool="recipe">📝 SNS 레시피 게시글<small>원본 레시피 → 인스타그램·스레드 게시글</small></button>
       <div class="tool soon">＋ 더 많은 기능 준비 중<small>제목·태그·고정 댓글 등</small></div>
     </aside>
 
     <div>
-      <!-- 기능 1: 레시피 설명 텍스트 제작 -->
+      <!-- 기능 1: SNS 레시피 게시글 제작 -->
       <section class="panel" data-tool="recipe">
         <div class="panel-head">
-          <h2>레시피 설명 텍스트 제작</h2>
-          <p>다른 채널의 레시피 설명을 붙여 넣으면, 재료·조리 순서는 그대로 살리고 내 채널 템플릿 형식으로 다시 씁니다.</p>
+          <h2>SNS 레시피 게시글 제작</h2>
+          <p>다른 채널의 레시피 설명을 붙여 넣으면, 출처·재료·조리 순서를 살려 SNS 게시글로 다시 씁니다.</p>
         </div>
 
         <section class="card">
@@ -195,8 +195,8 @@
 
           <section class="card">
             <div class="lbl-row">
-              <label for="outText">내 채널 형식 결과</label>
-              <span class="counter" id="outCount">0 / 5000자</span>
+              <label for="outText">SNS 게시글 결과</label>
+              <span class="counter" id="outCount">0자 · 권장 300–500자</span>
             </div>
             <textarea id="outText" placeholder="변형된 설명 텍스트가 여기에 표시됩니다. 직접 고쳐서 복사할 수 있습니다."></textarea>
             <div class="notes hidden" id="notesBox"><b>⚠ 업로드 전 확인</b><ul id="notesList"></ul></div>
@@ -213,7 +213,7 @@
     </div>
   </div>
 
-  <p class="footer">Claude로 생성합니다 · 결과는 업로드 전에 꼭 한 번 읽어 보세요.</p>
+  <p class="footer">선택한 GPT 또는 Claude 모델로 생성합니다 · 결과는 업로드 전에 꼭 한 번 읽어 보세요.</p>
 </main>
 
 <div id="toast"></div>
@@ -256,8 +256,8 @@
   }
   function fillRecipeSettings(s) {
     $('tplText').value = s.template || ''; $('insText').value = s.instructions || '';
-    $('modelSel').value = s.model || 'sonnet'; $('backendSel').value = s.backend || 'cli';
-    updateTplState();
+    $('modelSel').value = s.model || 'gpt-5.4-mini'; $('backendSel').value = s.backend || 'codex';
+    filterModels(); updateTplState();
   }
   function isDirty() {
     if (!saved) return false;
@@ -274,8 +274,16 @@
     $(id).addEventListener('input', updateTplState); $(id).addEventListener('change', updateTplState);
   });
 
+  function filterModels() {
+    const codex = $('backendSel').value === 'codex';
+    for (const option of $('modelSel').options) {
+      option.hidden = option.disabled = !!MODELS[option.value].codex !== codex;
+    }
+    if ($('modelSel').selectedOptions[0]?.disabled) $('modelSel').value = codex ? 'gpt-5.4-mini' : 'sonnet';
+  }
+  $('backendSel').addEventListener('change', () => { filterModels(); updateTplState(); });
   function renderEnv(env) {
-    const parts = [];
+    const parts = [env.codex_available ? "Codex CLI 사용 가능" : "Codex CLI 없음"];
     parts.push(env.cli_available ? 'CLI 사용 가능' : '<span class="bad">CLI(claude) 없음</span>');
     parts.push(env.api_key_set ? 'API 키 있음' : '<span class="bad">API 키 없음</span>');
     $('envInfo').innerHTML = parts.join(' · ');
@@ -310,9 +318,9 @@
   function updateCounts() {
     const n = $('srcText').value.length;
     $('srcCount').textContent = n.toLocaleString() + '자';
-    const m = $('outText').value.length;
-    $('outCount').textContent = m.toLocaleString() + ' / 5,000자';
-    $('outCount').classList.toggle('over', m > 5000);
+    const m = Array.from($('outText').value).length;
+    $('outCount').textContent = m.toLocaleString() + '자 · 권장 300–500자';
+    $('outCount').classList.toggle('over', m > 500 || (m > 0 && m < 300));
   }
   $('srcText').addEventListener('input', () => { updateCounts(); try { localStorage.setItem('helper.recipe.src', $('srcText').value); } catch {} });
   $('outText').addEventListener('input', updateCounts);
