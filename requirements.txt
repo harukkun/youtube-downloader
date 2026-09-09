@@ -1,3 +1,4 @@
 flask>=3.0
+waitress>=3.0.2,<4
 yt-dlp
 anthropic>=1.0  # 업로드 헬퍼: 호출 방식을 API로 쓸 때만 필요

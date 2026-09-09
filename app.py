@@ -25,9 +25,12 @@ from pathlib import Path
 
 import yt_dlp
 from flask import Flask, jsonify, redirect, render_template, request, send_from_directory
+from access_control import install_access_control
 
-HOST = "127.0.0.1"
-PORT = 8765
+HOST = os.environ.get("HOST", "127.0.0.1")
+PORT = int(os.environ.get("PORT", "8765"))
+if not 1 <= PORT <= 65535:
+    raise ValueError("PORT는 1–65535여야 합니다.")
 DEFAULT_DOWNLOAD_DIR = Path.home() / "Downloads"
 # 사용자(로컬 계정)별 설정 파일 - 저장 경로 등을 기억한다
 CONFIG_FILE = Path.home() / ".youtube-downloader" / "config.json"
@@ -48,9 +51,10 @@ LLM_MODELS = {
     "sonnet": {"label": "Claude Sonnet (빠름, 기본)", "cli": "sonnet", "api": "claude-sonnet-5"},
     "opus": {"label": "Claude Opus (품질 우선)", "cli": "opus", "api": "claude-opus-5"},
 }
-CODEX_MODELS = ("gpt-5.6-sol", "gpt-6-astra", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5", "gpt-5.4-mini")
+DEFAULT_CODEX_MODEL = "gpt-5.6-sol"
+CODEX_MODELS = ("gpt-5.6-sol", "gpt-6-astra", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5")
 for _model in CODEX_MODELS:
-    LLM_MODELS[_model] = {"label": _model + (" (기본)" if _model == "gpt-5.4-mini" else ""), "codex": _model}
+    LLM_MODELS[_model] = {"label": _model + (" (기본)" if _model == DEFAULT_CODEX_MODEL else ""), "codex": _model}
 
 LLM_TIMEOUT_SEC = 300
 LLM_MAX_INPUT_CHARS = 30000
@@ -132,6 +136,7 @@ PLATFORMS = {
 app = Flask(__name__)
 # 로컬 UI 수정 시 이전 HTML과 최신 정적 스크립트가 섞이지 않도록 한다.
 app.config["TEMPLATES_AUTO_RELOAD"] = True
+install_access_control(app)
 
 # job_id -> 진행 상태 딕셔너리
 jobs: dict[str, dict] = {}
@@ -920,7 +925,7 @@ def recipe_defaults() -> dict:
         "format_version": RECIPE_FORMAT_VERSION,
         "template": DEFAULT_RECIPE_TEMPLATE,
         "instructions": DEFAULT_RECIPE_INSTRUCTIONS,
-        "model": "gpt-5.4-mini",
+        "model": DEFAULT_CODEX_MODEL,
         "backend": "codex",
         "backend_version": 1,
     }
@@ -953,7 +958,7 @@ def normalize_recipe_settings(data: dict, base: dict | None = None) -> dict:
 def get_recipe_settings() -> dict:
     saved = load_helper().get("recipe") or {}
     if saved.get("backend_version") != 1:
-        saved = {**saved, "model": "gpt-5.4-mini", "backend": "codex"}
+        saved = {**saved, "model": DEFAULT_CODEX_MODEL, "backend": "codex"}
     if saved.get("format_version") != RECIPE_FORMAT_VERSION:
         # 이전 유튜브 템플릿/출처 제거 지시가 SNS 규칙을 덮어쓰지 않도록 한다.
         saved = {k: v for k, v in saved.items() if k in ("model", "backend")}
@@ -1072,6 +1077,10 @@ def _llm_via_api(system: str, user: str, schema: dict, model: str) -> dict:
 
 
 def llm_structured(system: str, user: str, schema: dict, backend: str, model_key: str) -> dict:
+    # 오래된 helper.json이나 이전 브라우저 설정이 남아 있어도
+    # Codex 계정에서 지원되지 않는 모델을 CLI에 넘기지 않는다.
+    if backend == "codex" and model_key not in CODEX_MODELS:
+        model_key = DEFAULT_CODEX_MODEL
     spec = LLM_MODELS[model_key]
     if backend == "codex":
         return _llm_via_codex(system, user, schema, spec["codex"])
@@ -1176,7 +1185,8 @@ def api_choose_folder():
 
 
 def _open_browser() -> None:
-    webbrowser.open(f"http://{HOST}:{PORT}")
+    browser_host = "127.0.0.1" if HOST in ("0.0.0.0", "::") else HOST
+    webbrowser.open(f"http://{browser_host}:{PORT}")
 
 
 if __name__ == "__main__":

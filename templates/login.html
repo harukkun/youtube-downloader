@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>로그인 · 콘텐츠 작업실</title>
+<link rel="icon" href="/static/favicon.svg">
+<style>
+  * { box-sizing: border-box; }
+  body { margin:0; min-height:100svh; display:grid; place-items:center; padding:24px; background:#101218; color:#f2f3f5; font-family:"Apple SD Gothic Neo",sans-serif; }
+  main { width:min(100%,420px); border-top:4px solid #ff3d3d; padding:36px 28px; background:#181b22; border-radius:4px 4px 18px 18px; }
+  .label { color:#ff7373; font-size:13px; letter-spacing:2px; }
+  h1 { font-size:28px; margin:12px 0; } p { color:#a7adba; line-height:1.6; }
+  label { display:block; margin:28px 0 8px; font-size:14px; }
+  input,button { width:100%; border-radius:9px; font:inherit; padding:14px; }
+  input { background:#101218; color:white; border:1px solid #414858; }
+  button { background:#ff3d3d; color:white; border:0; margin-top:16px; cursor:pointer; font-weight:700; }
+  :focus-visible { outline:2px solid #ff9191; outline-offset:3px; }
+  .error { color:#ff9898; font-size:14px; }
+</style>
+<main>
+  <div class="label">CONTENTS STUDIO</div>
+  <h1>콘텐츠 작업실</h1>
+  <p>작업실 비밀번호를 입력해 주세요.</p>
+  <form method="post">
+    <label for="password">비밀번호</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" required autofocus>
+    {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+    <button type="submit">작업실 들어가기</button>
+  </form>
+</main>
+</html>
