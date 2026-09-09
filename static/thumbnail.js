@@ -48,7 +48,11 @@
     ctx.fillStyle = '#171a21'; ctx.fillRect(0, 0, 1080, 1920);
     if (frame) { const c = crop(); ctx.drawImage(frame, c.x, c.y, c.width, c.height); }
     if (frame && fontReady) { drawText('subtitle'); drawText('title'); }
-    $('empty').hidden = !!frame;
+    const empty = $('empty');
+    empty.hidden = !!frame;
+    // 헬퍼 페이지처럼 다른 레이아웃 CSS가 함께 적용되는 경우에도
+    // 안내 오버레이가 캔버스를 덮지 않도록 표시 상태를 직접 동기화한다.
+    empty.style.display = frame ? 'none' : 'flex';
     controls();
   }
   async function loadFont() {
