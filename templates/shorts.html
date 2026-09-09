@@ -25,6 +25,15 @@
   h1 .logo::after { content: ""; position: absolute; left: 11px; top: 5px; border-left: 8px solid #fff; border-top: 5px solid transparent; border-bottom: 5px solid transparent; }
   .nav a { color: var(--muted); font-size: 14px; }
   .nav a:hover { color: var(--text); }
+  .global-nav { display:flex; align-items:center; justify-content:space-between; gap:20px; margin-bottom:22px; padding:10px 12px 10px 14px; background:rgba(24,27,34,.82); border:1px solid var(--border); border-radius:14px; }
+  .global-nav .brand { display:flex; align-items:center; gap:9px; color:var(--text); font-weight:700; font-size:14px; white-space:nowrap; }
+  .global-nav .brand .logo { width:24px; height:17px; background:var(--accent); border-radius:5px; position:relative; }
+  .global-nav .brand .logo::after { content:""; position:absolute; left:9px; top:4px; border-left:7px solid #fff; border-top:4.5px solid transparent; border-bottom:4.5px solid transparent; }
+  .global-nav .links { display:flex; gap:4px; flex-wrap:wrap; justify-content:flex-end; }
+  .global-nav a { color:var(--muted); font-size:13px; padding:8px 11px; border-radius:9px; text-decoration:none; }
+  .global-nav a:hover, .global-nav a:focus-visible { color:var(--text); background:#2a2f3a; outline:none; }
+  .global-nav a[aria-current="page"] { color:var(--text); background:rgba(255,61,61,.14); box-shadow:inset 0 0 0 1px rgba(255,61,61,.35); }
+  @media (max-width:700px) { .global-nav { align-items:flex-start; flex-direction:column; gap:8px; } .global-nav .links { justify-content:flex-start; } }
   .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 16px 18px; margin-bottom: 14px; }
 
   button {
@@ -143,10 +152,8 @@
 </head>
 <body>
 <main>
-  <div class="head">
-    <h1><span class="logo"></span>쇼츠 현황판</h1>
-    <div class="nav" style="display:flex;gap:14px"><a href="/">← 유튜브 다운로더</a><a href="/thumbnail" style="color:var(--muted);font-size:14px;text-decoration:none">썸네일 만들기 →</a><a href="/helper">업로드 헬퍼 →</a></div>
-  </div>
+  <nav class="global-nav" aria-label="주요 메뉴"><a class="brand" href="/"><span class="logo"></span>콘텐츠 작업실</a><div class="links"><a href="/">다운로드</a><a href="/helper">업로드 헬퍼</a><a href="/shorts" aria-current="page">쇼츠 현황판</a></div></nav>
+  <div class="head"><h1><span class="logo"></span>쇼츠 현황판</h1></div>
 
   <section class="card">
     <div class="sheet-row">

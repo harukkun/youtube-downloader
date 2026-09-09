@@ -24,7 +24,7 @@ import webbrowser
 from pathlib import Path
 
 import yt_dlp
-from flask import Flask, jsonify, render_template, request, send_from_directory
+from flask import Flask, jsonify, redirect, render_template, request, send_from_directory
 
 HOST = "127.0.0.1"
 PORT = 8765
@@ -840,7 +840,7 @@ def api_history_clear():
 # ---- 쇼츠 현황판 (시트 뷰어) ----------------------------------------------------
 @app.get("/thumbnail")
 def thumbnail_page():
-    return render_template("thumbnail.html")
+    return redirect("/helper#thumbnail")
 
 
 @app.get("/shorts")

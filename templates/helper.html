@@ -5,7 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
 <title>유튜브 업로드 헬퍼</title>
+<link rel="preload" href="/static/fonts/CookieRun-Bold.otf" as="font" type="font/otf" crossorigin>
+<script src="/static/thumbnail.js" defer></script>
 <style>
+  @font-face { font-family: CookieRun; src: url('/static/fonts/CookieRun-Bold.otf') format('opentype'); font-weight: 700; font-display: block; }
   :root {
     --bg: #0f1115; --card: #181b22; --border: #2a2f3a; --text: #e8eaf0; --muted: #8b93a7;
     --accent: #ff3d3d; --accent-hover: #ff5c5c; --ok: #3ecf8e; --err: #ff6b6b; --warn: #ffb020; --info: #8fa6ff;
@@ -26,6 +29,15 @@
   .nav { display: flex; gap: 14px; }
   .nav a { color: var(--muted); font-size: 14px; }
   .nav a:hover { color: var(--text); }
+  .global-nav { display:flex; align-items:center; justify-content:space-between; gap:20px; margin-bottom:22px; padding:10px 12px 10px 14px; background:rgba(24,27,34,.82); border:1px solid var(--border); border-radius:14px; }
+  .global-nav .brand { display:flex; align-items:center; gap:9px; color:var(--text); font-weight:700; font-size:14px; white-space:nowrap; }
+  .global-nav .brand .logo { width:24px; height:17px; background:var(--accent); border-radius:5px; position:relative; }
+  .global-nav .brand .logo::after { content:""; position:absolute; left:9px; top:4px; border-left:7px solid #fff; border-top:4.5px solid transparent; border-bottom:4.5px solid transparent; }
+  .global-nav .links { display:flex; gap:4px; flex-wrap:wrap; justify-content:flex-end; }
+  .global-nav a { color:var(--muted); font-size:13px; padding:8px 11px; border-radius:9px; text-decoration:none; }
+  .global-nav a:hover, .global-nav a:focus-visible { color:var(--text); background:#2a2f3a; outline:none; }
+  .global-nav a[aria-current="page"] { color:var(--text); background:rgba(255,61,61,.14); box-shadow:inset 0 0 0 1px rgba(255,61,61,.35); }
+  @media (max-width:700px) { .global-nav { align-items:flex-start; flex-direction:column; gap:8px; } .global-nav .links { justify-content:flex-start; } }
   .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 16px 18px; margin-bottom: 14px; }
 
   button {
@@ -110,26 +122,73 @@
   #toast.err { border-color: var(--err); color: var(--err); }
   .footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 16px; }
 
+  /* 썸네일 만들기 기능 */
+  .thumbnail-workspace { display:grid; grid-template-columns:minmax(0,1fr) minmax(300px,440px); gap:24px; align-items:start; }
+  .thumb-card { background:var(--card); border:1px solid var(--border); border-radius:14px; padding:20px; margin-bottom:14px; }
+  .thumb-card h2 { font-size:16px; margin:0 0 18px; letter-spacing:-.3px; }
+  .thumb-card h2 > span { font-size:12px; color:var(--accent); margin-right:12px; }
+  .thumb-card .drop { border:1px dashed #515766; border-radius:10px; text-align:center; padding:24px 16px; cursor:pointer; display:block; background:#12151b; }
+  .thumb-card .drop strong, .thumb-card .drop span { display:block; }
+  .thumb-card .drop strong { font-size:15px; color:var(--text); }
+  .thumb-card .drop span { font-size:12px; margin-top:8px; }
+  .thumb-card .drop input { display:block; font-size:12px; margin:16px auto 0; max-width:100%; }
+  .thumb-card .drop.dragging, .thumb-card .drop:focus-within { border-color:var(--accent); background:#271a20; }
+  .thumb-card label { display:block; font-size:13px; color:var(--muted); margin:14px 0 8px; }
+  .thumb-card input[type=text], .thumb-card input[type=number], .thumb-card textarea, .thumb-card select { width:100%; padding:10px 12px; background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); font:inherit; font-size:14px; }
+  .thumb-card textarea { resize:vertical; }
+  .thumb-card input[type=range] { width:100%; accent-color:var(--accent); cursor:pointer; }
+  .thumb-card output { float:right; font-variant-numeric:tabular-nums; font-size:12px; color:var(--text); }
+  .thumb-card button { border:0; background:var(--accent); color:white; font:inherit; font-size:13px; font-weight:600; padding:10px 14px; border-radius:8px; cursor:pointer; }
+  .thumb-card button:hover { filter:brightness(1.12); }
+  .thumb-card button:disabled { opacity:.4; cursor:not-allowed; }
+  .thumb-card button.secondary, .thumbnail-preview button.secondary { background:#2a2f3a; }
+  .thumbnail-workspace .buttons { display:flex; gap:8px; margin-top:14px; flex-wrap:wrap; }
+  .thumbnail-workspace #capture { margin-left:auto; }
+  .thumbnail-workspace video { width:100%; max-height:280px; background:#000; border-radius:8px; margin-top:12px; }
+  .thumbnail-workspace .status { font-size:12px; line-height:1.6; color:var(--muted); overflow-wrap:anywhere; }
+  .thumbnail-workspace .status.error { color:#ff8585; }
+  .thumbnail-workspace .type-controls { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin-bottom:18px; }
+  .thumbnail-workspace .type-controls label { font-size:11px; }
+  .thumbnail-workspace .color-controls { display:flex; gap:20px; margin:0 0 18px; }
+  .thumbnail-workspace .color-controls label { display:flex; align-items:center; gap:10px; margin:0; }
+  .thumbnail-workspace .color-controls input[type=color] { width:44px; height:32px; padding:3px; border:1px solid var(--border); border-radius:8px; background:var(--bg); cursor:pointer; }
+  .thumbnail-workspace .export { display:flex; align-items:end; gap:12px; border-top:1px solid var(--border); margin-top:20px; padding-top:8px; }
+  .thumbnail-workspace .export label { flex:1; margin-bottom:0; }
+  .thumbnail-workspace .export select { display:block; margin-top:8px; }
+  .thumbnail-preview { position:sticky; top:20px; }
+  .thumbnail-preview .preview-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
+  .thumbnail-preview .preview-head h2 { margin:0; font-size:16px; }
+  .thumbnail-preview .preview-head span { font-size:11px; border:1px solid var(--border); padding:6px 10px; border-radius:20px; color:var(--muted); }
+  .thumbnail-preview .canvas-wrap { position:relative; border:1px solid #363b46; border-radius:12px; overflow:hidden; background:#171a21; box-shadow:0 20px 60px #0005; }
+  .thumbnail-preview canvas { display:block; width:100%; height:auto; touch-action:none; cursor:grab; }
+  .thumbnail-preview canvas:active { cursor:grabbing; }
+  .thumbnail-preview #empty { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; background:radial-gradient(ellipse at 50% 40%,#292e39,#13161c); pointer-events:none; }
+  .thumbnail-preview #empty span { font-size:80px; font-weight:200; color:#414957; letter-spacing:-6px; margin-bottom:26px; }
+  .thumbnail-preview #empty strong { font-size:18px; }
+  .thumbnail-preview #empty p { font-size:12px; color:var(--muted); }
+
   @media (max-width: 980px) {
     .layout { grid-template-columns: 1fr; }
     .tools { position: static; }
     .io, .tpl-grid { grid-template-columns: 1fr; }
     .io textarea { min-height: 260px; }
+    .thumbnail-workspace { grid-template-columns: 1fr; }
+    .thumbnail-preview { position: static; width:100%; max-width:440px; justify-self:center; }
   }
+  @media (max-width: 560px) { .thumbnail-workspace .type-controls { grid-template-columns:1fr; gap:4px; } .thumbnail-workspace .color-controls { gap:12px; flex-wrap:wrap; } }
 </style>
 </head>
 <body>
 <main>
-  <div class="head">
-    <h1><span class="logo"></span>유튜브 업로드 헬퍼</h1>
-    <div class="nav"><a href="/">← 유튜브 다운로더</a><a href="/thumbnail" style="color:var(--muted);font-size:14px;text-decoration:none">썸네일 만들기 →</a><a href="/shorts">쇼츠 현황판 →</a></div>
-  </div>
+  <nav class="global-nav" aria-label="주요 메뉴"><a class="brand" href="/"><span class="logo"></span>콘텐츠 작업실</a><div class="links"><a href="/">다운로드</a><a href="/helper" aria-current="page">업로드 헬퍼</a><a href="/shorts">쇼츠 현황판</a></div></nav>
+  <div class="head"><h1><span class="logo"></span>유튜브 업로드 헬퍼</h1></div>
 
   <div class="layout">
     <!-- 기능 목록: 새 기능은 여기 버튼 하나 + 아래 section.panel 하나를 추가한다 -->
     <aside class="card tools">
       <h2>기능</h2>
       <button type="button" class="tool active" data-tool="recipe">📝 SNS 레시피 게시글<small>원본 레시피 → 인스타그램·스레드 게시글</small></button>
+      <button type="button" class="tool" data-tool="thumbnail">🖼️ 쇼츠 썸네일 만들기<small>영상 장면 선택 → 세로형 커버 저장</small></button>
       <div class="tool soon">＋ 더 많은 기능 준비 중<small>제목·태그·고정 댓글 등</small></div>
     </aside>
 
@@ -210,10 +269,18 @@
         </div>
         <div class="msg err hidden" id="genErr"></div>
       </section>
+      <!-- 기능 2: 쇼츠 썸네일 만들기 -->
+      <section class="panel hidden" data-tool="thumbnail">
+        <div class="panel-head">
+          <h2>쇼츠 썸네일 만들기</h2>
+          <p>영상 장면을 고르고 문구를 더해 9:16 쇼츠 커버를 저장합니다.</p>
+        </div>
+        {% include "thumbnail_fragment.html" %}
+      </section>
     </div>
   </div>
 
-  <p class="footer">선택한 GPT 또는 Claude 모델로 생성합니다 · 결과는 업로드 전에 꼭 한 번 읽어 보세요.</p>
+  <p class="footer">업로드에 필요한 게시글과 쇼츠 썸네일을 한 곳에서 준비하세요.</p>
 </main>
 
 <div id="toast"></div>
@@ -248,7 +315,7 @@
     document.querySelectorAll('.panel[data-tool]').forEach(p => p.classList.toggle('hidden', p.dataset.tool !== key));
     try { localStorage.setItem('helper.tool', key); } catch {}
   }
-  selectTool((() => { try { return localStorage.getItem('helper.tool'); } catch { return null; } })() || 'recipe');
+  selectTool(location.hash === '#thumbnail' ? 'thumbnail' : (() => { try { return localStorage.getItem('helper.tool'); } catch { return null; } })() || 'recipe');
 
   // ---- 템플릿 설정 ------------------------------------------------------------
   function currentRecipeSettings() {
