@@ -4,6 +4,7 @@
 선택한 화질(또는 mp3 오디오)로 ~/Downloads 에 저장한다.
 """
 
+import base64
 import csv
 import io
 import json
@@ -39,6 +40,10 @@ HISTORY_MAX = 500
 # 쇼츠 현황판: 데이터는 구글 스프레드시트(sheets/Code.gs 로 만든 '현황판' 탭)에 있고, 여기서는 CSV로 읽어 보여주기만 한다.
 SHEET_CACHE_TTL = 30          # 초. 시트 CSV 를 다시 받기 전까지 캐시 유지
 SHEET_FETCH_TIMEOUT = 15
+# 썸네일 등록: 이미지는 Flask → Apps Script 웹 앱(sheets/Code.gs doPost) → 구글 드라이브 → 시트 IMAGE() 수식 순으로 흐른다.
+SHORTS_UPLOAD_TIMEOUT = 60
+THUMB_MAX_BYTES = 8 * 1024 * 1024
+_APPS_SCRIPT_URL_RE = re.compile(r"^https://script\.google\.com/macros/s/[A-Za-z0-9_-]+/exec$")
 HELPER_FILE = Path.home() / ".youtube-downloader" / "helper.json"
 
 # 업로드 헬퍼: LLM 호출 방식/모델 (키는 저장값)
@@ -232,6 +237,7 @@ SHEET_HEADER_KEYS = {
     "네이버 클립": "naver_clip_on", "네이버 클립 링크": "naver_clip_url",
     "영상 제목": "title", "제목 글자수": "title_len", "설명": "desc", "설명 글자수": "desc_len",
     "고정 댓글": "pinned", "메모": "memo", "수정일": "updated", "등록일": "created",
+    "썸네일 링크": "thumb_url",   # 숨김 열. 재가공 쇼츠 썸네일 이미지 URL (Code.gs doPost 가 기록)
 }
 # 시트 상태 라벨(이모지 제거 후) → 상태 키. 예전 라벨도 받아 준다.
 SHEET_STATUS_KEYS = {
@@ -339,7 +345,8 @@ def parse_sheet_items(text: str) -> list[dict]:
             "reference_shorts": refs,
             "status": SHEET_STATUS_KEYS.get(_clean_header(cell(r, "status", 50)), "before"),
             "platforms": plats,
-            "video": {"title": title, "description": cell(r, "desc"), "pinned_comment": cell(r, "pinned"), "thumbnail": ""},
+            "video": {"title": title, "description": cell(r, "desc"), "pinned_comment": cell(r, "pinned"),
+                      "thumbnail": cell(r, "thumb_url", 2000)},
             "memo": cell(r, "memo", 5000),
             "updated_at": _iso(cell(r, "updated")),
             "created_at": _iso(cell(r, "created")),
@@ -358,6 +365,89 @@ def get_sheet_setting() -> dict | None:
     except ValueError:
         return None
     return {"url": url, "sheet_id": sheet_id, "gid": gid}
+
+
+def get_upload_setting() -> dict | None:
+    """썸네일 업로드용 Apps Script 웹 앱 설정 → {url, token} 또는 None."""
+    with settings_lock:
+        cfg = load_settings()
+    url, token = _s(cfg.get("shorts_upload_url"), 500), _s(cfg.get("shorts_upload_token"), 200)
+    if not url or not token or not _APPS_SCRIPT_URL_RE.match(url):
+        return None
+    return {"url": url, "token": token}
+
+
+def sniff_image(data: bytes) -> str | None:
+    """파일 머리로 이미지 형식을 판별한다. JPEG/PNG/WebP 만 허용."""
+    if data[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
+
+def apps_script_post(url: str, payload: dict, timeout: int = SHORTS_UPLOAD_TIMEOUT) -> dict:
+    """Apps Script 웹 앱에 JSON 을 POST 한다. 웹 앱은 302 로 script.googleusercontent.com 에 응답을 두는데
+    urllib 기본 핸들러가 GET 으로 따라가므로 본문을 그대로 받는다. 실패는 RuntimeError."""
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    req = urllib.request.Request(url, data=body, method="POST",
+                                 headers={"Content-Type": "application/json", "User-Agent": "youtube-downloader/1.0"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            ctype = resp.headers.get("Content-Type", "")
+            text = resp.read().decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(f"웹 앱 호출에 실패했습니다 (HTTP {e.code}). 배포 상태를 확인해 주세요.") from e
+    except (urllib.error.URLError, TimeoutError, OSError) as e:
+        raise RuntimeError(f"웹 앱에 연결할 수 없습니다: {getattr(e, 'reason', e)}") from e
+    if "text/html" in ctype:
+        raise RuntimeError("웹 앱이 로그인 페이지를 돌려줬습니다. 배포의 액세스 권한을 '모든 사용자'로, 실행 계정을 '나'로 설정해 주세요.")
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as e:
+        raise RuntimeError(f"웹 앱 응답이 JSON 이 아닙니다: {text[:200]}") from e
+    if not isinstance(data, dict):
+        raise RuntimeError("웹 앱 응답 형식이 올바르지 않습니다.")
+    return data
+
+
+def _sheet_cache_invalidate() -> None:
+    with sheet_lock:
+        _sheet_cache["at"] = 0.0
+
+
+# 방금 등록한 썸네일. 구글의 CSV 내보내기는 시트가 바뀐 뒤에도 잠시(수 초~1분) 옛 내용을 돌려주므로,
+# 시트가 따라올 때까지 서버가 기억해 두고 목록에 덧씌운다. 행 번호 + 원본 링크로 같은 항목인지 확인한다.
+RECENT_THUMB_TTL = 180
+_recent_thumbs: dict[int, dict] = {}   # row -> {"url", "src_url", "at"}
+
+
+def remember_recent_thumb(row: int, url: str, src_url: str) -> None:
+    with sheet_lock:
+        _recent_thumbs[row] = {"url": url, "src_url": src_url, "at": time.time()}
+
+
+def apply_recent_thumbs(items: list[dict]) -> list[dict]:
+    """시트(CSV)에 아직 반영되지 않은 최근 썸네일을 항목에 덧씌운다. 시트가 따라왔거나 오래된 기록은 지운다."""
+    now = time.time()
+    with sheet_lock:
+        for row in [r for r, e in _recent_thumbs.items() if now - e["at"] > RECENT_THUMB_TTL]:
+            del _recent_thumbs[row]
+        if not _recent_thumbs:
+            return items
+        pending = dict(_recent_thumbs)
+    out = []
+    for it in items:
+        e = pending.get(it["row"])
+        if e and (it["video"].get("thumbnail") == e["url"]):
+            with sheet_lock:
+                _recent_thumbs.pop(it["row"], None)      # 시트가 따라왔다
+        elif e and (not e["src_url"] or e["src_url"] == it["source"].get("url")):
+            it = {**it, "video": {**it["video"], "thumbnail": e["url"]}}
+        out.append(it)
+    return out
 
 
 def load_sheet_items(sheet_id: str, gid: str | None) -> tuple[list[dict], str | None]:
@@ -865,6 +955,9 @@ def _sheet_public(cfg: dict | None, fetched_at: float | None = None, cached: boo
         "fetched_at": datetime.fromtimestamp(fetched_at).isoformat(timespec="seconds") if fetched_at else None,
         "cached": cached,
         "cache_ttl": SHEET_CACHE_TTL,
+        # 썸네일 업로드(웹 앱) 연결 여부. 토큰은 절대 내보내지 않는다.
+        "upload_configured": get_upload_setting() is not None,
+        "upload_url": _s(load_settings().get("shorts_upload_url"), 500),
     }
 
 
@@ -876,7 +969,7 @@ def api_shorts_list():
     force = request.args.get("refresh") in ("1", "true")
     items, cached, error = sheet_items_cached(cfg, force=force)
     return jsonify({
-        "items": items, "statuses": STATUSES, "platforms": PLATFORMS,
+        "items": apply_recent_thumbs(items), "statuses": STATUSES, "platforms": PLATFORMS,
         "sheet": _sheet_public(cfg, _sheet_cache["at"] or None, cached),
         "error": error,
     })
@@ -908,6 +1001,87 @@ def api_shorts_sheet_set():
     with sheet_lock:
         _sheet_cache.update({"key": (sheet_id, gid), "at": time.time(), "items": items, "gid": used_gid})
     return jsonify({"ok": True, "sheet": _sheet_public({"url": url, "sheet_id": sheet_id, "gid": gid}, time.time(), False), "count": len(items)})
+
+
+@app.post("/api/shorts/uploader")
+def api_shorts_uploader_set():
+    """썸네일 업로드용 Apps Script 웹 앱 URL·토큰 저장. 빈 URL 이면 해제. 저장 전에 ping 으로 토큰까지 확인한다."""
+    data = request.get_json(silent=True) or {}
+    url, token = _s(data.get("url"), 500), _s(data.get("token"), 200)
+    if not url:
+        with settings_lock:
+            cfg = load_settings(); cfg.pop("shorts_upload_url", None); cfg.pop("shorts_upload_token", None); save_settings(cfg)
+        return jsonify({"ok": True, "sheet": _sheet_public(get_sheet_setting())})
+    if not _APPS_SCRIPT_URL_RE.match(url):
+        return jsonify({"error": "웹 앱 URL 형식이 아닙니다. https://script.google.com/macros/s/…/exec 형태의 주소를 넣어 주세요."}), 400
+    if not token:   # 토큰 칸을 비워 두면 저장된 토큰을 그대로 쓴다 (URL 만 바꾸는 경우)
+        with settings_lock:
+            token = _s(load_settings().get("shorts_upload_token"), 200)
+        if not token:
+            return jsonify({"error": "업로드 토큰을 입력해 주세요. 시트 메뉴 › 쇼츠 현황판 › 🔑 썸네일 업로드 연결 정보에서 확인할 수 있습니다."}), 400
+    try:
+        res = apps_script_post(url, {"action": "ping", "token": token}, timeout=SHEET_FETCH_TIMEOUT)
+    except RuntimeError as e:
+        return jsonify({"error": str(e)}), 400
+    if not res.get("ok"):
+        msg = "토큰이 맞지 않습니다. 시트 메뉴의 🔑 연결 정보와 같은지 확인해 주세요." if res.get("error") == "unauthorized" else f"웹 앱 응답 오류: {res.get('error')}"
+        return jsonify({"error": msg}), 400
+    with settings_lock:
+        cfg = load_settings(); cfg["shorts_upload_url"] = url; cfg["shorts_upload_token"] = token; save_settings(cfg)
+    return jsonify({"ok": True, "sheet": _sheet_public(get_sheet_setting())})
+
+
+@app.post("/api/shorts/thumbnail")
+def api_shorts_thumbnail_upload():
+    """재가공 쇼츠 썸네일을 시트의 특정 행에 등록한다. multipart: row, src_url, dish, file."""
+    cfg, up = get_sheet_setting(), get_upload_setting()
+    if not cfg:
+        return jsonify({"error": "먼저 구글 시트를 연결해 주세요."}), 400
+    if not up:
+        return jsonify({"error": "썸네일 업로드(웹 앱 URL·토큰)가 설정되지 않았습니다. 현황판의 썸네일 업로드 설정을 먼저 저장해 주세요."}), 400
+    try:
+        row = int(request.form.get("row", ""))
+    except ValueError:
+        return jsonify({"error": "행 번호가 올바르지 않습니다."}), 400
+    if row < 3:
+        return jsonify({"error": "데이터 행(3행 이상)만 등록할 수 있습니다."}), 400
+    f = request.files.get("file")
+    if f is None:
+        return jsonify({"error": "이미지 파일이 없습니다."}), 400
+    data = f.read(THUMB_MAX_BYTES + 1)
+    if len(data) > THUMB_MAX_BYTES:
+        return jsonify({"error": f"파일이 너무 큽니다 (최대 {THUMB_MAX_BYTES // 1024 // 1024} MB)."}), 413
+    mime = sniff_image(data)
+    if not mime:
+        return jsonify({"error": "JPG·PNG·WebP 이미지만 올릴 수 있습니다."}), 400
+    payload = {
+        "action": "thumbnail", "token": up["token"], "row": row,
+        "srcUrl": _s(request.form.get("src_url"), 2000), "dish": _s(request.form.get("dish"), 200),
+        "mime": mime, "data": base64.b64encode(data).decode("ascii"),
+    }
+    try:
+        res = apps_script_post(up["url"], payload)
+    except RuntimeError as e:
+        return jsonify({"error": str(e)}), 502
+    if not res.get("ok"):
+        code = res.get("error")
+        errors = {
+            "unauthorized": (401, "업로드 토큰이 맞지 않습니다. 현황판의 썸네일 업로드 설정에서 토큰을 다시 저장해 주세요."),
+            "row_mismatch": (409, "시트의 행이 바뀌었습니다. 현황판을 새로고침한 뒤 다시 시도해 주세요."),
+            "busy": (503, "다른 업로드가 진행 중입니다. 잠시 후 다시 시도해 주세요."),
+            "no_sheet": (502, "시트에 '현황판' 탭이 없습니다. 시트 초기 설정을 실행해 주세요."),
+        }
+        status, msg = errors.get(code, (502, f"웹 앱 오류: {code}"))
+        return jsonify({"error": msg}), status
+    final_row, url = int(res.get("row", row)), _s(res.get("url"), 2000)
+    remember_recent_thumb(final_row, url, payload["srcUrl"])
+    _sheet_cache_invalidate()
+    return jsonify({"ok": True, "row": final_row, "url": url})
+
+
+@app.errorhandler(413)
+def too_large(_e):
+    return jsonify({"error": f"파일이 너무 큽니다 (최대 {THUMB_MAX_BYTES // 1024 // 1024} MB)."}), 413
 
 
 # ---- 유튜브 업로드 헬퍼 ------------------------------------------------------

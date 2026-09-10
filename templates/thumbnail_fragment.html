@@ -3,7 +3,7 @@
     <section class="thumb-card">
       <h2><span>01</span> 영상 또는 이미지 선택</h2>
       <label class="drop" id="drop" for="file"><strong>영상이나 이미지를 놓거나 클릭해서 선택</strong><span>MOV · MP4 영상 / PNG · JPG · WebP 이미지</span><input id="file" type="file" accept="video/*,image/png,image/jpeg,image/webp,.mov,.mp4,.png,.jpg,.jpeg,.webp"></label>
-      <p class="hint">파일은 내 브라우저에서만 처리됩니다.</p><p id="fileInfo" class="hint"></p>
+      <p class="hint">파일은 브라우저에서 처리됩니다. 현황판에 등록할 때만 완성 이미지가 서버를 거쳐 구글 드라이브에 저장됩니다.</p><p id="fileInfo" class="hint"></p>
       <div id="videoArea" hidden><video id="video" controls playsinline preload="auto" aria-label="장면 선택용 영상"></video>
         <label for="timeline">장면 탐색 <output id="time">00:00.0 / 00:00.0</output></label><input id="timeline" type="range" min="0" max="0" step="0.1" value="0" disabled>
         <div class="buttons"><button id="prev" class="secondary" disabled>−0.1초</button><button id="next" class="secondary" disabled>+0.1초</button><button id="capture" disabled>이 장면 사용</button></div>
@@ -25,6 +25,12 @@
     </section>
 
     <section class="thumb-card"><h2><span>03</span> 구도와 저장</h2><label for="zoom">배경 확대 <output id="zoomValue">100%</output></label><input id="zoom" type="number" min="100" max="300" step="1" value="100" disabled><input id="zoom-range" type="range" aria-label="배경 확대" min="100" max="300" step="1" value="100" disabled><p class="hint">미리보기의 배경을 드래그해 구도를 조정하세요.</p><button id="resetCrop" class="secondary" disabled>구도 초기화</button>
+      <div id="targetBox" class="target-box">
+        <label for="targetSearch">현황판에 등록 (선택) <span id="targetState" class="target-state"></span></label>
+        <input id="targetSearch" type="search" placeholder="요리 제목·영상 제목·채널로 검색…" autocomplete="off" disabled>
+        <select id="targetRow" aria-label="현황판 대상 행" disabled><option value="">등록하지 않음 · 다운로드만</option></select>
+        <p id="targetStatus" class="status" role="status" aria-live="polite"></p>
+      </div>
       <div class="export"><label for="format">이미지 형식<select id="format"><option value="png">PNG</option><option value="jpg">JPG · 품질 100%</option></select></label><button id="export" disabled>이미지 저장 ↓</button></div><p id="exportStatus" class="status" role="status" aria-live="polite"></p>
     </section>
   </div>

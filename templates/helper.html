@@ -6,6 +6,7 @@
 <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
 <title>유튜브 업로드 헬퍼</title>
 <link rel="preload" href="/static/fonts/CookieRun-Bold.otf" as="font" type="font/otf" crossorigin>
+<script src="/static/thumb-upload.js" defer></script>
 <script src="/static/thumbnail.js" defer></script>
 <style>
   @font-face { font-family: CookieRun; src: url('/static/fonts/CookieRun-Bold.otf') format('opentype'); font-weight: 700; font-display: block; }
@@ -152,6 +153,13 @@
   .thumbnail-workspace .color-controls { display:flex; gap:20px; margin:0 0 18px; }
   .thumbnail-workspace .color-controls label { display:flex; align-items:center; gap:10px; margin:0; }
   .thumbnail-workspace .color-controls input[type=color] { width:44px; height:32px; padding:3px; border:1px solid var(--border); border-radius:8px; background:var(--bg); cursor:pointer; }
+  .thumbnail-workspace .target-box { border-top:1px solid var(--border); margin-top:20px; padding-top:8px; }
+  .thumbnail-workspace .target-box input[type=search] { margin-bottom:8px; }
+  .thumbnail-workspace .target-box select { width:100%; }
+  .thumbnail-workspace .target-box .status { margin-top:8px; }
+  .thumbnail-workspace .target-box .status a { color:var(--info); }
+  .thumbnail-workspace .target-state { font-size:11px; color:var(--ok); margin-left:6px; }
+  .thumbnail-workspace .target-state.bad { color:var(--warn); }
   .thumbnail-workspace .export { display:flex; align-items:end; gap:12px; border-top:1px solid var(--border); margin-top:20px; padding-top:8px; }
   .thumbnail-workspace .export label { flex:1; margin-bottom:0; }
   .thumbnail-workspace .export select { display:block; margin-top:8px; }
@@ -316,7 +324,74 @@
     document.querySelectorAll('.panel[data-tool]').forEach(p => p.classList.toggle('hidden', p.dataset.tool !== key));
     try { localStorage.setItem('helper.tool', key); } catch {}
   }
-  selectTool(location.hash === '#thumbnail' ? 'thumbnail' : (() => { try { return localStorage.getItem('helper.tool'); } catch { return null; } })() || 'recipe');
+  const params = new URLSearchParams(location.search);   // 현황판에서 넘어올 때: ?row=N&src=…&dish=…#thumbnail
+  selectTool(location.hash === '#thumbnail' || params.has('row') ? 'thumbnail' : (() => { try { return localStorage.getItem('helper.tool'); } catch { return null; } })() || 'recipe');
+
+  // ---- 썸네일 만들기 → 현황판 등록 -------------------------------------------------
+  // 대상 행은 현황판에서 넘어온 값으로 미리 고르거나, 아래 검색·드롭다운으로 직접 고른다.
+  // 마지막 선택은 기억하지 않는다 (다른 행에 잘못 덮어쓰는 사고 방지).
+  let targets = [];            // /api/shorts 항목
+  let uploadReady = false;
+  const EXPORT_LABEL = '이미지 저장 ↓', EXPORT_LABEL_TARGET = '이미지 저장 + 현황판 등록 ↓';
+  function targetInfo(it) { return `${it.row}행 · ${it.dish_title || '(제목 없음)'}${it.video?.title ? ' — ' + it.video.title : ''}`; }
+  function renderTargetOptions(query) {
+    const sel = $('targetRow'); const keep = sel.value;
+    const q = (query || '').trim().toLowerCase();
+    const list = q ? targets.filter(it => [it.dish_title, it.video?.title, it.source?.channel, it.source?.title].some(v => (v || '').toLowerCase().includes(q))) : targets;
+    sel.innerHTML = '<option value="">등록하지 않음 · 다운로드만</option>' +
+      list.map(it => `<option value="${it.row}">${targetInfo(it).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}</option>`).join('');
+    if (keep && !list.some(it => String(it.row) === keep)) {   // 검색으로 가려진 선택 항목은 맨 위에 유지
+      const cur = targets.find(it => String(it.row) === keep);
+      if (cur) sel.insertAdjacentHTML('afterbegin', `<option value="${cur.row}">${targetInfo(cur).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}</option>`);
+    }
+    sel.value = keep || '';
+    updateTargetState();
+  }
+  function selectedTarget() { return targets.find(it => String(it.row) === $('targetRow').value) || null; }
+  function updateTargetState() {
+    const it = selectedTarget();
+    $('export').textContent = it ? EXPORT_LABEL_TARGET : EXPORT_LABEL;
+    if (it) $('targetStatus').textContent = `저장하면 현황판 ${it.row}행(${it.dish_title || '제목 없음'})에 등록됩니다.`;
+    else if (uploadReady) $('targetStatus').textContent = '';
+  }
+  async function loadTargets() {
+    const st = $('targetState'), status = $('targetStatus');
+    try {
+      const d = await api('GET', '/api/shorts');
+      const sheet = d.sheet || {};
+      if (!sheet.configured) { st.textContent = '· 시트 미연결'; st.className = 'target-state bad'; status.innerHTML = '<a href="/shorts">쇼츠 현황판</a>에서 시트를 먼저 연결하세요.'; return; }
+      if (!sheet.upload_configured) { st.textContent = '· 업로드 미설정'; st.className = 'target-state bad'; status.innerHTML = '<a href="/shorts">쇼츠 현황판</a>의 썸네일 업로드 설정(웹 앱 URL·토큰)을 먼저 저장하세요.'; return; }
+      uploadReady = true;
+      targets = (d.items || []).slice().sort((a, b) => a.row - b.row);
+      st.textContent = `· ${targets.length}개 항목`; st.className = 'target-state';
+      $('targetSearch').disabled = $('targetRow').disabled = false;
+      renderTargetOptions('');
+      const row = params.get('row');
+      if (row) {
+        const hit = targets.find(it => String(it.row) === row);
+        if (hit) { $('targetRow').value = row; updateTargetState(); status.textContent = `현황판에서 넘어옴 · ${targetInfo(hit)} — 저장하면 이 행에 등록됩니다.`; }
+        else status.textContent = `현황판 ${row}행을 찾지 못했습니다. 아래에서 직접 고르세요.`;
+      }
+    } catch (e) { st.textContent = '· 불러오기 실패'; st.className = 'target-state bad'; status.textContent = '현황판 항목을 불러오지 못했습니다: ' + e.message; }
+  }
+  $('targetSearch').addEventListener('input', () => renderTargetOptions($('targetSearch').value));
+  $('targetRow').addEventListener('change', updateTargetState);
+  // thumbnail.js 가 이미지를 내려받은 직후 알려 준다 → 대상 행이 있으면 같은 이미지를 현황판에 등록
+  document.addEventListener('thumbnail:exported', async (e) => {
+    const it = selectedTarget(); if (!it) return;
+    const status = $('targetStatus');
+    status.textContent = `현황판 ${it.row}행에 등록하는 중…`;
+    try {
+      const blob = await ThumbUpload.normalizeImage(e.detail.blob);
+      const r = await ThumbUpload.upload({ row: it.row, srcUrl: it.source?.url, dish: it.dish_title, blob, filename: `shorts-thumbnail-${e.detail.stamp || Date.now()}.jpg` });
+      status.innerHTML = `현황판 ${r.row}행(${(it.dish_title || '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))})에 등록했습니다 · <a href="/shorts">현황판 보기 →</a>`;
+      toast(`현황판 ${r.row}행에 썸네일을 등록했습니다`);
+    } catch (err) {
+      status.textContent = `다운로드는 완료됐지만 현황판 등록에 실패했습니다: ${err.message}`;
+      toast(err.message, true);
+    }
+  });
+  loadTargets();
 
   // ---- 템플릿 설정 ------------------------------------------------------------
   function currentRecipeSettings() {

@@ -7,15 +7,22 @@
  *   3) 시트로 돌아오면 '현황판'·'요약' 시트와 '쇼츠 현황판' 메뉴가 생긴다
  *
  * 자동화:
- *   - 원본 링크 열에 유튜브 링크를 붙이면 원본 제목·채널·썸네일이 채워진다
+ *   - 원본 링크 열에 유튜브 링크를 붙이면 원본 제목·채널이 채워진다
  *   - 참고 쇼츠 링크 열(여러 개는 줄바꿈)을 채우면 참고 채널이 줄마다 채워진다
  *   - 상태가 '✅ 업로드 완료'가 아닌 행에서는 플랫폼 체크·링크 입력이 되돌려진다
  *   - 행을 고치면 수정일, 요리 제목을 처음 넣으면 등록일이 찍힌다
  *
- * setupSheets 는 다시 실행해도 안전하다. 이전 버전 배치(헤더가 1행, 설명 글자수 열, 이모지 없는 상태값)는
- * 자동으로 새 배치로 옮긴다. 데이터는 지우지 않는다.
+ * 썸네일 업로드 (웹 앱):
+ *   - 썸네일 열은 원본 영상이 아니라 내가 재가공한 쇼츠의 썸네일 자리다.
+ *   - 로컬 앱(/shorts, /helper 썸네일 만들기)이 이미지를 보내면 doPost 가 구글 드라이브 폴더에 저장하고
+ *     해당 행의 썸네일 열에 =IMAGE(), 숨김 열 '썸네일 링크'에 URL 을 적는다.
+ *   - 배포 › 새 배포 › 웹 앱 (실행 계정: 나, 액세스: 모든 사용자). 메뉴 🔑 에서 URL·토큰을 확인해 로컬 앱에 입력.
+ *   - 코드를 고친 뒤에는 배포 관리 › 새 버전 을 만들어야 웹 앱에 반영된다.
  *
- * Apps Script 는 자바스크립트(V8)다. UrlFetchApp/SpreadsheetApp 만 구글 제공 객체.
+ * setupSheets 는 다시 실행해도 안전하다. 이전 버전 배치(헤더가 1행, 설명 글자수 열, 이모지 없는 상태값,
+ * 원본 영상 썸네일 수식)는 자동으로 새 배치로 옮긴다. 입력한 데이터는 지우지 않는다.
+ *
+ * Apps Script 는 자바스크립트(V8)다. UrlFetchApp/SpreadsheetApp/DriveApp 등은 구글 제공 객체.
  */
 
 const SHEET_NAME = '현황판';
@@ -25,6 +32,14 @@ const HEADER_ROW = 2;       // 열 이름
 const FIRST_DATA_ROW = 3;
 const MIN_ROWS = 1000;
 const ROW_HEIGHT = 64;      // 썸네일이 보이는 데이터 행 높이
+
+// 썸네일 업로드 (웹 앱). 토큰·폴더 ID 는 스크립트 속성에 보관한다.
+const PROP_TOKEN = 'UPLOAD_TOKEN';
+const PROP_FOLDER = 'THUMB_FOLDER_ID';
+const THUMB_FOLDER_NAME = '쇼츠 현황판 썸네일';
+const UPLOAD_VERSION = 3;
+const thumbUrlFor = (id) => `https://lh3.googleusercontent.com/d/${id}`;   // IMAGE() 와 <img> 모두에서 열리는 형식
+const SOURCE_THUMB_RE = /i\.ytimg\.com|img\.youtube\.com/;                 // 예전 버전이 넣던 원본 영상 썸네일
 
 const STATUSES = [
   { label: '⬜ 제작 전',     legacy: '제작 전',             bg: '#f1f5f9', fg: '#475569' },
@@ -46,10 +61,10 @@ const PLATFORMS = [
 const COLUMNS = [
   { key: 'status',      header: '📌 상태',        width: 160, group: 'basic' },
   { key: 'dish',        header: '🍳 요리 제목',    width: 180, group: 'basic', wrap: true },
-  { key: 'srcUrl',      header: '🔗 원본 링크',    width: 200, group: 'source', note: '유튜브 링크를 붙이면 원본 제목·채널·썸네일이 자동으로 채워집니다.' },
+  { key: 'srcUrl',      header: '🔗 원본 링크',    width: 200, group: 'source', note: '유튜브 링크를 붙이면 원본 제목·채널이 자동으로 채워집니다.' },
   { key: 'srcTitle',    header: '🎞️ 원본 제목',    width: 240, group: 'source', wrap: true },
   { key: 'srcChannel',  header: '📺 원본 채널',    width: 120, group: 'source' },
-  { key: 'thumb',       header: '🖼️ 썸네일',       width: 110, group: 'source' },
+  { key: 'thumb',       header: '🖼️ 썸네일',       width: 110, group: 'source', note: '내가 재가공한 쇼츠의 썸네일. 웹 현황판(/shorts) 또는 업로드 헬퍼의 썸네일 만들기에서 등록합니다.' },
   { key: 'refUrls',     header: '🔍 참고 쇼츠 링크', width: 220, group: 'ref', wrap: true, note: '여러 개는 줄바꿈(⌥⏎ / Alt+Enter)으로 한 줄에 하나씩. 참고 채널이 같은 순서로 채워집니다.' },
   { key: 'refChannels', header: '👥 참고 채널',    width: 120, group: 'ref', wrap: true },
   ...PLATFORMS.flatMap(p => [
@@ -63,6 +78,8 @@ const COLUMNS = [
   { key: 'memo',        header: '🗒️ 메모',         width: 200, group: 'etc', wrap: true },
   { key: 'updatedAt',   header: '🕒 수정일',       width: 130, group: 'etc', date: true },
   { key: 'createdAt',   header: '📅 등록일',       width: 130, group: 'etc', date: true },
+  // 숨김 열: 썸네일 이미지의 URL(텍스트). IMAGE() 수식은 CSV 로 내보내면 빈 칸이 되므로 웹 현황판은 이 열을 읽는다.
+  { key: 'thumbUrl',    header: '🔗 썸네일 링크',  width: 60,  group: 'etc', hidden: true, note: '웹 현황판이 쓰는 칸입니다. 직접 고치지 마세요.' },
 ];
 // 그룹 띠 색: strong = 1행 배경(흰 글자), light/dark = 2행 열 이름 배경/글자
 const GROUPS = {
@@ -101,6 +118,9 @@ function onOpen() {
     .addSeparator()
     .addItem('🔄 선택한 행 정보 다시 가져오기', 'fillSelectedRows')
     .addItem('✨ 빈 정보 모두 채우기', 'fillAllMissing')
+    .addSeparator()
+    .addItem('🔑 썸네일 업로드 연결 정보', 'showUploadInfo')
+    .addItem('♻️ 업로드 토큰 다시 만들기', 'regenerateUploadToken')
     .addToUi();
 }
 
@@ -123,8 +143,9 @@ function setupSheets() {
   setupBoardSheet(sheet);
   setupSummarySheet(ss);
   installEditTrigger(ss);
+  thumbFolder();   // 드라이브의 썸네일 폴더를 미리 만든다 (여기서 드라이브 권한 승인이 뜬다). 이미 있으면 그대로 둔다.
   ss.setActiveSheet(sheet);
-  ss.toast('설정 완료. 원본 링크를 붙이면 제목·채널·썸네일이 자동으로 채워집니다.', '쇼츠 현황판', 8);
+  ss.toast('설정 완료. 원본 링크를 붙이면 제목·채널이 자동으로 채워집니다. 썸네일은 웹 현황판에서 등록합니다.', '쇼츠 현황판', 8);
 }
 
 /** 이전 버전 배치를 새 배치로 옮긴다. 데이터는 지우지 않는다. */
@@ -135,10 +156,17 @@ function migrateLayout(sheet) {
   if (a1 === stripEmoji(COLUMNS[0].header)) sheet.insertRowBefore(1);
 
   // 지운 열 제거 (헤더 이름으로 찾음)
-  const hdr = sheet.getRange(HEADER_ROW, 1, 1, lastCol).getValues()[0].map(stripEmoji);
+  let hdr = sheet.getRange(HEADER_ROW, 1, 1, lastCol).getValues()[0].map(headerKeyName);
   for (let i = hdr.length - 1; i >= 0; i--) {
     if (REMOVED_HEADERS.includes(hdr[i])) sheet.deleteColumn(i + 1);
   }
+  const hadThumbUrlCol = hdr.includes(headerKeyName(COLUMNS[COL.thumbUrl - 1].header));
+
+  // 열 순서 맞추기. 사용자가 시트에서 열을 드래그해 순서를 바꿨어도 웹 현황판은 헤더 이름으로 읽기 때문에 문제가 없지만,
+  // 아래 setupBoardSheet 가 2행 헤더를 표준 순서로 다시 쓰므로 그 전에 실제 열을 (헤더 이름 기준으로) 표준 순서로 옮겨 둔다.
+  // 그렇지 않으면 헤더와 데이터가 어긋난다. 코드에 없는 열(직접 추가한 열)은 뒤쪽에 그대로 남는다.
+  reorderColumns(sheet);
+  hdr = sheet.getRange(HEADER_ROW, 1, 1, sheet.getMaxColumns()).getValues()[0].map(headerKeyName);
 
   // 상태값 라벨 변경 (이모지 없는 예전 라벨 → 새 라벨)
   const lastRow = sheet.getLastRow();
@@ -150,7 +178,46 @@ function migrateLayout(sheet) {
       const hit = STATUSES.find(s => s.legacy === String(r[0]).trim());
       if (hit) { r[0] = hit.label; changed = true; }
     });
-    if (changed) rng.setValues(vals);
+    // 예전 드롭다운 규칙(옛 라벨만 허용, 잘못된 값 거부)이 남아 있으면 새 라벨 쓰기가 거부되므로 먼저 걷어낸다.
+    if (changed) { rng.clearDataValidations(); rng.setValues(vals); }
+  }
+
+  // v3: 썸네일 열은 원본 영상 썸네일이 아니라 내 쇼츠 썸네일 자리. 예전 버전이 자동으로 넣은
+  // 유튜브 썸네일 IMAGE() 수식을 비운다. '썸네일 링크' 열이 아직 없을 때(= 처음 v3 로 올릴 때) 한 번만 실행되므로
+  // 새 방식으로 올린 드라이브 이미지는 건드리지 않는다.
+  if (!hadThumbUrlCol && lastRow >= FIRST_DATA_ROW) {
+    const rng = sheet.getRange(FIRST_DATA_ROW, COL.thumb, lastRow - FIRST_DATA_ROW + 1, 1);
+    // 이 열에 잘못 복사된 검증 규칙(예: 상태 드롭다운)이 있으면 clearContent 도 거부된다 → 먼저 제거
+    rng.clearDataValidations();
+    rng.getFormulas().forEach((r, i) => {
+      if (SOURCE_THUMB_RE.test(r[0])) sheet.getRange(FIRST_DATA_ROW + i, COL.thumb).clearContent();
+    });
+  }
+}
+
+/** 헤더 텍스트 → 비교용 이름. '📌 상태' → '상태', '유튜브 ☑'(v1) → '유튜브'. */
+function headerKeyName(h) {
+  return stripEmoji(h).replace(/\s*☑\s*$/, '').trim();
+}
+
+/**
+ * 2행 헤더 이름을 보고 실제 열을 COLUMNS 순서대로 옮긴다. 없는 열(새로 추가된 열)은 그 자리에 삽입한다.
+ * 헤더 이름이 코드와 일치하지 않는 열은 표준 열 뒤로 밀린다(지우지 않음).
+ */
+function reorderColumns(sheet) {
+  const wanted = COLUMNS.map(c => headerKeyName(c.header));
+  // 1행 그룹 띠의 병합은 열 이동을 방해하므로 먼저 푼다 (setupBoardSheet 가 다시 합친다)
+  sheet.getRange(GROUP_ROW, 1, 1, sheet.getMaxColumns()).breakApart();
+  for (let target = 1; target <= wanted.length; target++) {
+    const names = sheet.getRange(HEADER_ROW, 1, 1, sheet.getMaxColumns()).getValues()[0].map(headerKeyName);
+    // target 앞은 이미 정리됐으니 target 이후에서만 찾는다 (같은 이름이 둘이면 첫 번째)
+    let cur = names.indexOf(wanted[target - 1], target - 1) + 1;
+    if (cur === 0) {
+      // 아직 없는 열 → 그 자리에 빈 열 삽입 (헤더는 setupBoardSheet 가 쓴다)
+      if (target <= sheet.getMaxColumns()) sheet.insertColumnBefore(target); else sheet.insertColumnsAfter(sheet.getMaxColumns(), 1);
+      continue;
+    }
+    if (cur !== target) sheet.moveColumns(sheet.getRange(1, cur), target);   // 왼쪽으로 옮기므로 정확히 target 위치에 놓인다
   }
 }
 
@@ -191,6 +258,7 @@ function setupBoardSheet(sheet) {
       .setHorizontalAlignment('center').setVerticalAlignment('middle').setWrap(false);
     if (c.note) cell.setNote(c.note); else cell.clearNote();
     sheet.setColumnWidth(i + 1, c.width);
+    if (c.hidden) sheet.hideColumns(i + 1); else sheet.showColumns(i + 1);
   });
   sheet.getRange(HEADER_ROW, 1, 1, LAST_COL)
     .setBorder(null, null, true, null, null, null, PALETTE.line, SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
@@ -216,6 +284,9 @@ function setupBoardSheet(sheet) {
   sheet.setRowHeightsForced(FIRST_DATA_ROW, dataRows, ROW_HEIGHT);
 
   // 데이터 확인: 상태 드롭다운, 플랫폼 체크박스
+  // 먼저 데이터 영역의 검증 규칙을 모두 지운다. 예전 버전 규칙이나 셀 복사로 다른 열에 번진 규칙이 남아 있으면
+  // 스크립트의 셀 쓰기(썸네일 등록, 상태 라벨 변경)가 "검증 위반"으로 거부된다.
+  body.clearDataValidations();
   const statusRule = SpreadsheetApp.newDataValidation()
     .requireValueInList(STATUSES.map(s => s.label), true).setAllowInvalid(false)
     .setHelpText(STATUSES.map(s => s.label).join(' → ')).build();
@@ -391,10 +462,10 @@ function fetchMeta(url) {
   }
 }
 
-/** 원본 링크 → 원본 제목·채널·썸네일. force=false 면 비어 있는 칸만 채운다. 채웠으면 true. */
+/** 원본 링크 → 원본 제목·채널. (썸네일 열은 내 쇼츠 썸네일 자리라 건드리지 않는다.) force=false 면 비어 있는 칸만 채운다. 채웠으면 true. */
 function fillSource(sheet, row, force) {
   const url = String(sheet.getRange(row, COL.srcUrl).getValue()).trim();
-  const targets = sheet.getRange(row, COL.srcTitle, 1, 3);   // srcTitle, srcChannel, thumb (연속 3열)
+  const targets = sheet.getRange(row, COL.srcTitle, 1, 2);   // srcTitle, srcChannel (연속 2열)
   if (!url) { targets.clearContent(); return false; }
   if (!force && targets.getValues()[0].every(v => String(v).trim() !== '')) return false;
   const m = fetchMeta(url);
@@ -404,8 +475,6 @@ function fillSource(sheet, row, force) {
   }
   sheet.getRange(row, COL.srcTitle).setValue(m.title);
   sheet.getRange(row, COL.srcChannel).setValue(m.channel);
-  const thumb = sheet.getRange(row, COL.thumb);
-  if (m.thumbnail) thumb.setFormula(`=IMAGE("${m.thumbnail}")`); else thumb.clearContent();
   return true;
 }
 
@@ -456,4 +525,136 @@ function fillAllMissing() {
 function YT_META(url) {
   const m = fetchMeta(url);
   return m ? [[m.title, m.channel, m.thumbnail]] : [['', '', '']];
+}
+
+// ---------------------------------------------------------------------------
+// 썸네일 업로드 (웹 앱). 로컬 앱(app.py) 이 JSON 으로 이미지를 보내면 드라이브에 저장하고 시트에 기록한다.
+// 배포: 배포 › 새 배포 › 웹 앱 (실행 계정: 나, 액세스: 모든 사용자). 코드 수정 후에는 배포 관리 › 새 버전.
+// 응답은 항상 HTTP 200 이고 본문 {ok, error?} 로 성공 여부를 알린다 (Apps Script 웹 앱은 상태 코드를 못 바꾼다).
+// ---------------------------------------------------------------------------
+function jsonOut(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
+}
+
+/** 배포 URL 확인용. 토큰 없이 호출해도 서비스 이름만 알려 준다. */
+function doGet() {
+  return jsonOut({ ok: true, service: 'shorts-thumbnail', version: UPLOAD_VERSION });
+}
+
+function doPost(e) {
+  let body;
+  try { body = JSON.parse(e && e.postData && e.postData.contents || ''); } catch (err) { return jsonOut({ ok: false, error: 'bad_json' }); }
+  const token = uploadToken(false);
+  if (!token || String(body.token || '') !== token) return jsonOut({ ok: false, error: 'unauthorized' });
+  if (body.action === 'ping') return jsonOut({ ok: true, ping: true, version: UPLOAD_VERSION });
+  if (body.action !== 'thumbnail') return jsonOut({ ok: false, error: 'unknown_action' });
+  const mime = String(body.mime || '');
+  if (!/^image\/(jpeg|png|webp)$/.test(mime)) return jsonOut({ ok: false, error: 'bad_mime' });
+  if (!body.data) return jsonOut({ ok: false, error: 'no_data' });
+
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(20000)) return jsonOut({ ok: false, error: 'busy' });
+  try {
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+    if (!sheet) return jsonOut({ ok: false, error: 'no_sheet' });
+    const row = locateRow(sheet, Number(body.row), String(body.srcUrl || '').trim(), String(body.dish || '').trim());
+    if (!row) return jsonOut({ ok: false, error: 'row_mismatch' });
+
+    const folder = thumbFolder();
+    const ext = mime === 'image/png' ? 'png' : mime === 'image/webp' ? 'webp' : 'jpg';
+    const stamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd-HHmmss');
+    const safeDish = String(body.dish || '').replace(/[\\/:*?"<>|\s]+/g, '_').slice(0, 40);
+    const name = `row${row}${safeDish ? '-' + safeDish : ''}-${stamp}.${ext}`;
+    const file = folder.createFile(Utilities.newBlob(Utilities.base64Decode(String(body.data)), mime, name));
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    const url = thumbUrlFor(file.getId());
+
+    const old = String(sheet.getRange(row, COL.thumbUrl).getValue()).trim();
+    sheet.getRange(row, COL.thumb).setFormula(`=IMAGE("${url}")`);
+    sheet.getRange(row, COL.thumbUrl).setValue(url);
+    touchRow(sheet, row, new Date());   // 스크립트가 고친 셀은 편집 트리거를 타지 않으므로 직접 찍는다
+    trashOldThumb(old, folder);
+    return jsonOut({ ok: true, row, url });
+  } catch (err) {
+    return jsonOut({ ok: false, error: String((err && err.message) || err) });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * 웹 화면이 보낸 행 번호가 아직 같은 항목을 가리키는지 확인한다 (사이에 행이 끼거나 지워졌을 수 있다).
+ * 원본 링크(없으면 요리 제목)가 일치하면 그 행. 아니면 같은 키를 가진 행을 찾아 정확히 하나일 때만 그 행. 못 찾으면 0.
+ */
+function locateRow(sheet, row, srcUrl, dish) {
+  const last = sheet.getLastRow();
+  if (last < FIRST_DATA_ROW) return 0;
+  const matches = (vals) => srcUrl ? String(vals[COL.srcUrl - 1]).trim() === srcUrl
+                                   : (dish ? String(vals[COL.dish - 1]).trim() === dish : false);
+  const width = Math.max(COL.srcUrl, COL.dish);
+  if (!srcUrl && !dish) return (row >= FIRST_DATA_ROW && row <= last) ? row : 0;   // 확인할 키가 없으면 행 번호를 믿는다
+  if (row >= FIRST_DATA_ROW && row <= last && matches(sheet.getRange(row, 1, 1, width).getValues()[0])) return row;
+  const hits = sheet.getRange(FIRST_DATA_ROW, 1, last - FIRST_DATA_ROW + 1, width).getValues()
+    .map((vals, i) => matches(vals) ? FIRST_DATA_ROW + i : 0).filter(Boolean);
+  return hits.length === 1 ? hits[0] : 0;
+}
+
+/** 썸네일 보관 폴더. 처음 한 번 만들고 ID 를 스크립트 속성에 기억한다. */
+function thumbFolder() {
+  const props = PropertiesService.getScriptProperties();
+  const id = props.getProperty(PROP_FOLDER);
+  if (id) {
+    try { const f = DriveApp.getFolderById(id); if (!f.isTrashed()) return f; } catch (err) { /* 지워졌으면 새로 만든다 */ }
+  }
+  const folder = DriveApp.createFolder(THUMB_FOLDER_NAME);
+  props.setProperty(PROP_FOLDER, folder.getId());
+  return folder;
+}
+
+/** 이전 썸네일이 우리 폴더의 파일이면 휴지통으로 보낸다. 다른 곳의 이미지는 건드리지 않는다. */
+function trashOldThumb(url, folder) {
+  const m = /googleusercontent\.com\/d\/([\w-]+)|[?&]id=([\w-]+)/.exec(url || '');
+  if (!m) return;
+  try {
+    const file = DriveApp.getFileById(m[1] || m[2]);
+    const parents = file.getParents();
+    while (parents.hasNext()) {
+      if (parents.next().getId() === folder.getId()) { file.setTrashed(true); return; }
+    }
+  } catch (err) { /* 이미 지워진 파일 */ }
+}
+
+function uploadToken(create) {
+  const props = PropertiesService.getScriptProperties();
+  let token = props.getProperty(PROP_TOKEN);
+  if (!token && create) {
+    token = (Utilities.getUuid() + Utilities.getUuid()).replace(/-/g, '');
+    props.setProperty(PROP_TOKEN, token);
+  }
+  return token;
+}
+
+/** 메뉴: 웹 앱 URL 과 토큰을 보여 준다. 토큰이 없으면 만든다. */
+function showUploadInfo() {
+  const url = ScriptApp.getService().getUrl() || '';
+  const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const html = HtmlService.createHtmlOutput(
+    '<style>body{font:13px -apple-system,sans-serif;padding:4px 8px}p{margin:10px 0 4px;color:#475569}input{width:100%;box-sizing:border-box;font:12px ui-monospace,monospace;padding:6px}</style>' +
+    '<p>웹 앱 URL</p>' +
+    (url ? `<input readonly value="${esc(url)}" onclick="this.select()">`
+         : '<input readonly value="아직 웹 앱으로 배포되지 않았습니다. Apps Script 편집기에서 배포 › 새 배포 › 웹 앱을 진행하세요.">') +
+    '<p>업로드 토큰</p>' +
+    `<input readonly value="${esc(uploadToken(true))}" onclick="this.select()">` +
+    '<p>로컬 앱의 쇼츠 현황판(/shorts) 화면 › 썸네일 업로드 설정에 두 값을 붙여 넣으세요.</p>'
+  ).setWidth(560).setHeight(250);
+  SpreadsheetApp.getUi().showModalDialog(html, '썸네일 업로드 연결 정보');
+}
+
+/** 메뉴: 토큰을 새로 만든다. 로컬 앱에도 다시 입력해야 한다. */
+function regenerateUploadToken() {
+  const ui = SpreadsheetApp.getUi();
+  const answer = ui.alert('업로드 토큰 다시 만들기', '기존 토큰은 바로 무효가 되고, 로컬 앱에 새 토큰을 다시 입력해야 합니다. 계속할까요?', ui.ButtonSet.YES_NO);
+  if (answer !== ui.Button.YES) return;
+  PropertiesService.getScriptProperties().deleteProperty(PROP_TOKEN);
+  showUploadInfo();
 }

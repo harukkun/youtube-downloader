@@ -8,4 +8,4 @@ from app import app
 from waitress import serve
 
 if __name__ == "__main__":
-    serve(app, host="127.0.0.1", port=8766, threads=8, max_request_body_size=1048576)
+    serve(app, host="127.0.0.1", port=8766, threads=8, max_request_body_size=12 * 1024 * 1024)

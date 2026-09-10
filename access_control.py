@@ -21,7 +21,7 @@ def install_access_control(app):
                       SESSION_COOKIE_SECURE=bool(public_origin),
                       PERMANENT_SESSION_LIFETIME=timedelta(hours=12))
     if password:
-        app.config["MAX_CONTENT_LENGTH"] = 1048576
+        app.config["MAX_CONTENT_LENGTH"] = 12 * 1024 * 1024   # 썸네일 업로드(최대 8 MB) 여유 포함
     password_digest = hashlib.sha256(password.encode()).digest()
     attempts = {}
     lock = threading.Lock()

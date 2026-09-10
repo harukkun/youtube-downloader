@@ -199,6 +199,8 @@
       a.href = url; a.download = `shorts-thumbnail-${stamp}.${extension}`; document.body.append(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 60000);
       message('exportStatus', `1080 × 1920 ${extension.toUpperCase()} 다운로드를 시작했습니다.`);
+      // 현황판 등록 등 후속 처리는 페이지 스크립트(helper.html)가 이 이벤트로 이어받는다.
+      document.dispatchEvent(new CustomEvent('thumbnail:exported', { detail: { blob, extension, stamp } }));
     } catch { message('exportStatus', '이미지를 저장하지 못했습니다. 다시 시도해 주세요.', true); }
     finally { exporting = false; controls(); }
   };

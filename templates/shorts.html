@@ -108,7 +108,19 @@
   .lock-hint { font-size: 12px; color: var(--warn); margin: 0 0 10px; }
   .plat a { font-size: 11px; }
   .thumb { width: 56px; height: 32px; object-fit: cover; border-radius: 5px; background: #000; display: block; cursor: zoom-in; }
-  .thumb.none { display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 10px; background: #0f1115; border: 1px dashed var(--border); }
+  .thumb.none { display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 10px; background: #0f1115; border: 1px dashed var(--border); cursor: pointer; }
+  .thumb-btn { background: none; border: 0; padding: 0; border-radius: 5px; cursor: pointer; display: block; }
+  .thumb-btn:hover .thumb.none, .thumb-btn:focus-visible .thumb.none { color: var(--text); border-color: var(--accent); }
+  .thumb-btn:hover img.thumb { outline: 2px solid var(--accent); }
+  .thumb-btn.busy .thumb { opacity: .4; }
+  .thumb-btn.busy .thumb.none::after { content: "…"; }
+  /* 썸네일 메뉴 (없음 버튼/이미지 클릭) */
+  #thumbMenu { position: fixed; z-index: 60; background: #222733; border: 1px solid var(--border); border-radius: 10px; padding: 6px; min-width: 220px; box-shadow: 0 10px 30px rgba(0,0,0,.5); display: flex; flex-direction: column; gap: 4px; }
+  #thumbMenu button { width: 100%; text-align: left; background: transparent; border: 0; color: var(--text); padding: 8px 10px; border-radius: 7px; font-size: 13px; }
+  #thumbMenu button:hover:not(:disabled) { background: rgba(255,255,255,.06); }
+  #thumbMenu button:disabled { opacity: .4; cursor: not-allowed; }
+  #thumbMenu a { display: block; padding: 8px 10px; font-size: 12px; }
+  #thumbMenu .note { margin: 0; padding: 6px 10px 4px; font-size: 11.5px; color: var(--warn); line-height: 1.5; max-width: 260px; }
   td.actions { white-space: nowrap; text-align: right; }
   .empty { text-align: center; color: var(--muted); padding: 40px 0; font-size: 14px; }
 
@@ -137,6 +149,17 @@
   .sheet-meta { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-top: 8px; min-height: 16px; }
   .sheet-meta.err { color: var(--err); }
   .sheet-meta.ok { color: var(--ok); }
+  .upload-box { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 8px; }
+  .upload-box > summary { cursor: pointer; font-size: 12px; color: var(--muted); list-style: none; display: flex; align-items: center; gap: 8px; }
+  .upload-box > summary::-webkit-details-marker { display: none; }
+  .upload-box > summary::before { content: "▸"; font-size: 11px; transition: transform .15s; }
+  .upload-box[open] > summary::before { transform: rotate(90deg); }
+  .upload-box .sheet-row { margin-top: 10px; }
+  .upload-box .sheet-row input[type=password] { flex: 0 1 220px; min-width: 160px; }
+  .upload-state.ok { color: var(--ok); }
+  .upload-state.bad { color: var(--warn); }
+  .hint { font-size: 12px; color: var(--muted); line-height: 1.5; margin: 8px 0 0; }
+  .hint code { background: #0f1115; border: 1px solid var(--border); border-radius: 5px; padding: 1px 5px; font-size: 11.5px; }
   .banner { padding: 10px 14px; border-radius: 10px; font-size: 13px; line-height: 1.5; margin-bottom: 14px; }
   .banner.err { background: rgba(255,107,107,.12); color: var(--err); border: 1px solid rgba(255,107,107,.3); }
   .setup { color: var(--muted); font-size: 14px; line-height: 1.7; padding: 26px 0; text-align: center; }
@@ -163,6 +186,16 @@
       <button type="button" class="secondary" id="refreshBtn" title="시트에서 다시 읽기">새로고침</button>
     </div>
     <div class="sheet-meta" id="sheetMeta"></div>
+    <details id="uploadBox" class="upload-box">
+      <summary>썸네일 업로드 설정 <span id="uploadState" class="upload-state"></span></summary>
+      <div class="sheet-row">
+        <span class="lbl">🔑 웹 앱</span>
+        <input type="text" id="uploadUrl" spellcheck="false" placeholder="https://script.google.com/macros/s/…/exec  (Apps Script › 배포 › 웹 앱 URL)">
+        <input type="password" id="uploadToken" placeholder="업로드 토큰" autocomplete="off">
+        <button type="button" id="uploadSaveBtn">저장</button>
+      </div>
+      <p class="hint">시트 메뉴 <b>쇼츠 현황판 › 🔑 썸네일 업로드 연결 정보</b>에서 URL과 토큰을 복사해 붙입니다. 배포 방법은 <code>sheets/README.md</code>의 "웹 앱 배포" 절을 참고하세요. URL을 비우고 저장하면 연결이 해제됩니다.</p>
+    </details>
   </section>
 
   <div class="banner err hidden" id="errBanner"></div>
@@ -214,12 +247,20 @@
     </div>
   </section>
 
-  <p class="footer">이 화면은 구글 시트를 읽어서 보여 주는 뷰어입니다. 수정은 시트에서 하고, 변경은 새로고침 또는 30초 뒤에 반영됩니다.</p>
+  <p class="footer">이 화면은 구글 시트를 읽어서 보여 주는 뷰어입니다. 수정은 시트에서 하고(썸네일 등록은 여기서도 가능), 변경은 새로고침 또는 30초 뒤에 반영됩니다.</p>
 </main>
 
 <div id="hoverPreview"><img alt=""></div>
+<div id="thumbMenu" class="hidden" role="menu">
+  <button type="button" data-menu="attach">📎 이미지 첨부…</button>
+  <button type="button" data-menu="make">🖼️ 썸네일 만들기 →</button>
+  <a id="thumbFull" class="hidden" target="_blank" rel="noopener">↗ 원본 크기로 보기</a>
+  <p id="thumbMenuNote" class="note hidden">썸네일 업로드가 설정되지 않았습니다. 위 "썸네일 업로드 설정"에 웹 앱 URL과 토큰을 저장하세요.</p>
+</div>
+<input type="file" id="thumbFile" accept="image/png,image/jpeg,image/webp" hidden>
 <div id="toast"></div>
 
+<script src="/static/thumb-upload.js"></script>
 <script>
   const $ = (id) => document.getElementById(id);
   const STATUSES = {{ statuses | tojson }};
@@ -262,7 +303,8 @@
     const d = new Date(iso); if (isNaN(d)) return iso;
     return d.toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
   }
-  function thumbUrl(it) { return it.source?.thumbnail || ''; }
+  // 썸네일 = 내가 재가공한 쇼츠의 썸네일(시트 '썸네일 링크' 열). 원본 영상 썸네일(it.source.thumbnail)은 쓰지 않는다.
+  function thumbUrl(it) { return it.video?.thumbnail || ''; }
   function rowUrl(it) { return sheet.row_url_template ? sheet.row_url_template.replace('{row}', it.row) : (sheet.edit_url || '#'); }
   function host(url) { try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return url; } }
   function loadFilters() {
@@ -298,7 +340,24 @@
     $('errBanner').textContent = error || '';
     $('setup').classList.toggle('hidden', sheet.configured);
     document.querySelector('.tbl-wrap').classList.toggle('hidden', !sheet.configured);
+    // 썸네일 업로드(웹 앱) 연결 상태
+    const us = $('uploadState');
+    us.textContent = sheet.upload_configured ? '· 연결됨' : '· 미설정 (썸네일 등록에 필요)';
+    us.className = 'upload-state ' + (sheet.upload_configured ? 'ok' : 'bad');
+    if (document.activeElement !== $('uploadUrl')) $('uploadUrl').value = sheet.upload_url || '';
+    $('uploadToken').placeholder = sheet.upload_configured ? '저장됨 · 바꿀 때만 입력' : '업로드 토큰';
   }
+  $('uploadSaveBtn').addEventListener('click', async () => {
+    const url = $('uploadUrl').value.trim(), token = $('uploadToken').value.trim();
+    const b = $('uploadSaveBtn'); b.disabled = true; b.textContent = '확인 중…';
+    try {
+      const r = await api('POST', '/api/shorts/uploader', { url, token });
+      sheet = r.sheet || sheet; $('uploadToken').value = '';
+      toast(url ? '썸네일 업로드를 연결했습니다' : '썸네일 업로드 연결을 해제했습니다');
+      renderSheetState(null);
+    } catch (err) { toast(err.message, true); }
+    finally { b.disabled = false; b.textContent = '저장'; }
+  });
   $('sheetSaveBtn').addEventListener('click', async () => {
     const url = $('sheetUrl').value.trim();
     const b = $('sheetSaveBtn'); b.disabled = true; b.textContent = '확인 중…';
@@ -376,7 +435,10 @@
           : `<span class="plat ${on ? 'on' : ''}" title="${tip}">${inner}</span>`;
       }).join('');
       const tu = thumbUrl(it);
-      const thumb = tu ? `<img class="thumb" src="${esc(tu)}" alt="" data-full="${esc(tu)}" loading="lazy">` : `<div class="thumb none">없음</div>`;
+      const thumbInner = tu
+        ? `<img class="thumb" src="${esc(tu)}" alt="" data-full="${esc(tu)}" data-fb="${esc(ThumbUpload.fallbackUrl(tu))}" loading="lazy" onerror="if(this.dataset.fb){this.src=this.dataset.fb;this.dataset.fb=''}">`
+        : `<span class="thumb none">없음</span>`;
+      const thumb = `<button type="button" class="thumb-btn ${uploadingRow === it.row ? 'busy' : ''}" data-act="thumb" title="${tu ? '썸네일 바꾸기' : '썸네일 등록: 이미지 첨부 또는 썸네일 만들기'}">${thumbInner}</button>`;
       const src = it.source?.url
         ? `<a href="${esc(it.source.url)}" target="_blank" rel="noopener" title="${esc(it.source.title || it.source.url)}">${esc(it.source.channel || host(it.source.url))} ↗</a>${it.source.title ? `<div class="muted" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(it.source.title)}</div>` : ''}`
         : '<span class="muted">—</span>';
@@ -414,6 +476,13 @@
       try { await navigator.clipboard.writeText(text); } catch { el.focus(); el.select(); document.execCommand('copy'); }
       toast('클립보드에 복사했습니다'); return;
     }
+    const tb = e.target.closest('.thumb-btn');
+    if (tb) {
+      const row = tb.closest('tr[data-id]');
+      const it = items.find(x => x.id === row?.dataset.id);
+      if (it) openThumbMenu(tb, it);
+      return;
+    }
     if (e.target.closest('a') || e.target.closest('textarea')) return;
     const tr = e.target.closest('tr[data-id]'); if (!tr || tr.classList.contains('detail')) return;
     if (!e.target.closest('[data-act="toggle"]')) return;
@@ -430,6 +499,49 @@
   $('q').addEventListener('input', () => { filters.q = $('q').value; saveFilters(); render(); });
   $('fStatus').addEventListener('change', () => { filters.status = $('fStatus').value; saveFilters(); render(); });
   $('fPlat').addEventListener('change', () => { filters.plat = $('fPlat').value; saveFilters(); render(); });
+
+  // ---- 썸네일 등록 (없음 버튼 / 이미지 클릭 → 메뉴) -----------------------------
+  let menuItem = null;          // 메뉴가 가리키는 항목
+  let uploadingRow = null;      // 업로드 중인 행 (셀에 진행 표시)
+  const menu = $('thumbMenu');
+  function openThumbMenu(btn, it) {
+    menuItem = it;
+    const ok = !!sheet.upload_configured;
+    menu.querySelectorAll('button[data-menu]').forEach(b => b.disabled = !ok);
+    $('thumbMenuNote').classList.toggle('hidden', ok);
+    const tu = thumbUrl(it);
+    $('thumbFull').classList.toggle('hidden', !tu); if (tu) $('thumbFull').href = tu;
+    menu.classList.remove('hidden');
+    const r = btn.getBoundingClientRect(), w = menu.offsetWidth || 230, h = menu.offsetHeight || 120;
+    let x = r.left, y = r.bottom + 6;
+    if (x + w > innerWidth - 8) x = Math.max(8, innerWidth - w - 8);
+    if (y + h > innerHeight - 8) y = Math.max(8, r.top - h - 6);
+    menu.style.left = x + 'px'; menu.style.top = y + 'px';
+    hp.style.display = 'none';
+  }
+  function closeThumbMenu() { menu.classList.add('hidden'); }
+  document.addEventListener('click', (e) => { if (!menu.classList.contains('hidden') && !e.target.closest('#thumbMenu') && !e.target.closest('.thumb-btn')) closeThumbMenu(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeThumbMenu(); });
+  window.addEventListener('scroll', closeThumbMenu, { passive: true });
+  menu.addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-menu]'); if (!b || b.disabled || !menuItem) return;
+    if (b.dataset.menu === 'attach') { $('thumbFile').value = ''; $('thumbFile').click(); }
+    else if (b.dataset.menu === 'make') { location.href = ThumbUpload.helperUrl(menuItem); }
+    closeThumbMenu();
+  });
+  $('thumbFile').addEventListener('change', async () => {
+    const file = $('thumbFile').files?.[0], it = menuItem;
+    if (!file || !it) return;
+    uploadingRow = it.row; render();
+    try {
+      const blob = await ThumbUpload.normalizeImage(file);
+      const r = await ThumbUpload.upload({ row: it.row, srcUrl: it.source?.url, dish: it.dish_title, blob, filename: file.name.replace(/\.[^.]+$/, '') + '.jpg' });
+      it.video = { ...(it.video || {}), thumbnail: r.url };   // 바로 보이게. 서버도 시트가 따라올 때까지 이 값을 덧씌워 준다
+      toast(`${r.row}행 썸네일을 등록했습니다`);
+      setTimeout(() => load(true).catch(() => {}), 3000);    // 수정일 등 나머지 변경 반영 (CSV 내보내기는 몇 초 늦다)
+    } catch (err) { toast(err.message, true); }
+    finally { uploadingRow = null; render(); }
+  });
 
   // 썸네일 호버 미리보기
   const hp = $('hoverPreview');
