@@ -36,6 +36,7 @@ DEFAULT_DOWNLOAD_DIR = Path.home() / "Downloads"
 # 사용자(로컬 계정)별 설정 파일 - 저장 경로 등을 기억한다
 CONFIG_FILE = Path.home() / ".youtube-downloader" / "config.json"
 HISTORY_FILE = Path.home() / ".youtube-downloader" / "history.json"
+REFERENCES_FILE = Path.home() / ".youtube-downloader" / "references.json"
 HISTORY_MAX = 500
 # 쇼츠 현황판: 데이터는 구글 스프레드시트(sheets/Code.gs 로 만든 '현황판' 탭)에 있고, 여기서는 CSV로 읽어 보여주기만 한다.
 SHEET_CACHE_TTL = 30          # 초. 시트 CSV 를 다시 받기 전까지 캐시 유지
@@ -217,6 +218,7 @@ settings_lock = threading.Lock()
 history_lock = threading.Lock()
 sheet_lock = threading.Lock()
 helper_lock = threading.Lock()
+references_lock = threading.Lock()
 
 
 # ---------------------------------------------------------------------------
@@ -285,6 +287,178 @@ def _now() -> str:
 
 
 # ---------------------------------------------------------------------------
+# 레퍼 체크 (유튜브 채널 벤치마크)
+# ---------------------------------------------------------------------------
+def load_references() -> list[dict]:
+    try:
+        with open(REFERENCES_FILE, encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, list) else []
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return []
+
+
+def save_references(items: list[dict]) -> None:
+    _write_json_atomic(REFERENCES_FILE, items)
+
+
+def _reference_channel_url(value: str) -> str:
+    value = _s(value, 2000)
+    if not value:
+        raise ValueError("채널 URL을 입력해 주세요.")
+    if not re.match(r"^https?://(?:www\.)?(?:youtube\.com|youtu\.be)/", value, re.I):
+        raise ValueError("유튜브 채널 URL을 입력해 주세요.")
+    # 사용자가 /shorts 또는 영상 URL을 붙여도 extractor가 알려 준 채널 URL로 정규화한다.
+    return value.rstrip("/")
+
+
+def extract_reference_channel(url: str) -> dict:
+    opts = {"quiet": True, "no_warnings": True, "extract_flat": True, "playlistend": 1}
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(url, download=False)
+    channel_id = info.get("channel_id") or info.get("uploader_id") or info.get("id")
+    channel_url = info.get("channel_url") or info.get("uploader_url")
+    if not channel_id and info.get("entries"):
+        first = next(iter(info["entries"]), {}) or {}
+        channel_id = first.get("channel_id") or first.get("uploader_id")
+        channel_url = channel_url or first.get("channel_url") or first.get("uploader_url")
+    if not channel_id:
+        raise ValueError("채널을 확인할 수 없습니다. 채널 홈 또는 /shorts 주소를 입력해 주세요.")
+    return {
+        "id": str(channel_id),
+        "name": info.get("channel") or info.get("uploader") or info.get("title") or str(channel_id),
+        "url": channel_url or f"https://www.youtube.com/channel/{channel_id}",
+        "thumbnail": info.get("thumbnail") or ((info.get("thumbnails") or [{}])[-1].get("url")),
+        "description": info.get("description") or "",
+        "subscriber_count": info.get("channel_follower_count"),
+        "added_at": _now(),
+    }
+
+
+def _compact_short(info: dict) -> dict:
+    comments = info.get("comments") or []
+    pinned = next((c for c in comments if c.get("is_pinned") or c.get("pinned")), None)
+    return {
+        "id": info.get("id"), "title": info.get("title") or "제목 없음",
+        "description": info.get("description") or "", "url": info.get("webpage_url") or info.get("url"),
+        "thumbnail": info.get("thumbnail"), "view_count": info.get("view_count") or 0,
+        "like_count": info.get("like_count"), "comment_count": info.get("comment_count"),
+        "upload_date": info.get("upload_date"),
+        "pinned_comment": ({"text": pinned.get("text") or "", "author": pinned.get("author") or ""} if pinned else None),
+    }
+
+
+reference_jobs = {}
+reference_jobs_lock = threading.Lock()
+reference_analysis_locks = {}
+
+
+def _reference_cache_path(channel):
+    # Encode untrusted channel IDs without allowing path traversal.
+    key = base64.urlsafe_b64encode(channel["id"].encode()).decode().rstrip("=")
+    return REFERENCES_FILE.parent / "reference-shorts" / (key + ".json")
+
+
+def _load_reference_cache(channel):
+    try:
+        data = json.loads(_reference_cache_path(channel).read_text(encoding="utf-8"))
+        if isinstance(data.get("items"), dict):
+            return data
+    except (OSError, ValueError, AttributeError):
+        pass
+    return {"items": {}, "complete": False}
+
+
+def analyze_reference_shorts(channel, publish):
+    with reference_jobs_lock:
+        lock = reference_analysis_locks.setdefault(channel["id"], threading.Lock())
+    with lock:
+        _analyze_reference_shorts(channel, publish)
+
+
+def _analyze_reference_shorts(channel, publish):
+    cache = _load_reference_cache(channel)
+    items = cache["items"]
+    def report(stage, message, done=0, total=0):
+        publish({"channel": channel, "shorts": list(items.values()), "stage": stage,
+                 "message": message, "processed": done, "total": total,
+                 "percent": round(done / total * 100) if total else None,
+                 "minimum_views": 500_000, "updated_at": cache.get("updated_at")})
+    def save():
+        _write_json_atomic(_reference_cache_path(channel), cache)
+    report("listing", f"저장된 쇼츠 {len(items)}개 · 새 쇼츠 목록을 확인하고 있습니다.")
+    # /shorts is newest-first. A completed prior scan provides the boundary.
+    known = set(items)
+    previous_complete = cache.get("complete", False)
+    cache["complete"] = False
+    save()
+    opts = {"quiet": True, "no_warnings": True, "extract_flat": True,
+            "lazy_playlist": True, "socket_timeout": 20}
+    found = 0
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        playlist = ydl.extract_info(channel["url"].rstrip("/") + "/shorts", download=False)
+        for entry in playlist.get("entries") or []:
+            if not entry or not entry.get("id"):
+                continue
+            vid = entry["id"]
+            if vid in known and previous_complete:
+                break
+            if vid not in items:
+                item = _compact_short(entry)
+                item["url"] = f"https://www.youtube.com/shorts/{vid}"
+                item["detail_status"] = "pending" if entry.get("view_count") is None or item["view_count"] >= 500_000 else "skipped"
+                items[vid] = item
+                found += 1
+                save()
+            report("listing", f"쇼츠 목록 확인 중 · 새 영상 {found}개 발견 · 총 {len(items)}개")
+    cache["complete"] = True
+    save()
+    candidates = [v for v in items.values() if v.get("detail_status") in ("pending", "error")]
+    detail_opts = {"quiet": True, "no_warnings": True, "skip_download": True,
+                   "getcomments": True, "socket_timeout": 20,
+                   "extractor_args": {"youtube": {"max_comments": ["50,0,50,0"]}}}
+    with yt_dlp.YoutubeDL(detail_opts) as ydl:
+        for i, entry in enumerate(candidates):
+            report("details", f"설명·통계·고정 댓글 수집 중 ({i + 1}/{len(candidates)}) · {entry['title']}", i, len(candidates))
+            try:
+                detail = ydl.extract_info(entry["url"], download=False)
+                item = _compact_short(detail)
+                item.update(id=entry["id"], url=entry["url"], detail_status="complete")
+                items[entry["id"]] = item
+            except Exception as exc:
+                entry.update(detail_status="error", detail_error=_clean_error(exc))
+            save()
+            report("details", f"상세 정보 처리 {i + 1}/{len(candidates)}개", i + 1, len(candidates))
+    cache["updated_at"] = _now()
+    save()
+    failed = sum(v.get("detail_status") == "error" for v in items.values())
+    report("complete", f"완료 · 저장된 쇼츠 {len(items)}개 · 새 영상 {found}개" + (f" · 상세 조회 실패 {failed}개 (다음 요청에 재시도)" if failed else ""), len(candidates), len(candidates))
+
+
+def extract_reference_shorts(channel: dict) -> list[dict]:
+    result = {}
+    analyze_reference_shorts(channel, lambda state: result.update(state))
+    return sorted([v for v in result["shorts"] if v.get("view_count", 0) >= 500_000],
+                  key=lambda v: v.get("view_count", 0), reverse=True)
+
+
+def _run_reference_analysis(channel):
+    key = channel["id"]
+    def publish(state):
+        # Freeze the snapshot before the worker mutates another item.
+        snapshot = json.loads(json.dumps(state))
+        with reference_jobs_lock:
+            reference_jobs[key] = snapshot
+    try:
+        analyze_reference_shorts(channel, publish)
+    except Exception as exc:
+        with reference_jobs_lock:
+            state = dict(reference_jobs[key])
+        state.update(stage="error", message=_clean_error(exc))
+        publish(state)
+
+
+# ---------------------------------------------------------------------------
 # 쇼츠 현황판 (구글 스프레드시트 읽기 전용 뷰어)
 # ---------------------------------------------------------------------------
 def _s(v, limit: int = 20000) -> str:
@@ -308,7 +482,7 @@ SHEET_HEADER_KEYS = {
 }
 # 시트 상태 라벨(이모지 제거 후) → 상태 키. 예전 라벨도 받아 준다.
 SHEET_STATUS_KEYS = {
-    "제작 전": "before", "제작 중": "making", "업로드 대기": "ready", "제작 완료·업로드 대기": "ready", "업로드 완료": "uploaded",
+    "후보": "candidate", "제작 전": "before", "제작 중": "making", "업로드 대기": "ready", "제작 완료·업로드 대기": "ready", "업로드 완료": "uploaded",
 }
 _YT_ID_RE = re.compile(r"(?:v=|/shorts/|youtu\.be/|/embed/|/live/)([A-Za-z0-9_-]{11})")
 
@@ -367,6 +541,11 @@ def fetch_sheet_csv(url: str) -> str:
 def youtube_thumbnail(url: str) -> str:
     m = _YT_ID_RE.search(url or "")
     return f"https://i.ytimg.com/vi/{m.group(1)}/hqdefault.jpg" if m else ""
+
+
+def youtube_video_id(url: str) -> str:
+    m = _YT_ID_RE.search(url or "")
+    return m.group(1) if m else ""
 
 
 def _iso(v: str) -> str:
@@ -999,6 +1178,75 @@ def api_history_clear():
     return jsonify({"removed": history_remove(None)})
 
 
+# ---- 레퍼 체크 ---------------------------------------------------------------
+@app.get("/references")
+def references_page():
+    return render_template("references.html")
+
+
+@app.get("/api/references")
+def api_references_list():
+    return jsonify({"items": load_references()})
+
+
+@app.post("/api/references")
+def api_references_add():
+    data = request.get_json(silent=True) or {}
+    try:
+        channel = extract_reference_channel(_reference_channel_url(data.get("url") or ""))
+    except Exception as e:  # noqa: BLE001
+        return jsonify({"error": _clean_error(e)}), 400
+    with references_lock:
+        items = load_references()
+        if any(item.get("id") == channel["id"] for item in items):
+            return jsonify({"error": "이미 추가된 채널입니다."}), 409
+        items.append(channel)
+        save_references(items)
+    return jsonify({"item": channel}), 201
+
+
+@app.delete("/api/references/<channel_id>")
+def api_references_delete(channel_id: str):
+    with references_lock:
+        items = load_references()
+        kept = [item for item in items if item.get("id") != channel_id]
+        if len(kept) == len(items):
+            return jsonify({"error": "채널을 찾을 수 없습니다."}), 404
+        save_references(kept)
+    return jsonify({"removed": 1})
+
+
+@app.route("/api/references/<channel_id>/analysis", methods=["GET", "POST"])
+def api_reference_analysis(channel_id):
+    channel = next((c for c in load_references() if c.get("id") == channel_id), None)
+    if not channel:
+        return jsonify({"error": "채널을 찾을 수 없습니다."}), 404
+    with reference_jobs_lock:
+        state = reference_jobs.get(channel_id)
+        if request.method == "POST" and (not state or state["stage"] in ("complete", "error")):
+            cache = _load_reference_cache(channel)
+            state = {"channel": channel, "shorts": list(cache["items"].values()),
+                     "stage": "listing", "message": "저장된 결과를 불러왔습니다. 새 쇼츠를 확인합니다.",
+                     "percent": None, "updated_at": cache.get("updated_at")}
+            reference_jobs[channel_id] = state
+            threading.Thread(target=_run_reference_analysis, args=(channel,), daemon=True).start()
+        if not state:
+            return jsonify({"error": "분석을 먼저 시작해 주세요."}), 404
+        return jsonify(state)
+
+
+@app.get("/api/references/<channel_id>")
+def api_reference_detail(channel_id: str):
+    channel = next((item for item in load_references() if item.get("id") == channel_id), None)
+    if not channel:
+        return jsonify({"error": "채널을 찾을 수 없습니다."}), 404
+    try:
+        shorts = extract_reference_shorts(channel)
+    except Exception as e:  # noqa: BLE001
+        return jsonify({"error": _clean_error(e), "channel": channel}), 502
+    return jsonify({"channel": channel, "shorts": shorts, "minimum_views": 500_000})
+
+
 # ---- 쇼츠 현황판 (시트 뷰어) ----------------------------------------------------
 @app.get("/thumbnail")
 def thumbnail_page():
@@ -1040,6 +1288,63 @@ def api_shorts_list():
         "sheet": _sheet_public(cfg, _sheet_cache["at"] or None, cached),
         "error": error,
     })
+
+
+def _candidate_call(action: str, **values) -> tuple[dict | None, tuple | None]:
+    cfg, up = get_sheet_setting(), get_upload_setting()
+    if not cfg:
+        return None, (jsonify({"error": "먼저 쇼츠 현황판에서 구글 시트를 연결해 주세요."}), 400)
+    if not up:
+        return None, (jsonify({"error": "현황판의 Apps Script 연결 정보를 먼저 저장해 주세요."}), 400)
+    payload = {"action": action, "token": up["token"], "sheetId": cfg["sheet_id"], **values}
+    try:
+        result = apps_script_post(up["url"], payload)
+    except RuntimeError as exc:
+        return None, (jsonify({"error": str(exc)}), 502)
+    if result.get("ok"):
+        return result, None
+    errors = {
+        "unauthorized": (401, "Apps Script 업로드 토큰이 맞지 않습니다."),
+        "wrong_sheet": (409, "Apps Script가 연결된 구글 시트와 현황판 시트가 다릅니다."),
+        "busy": (503, "시트가 다른 작업을 처리 중입니다. 잠시 후 다시 시도해 주세요."),
+        "not_candidate": (409, "이미 제작 단계로 변경되어 후보 등록을 해제할 수 없습니다."),
+        "bad_video": (400, "유효한 유튜브 쇼츠 정보가 아닙니다."),
+        "no_sheet": (502, "구글 시트에 '현황판' 탭이 없습니다."),
+        "unknown_action": (409, "Apps Script를 후보 기능이 포함된 최신 버전으로 업데이트해 주세요."),
+        "upgrade_required": (409, "Apps Script를 후보 기능이 포함된 최신 버전으로 업데이트해 주세요."),
+    }
+    status, message = errors.get(result.get("error"), (502, f"웹 앱 오류: {result.get('error', 'unknown')}"))
+    return None, (jsonify({"error": message, "code": result.get("error")}), status)
+
+
+@app.get("/api/shorts/candidates")
+def api_shorts_candidates():
+    result, error = _candidate_call("candidate_list")
+    return error or jsonify(result)
+
+
+@app.put("/api/shorts/candidates/<video_id>")
+def api_shorts_candidate_add(video_id: str):
+    data = request.get_json(silent=True) or {}
+    result, error = _candidate_call(
+        "candidate_add", videoId=video_id,
+        referenceUrl=_s(data.get("url"), 2000),
+        dishTitle=_s(data.get("title"), 500),
+        referenceChannel=_s(data.get("channel"), 200),
+    )
+    if error:
+        return error
+    _sheet_cache_invalidate()
+    return jsonify(result)
+
+
+@app.delete("/api/shorts/candidates/<video_id>")
+def api_shorts_candidate_remove(video_id: str):
+    result, error = _candidate_call("candidate_remove", videoId=video_id)
+    if error:
+        return error
+    _sheet_cache_invalidate()
+    return jsonify(result)
 
 
 @app.get("/api/shorts/sheet")

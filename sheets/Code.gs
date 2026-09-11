@@ -37,11 +37,12 @@ const ROW_HEIGHT = 64;      // 썸네일이 보이는 데이터 행 높이
 const PROP_TOKEN = 'UPLOAD_TOKEN';
 const PROP_FOLDER = 'THUMB_FOLDER_ID';
 const THUMB_FOLDER_NAME = '쇼츠 현황판 썸네일';
-const UPLOAD_VERSION = 3;
+const UPLOAD_VERSION = 5;
 const thumbUrlFor = (id) => `https://lh3.googleusercontent.com/d/${id}`;   // IMAGE() 와 <img> 모두에서 열리는 형식
 const SOURCE_THUMB_RE = /i\.ytimg\.com|img\.youtube\.com/;                 // 예전 버전이 넣던 원본 영상 썸네일
 
 const STATUSES = [
+  { label: '⭐ 후보',         legacy: '후보',                bg: '#f3e8ff', fg: '#7e22ce' },
   { label: '⬜ 제작 전',     legacy: '제작 전',             bg: '#f1f5f9', fg: '#475569' },
   { label: '🎬 제작 중',     legacy: '제작 중',             bg: '#dbeafe', fg: '#1d4ed8' },
   { label: '⏳ 업로드 대기', legacy: '제작 완료·업로드 대기', bg: '#fef3c7', fg: '#b45309' },
@@ -265,6 +266,7 @@ function setupBoardSheet(sheet) {
   sheet.setRowHeight(HEADER_ROW, 36);
   sheet.setFrozenRows(HEADER_ROW);
   sheet.setFrozenColumns(2);   // 상태 + 요리 제목 고정
+  ensureBoardFilter(sheet);
 
   // 데이터 영역 공통 서식: 줄무늬, 얇은 가로선, 세로 가운데
   const body = sheet.getRange(FIRST_DATA_ROW, 1, dataRows, LAST_COL);
@@ -330,6 +332,21 @@ function setupBoardSheet(sheet) {
       .setRanges([sheet.getRange(FIRST_DATA_ROW, i + 1, dataRows, 1)]).build());
   });
   sheet.setConditionalFormatRules(rules);
+}
+
+/** 기본 필터를 전체 현황판 범위로 맞춘다. 기존 열별 조건은 보존한다. */
+function ensureBoardFilter(sheet) {
+  const old = sheet.getFilter();
+  const criteria = {};
+  if (old) {
+    for (let c = 1; c <= Math.min(old.getRange().getNumColumns(), LAST_COL); c++) {
+      const criterion = old.getColumnFilterCriteria(c);
+      if (criterion) criteria[c] = criterion;
+    }
+    old.remove();
+  }
+  const filter = sheet.getRange(HEADER_ROW, 1, sheet.getMaxRows() - HEADER_ROW + 1, LAST_COL).createFilter();
+  Object.keys(criteria).forEach(c => filter.setColumnFilterCriteria(Number(c), criteria[c]));
 }
 
 function setupSummarySheet(ss) {
@@ -547,6 +564,7 @@ function doPost(e) {
   const token = uploadToken(false);
   if (!token || String(body.token || '') !== token) return jsonOut({ ok: false, error: 'unauthorized' });
   if (body.action === 'ping') return jsonOut({ ok: true, ping: true, version: UPLOAD_VERSION });
+  if (['candidate_list', 'candidate_add', 'candidate_remove'].includes(body.action)) return candidateAction(body);
   if (body.action !== 'thumbnail') return jsonOut({ ok: false, error: 'unknown_action' });
   const mime = String(body.mime || '');
   if (!/^image\/(jpeg|png|webp)$/.test(mime)) return jsonOut({ ok: false, error: 'bad_mime' });
@@ -575,6 +593,73 @@ function doPost(e) {
     touchRow(sheet, row, new Date());   // 스크립트가 고친 셀은 편집 트리거를 타지 않으므로 직접 찍는다
     trashOldThumb(old, folder);
     return jsonOut({ ok: true, row, url });
+  } catch (err) {
+    return jsonOut({ ok: false, error: String((err && err.message) || err) });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function candidateVideoId(value) {
+  const match = String(value || '').match(/(?:v=|\/shorts\/|youtu\.be\/|\/embed\/|\/live\/)([A-Za-z0-9_-]{11})/);
+  return match ? match[1] : (/^[A-Za-z0-9_-]{11}$/.test(String(value || '')) ? String(value) : '');
+}
+
+function candidateRows(sheet) {
+  const last = sheet.getLastRow();
+  if (last < FIRST_DATA_ROW) return [];
+  const values = sheet.getRange(FIRST_DATA_ROW, 1, last - FIRST_DATA_ROW + 1, LAST_COL).getValues();
+  return values.map((r, i) => ({
+    row: FIRST_DATA_ROW + i,
+    // 새 후보는 참고 쇼츠 링크로 식별한다. 이전 배포에서 만든 후보는 원본 링크도 확인한다.
+    videoId: candidateVideoId(r[COL.refUrls - 1]) || candidateVideoId(r[COL.srcUrl - 1]),
+    status: stripEmoji(r[COL.status - 1]),
+  })).filter(x => x.videoId);
+}
+
+/** 후보는 필터를 적용해도 바로 보이도록 헤더 아래에 새 행을 만든다. */
+function nextCandidateRow(sheet) {
+  sheet.insertRowBefore(FIRST_DATA_ROW);
+  const row = FIRST_DATA_ROW;
+  const template = sheet.getRange(row + 1, 1, 1, LAST_COL);
+  const target = sheet.getRange(row, 1, 1, LAST_COL);
+  template.copyTo(target, SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
+  template.copyTo(target, SpreadsheetApp.CopyPasteType.PASTE_DATA_VALIDATION, false);
+  return row;
+}
+
+function candidateAction(body) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (String(body.sheetId || '') !== ss.getId()) return jsonOut({ ok: false, error: 'wrong_sheet' });
+  const sheet = ss.getSheetByName(SHEET_NAME);
+  if (!sheet) return jsonOut({ ok: false, error: 'no_sheet' });
+  if (body.action === 'candidate_list') {
+    return jsonOut({ ok: true, version: UPLOAD_VERSION, items: candidateRows(sheet) });
+  }
+  const videoId = candidateVideoId(body.videoId || body.referenceUrl || body.url);
+  if (!videoId) return jsonOut({ ok: false, error: 'bad_video' });
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(20000)) return jsonOut({ ok: false, error: 'busy' });
+  try {
+    const existing = candidateRows(sheet).find(x => x.videoId === videoId);
+    if (body.action === 'candidate_add') {
+      if (existing) return jsonOut({ ok: true, item: existing, existing: true });
+      const row = nextCandidateRow(sheet);
+      const now = new Date();
+      sheet.getRange(row, COL.status).setValue(STATUSES[0].label);
+      sheet.getRange(row, COL.dish).setValue(String(body.dishTitle || body.title || '').slice(0, 200));
+      sheet.getRange(row, COL.refUrls).setValue(`https://www.youtube.com/shorts/${videoId}`);
+      sheet.getRange(row, COL.refChannels).setValue(String(body.referenceChannel || body.channel || '').slice(0, 200));
+      sheet.getRange(row, COL.updatedAt).setValue(now);
+      sheet.getRange(row, COL.createdAt).setValue(now);
+      sheet.setRowHeight(row, ROW_HEIGHT);
+      ensureBoardFilter(sheet);
+      return jsonOut({ ok: true, item: { row, videoId, status: '후보' }, existing: false });
+    }
+    if (!existing) return jsonOut({ ok: true, removed: false });
+    if (existing.status !== '후보') return jsonOut({ ok: false, error: 'not_candidate', item: existing });
+    sheet.deleteRow(existing.row);
+    return jsonOut({ ok: true, removed: true, videoId });
   } catch (err) {
     return jsonOut({ ok: false, error: String((err && err.message) || err) });
   } finally {

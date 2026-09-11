@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg"><title>레퍼 체크</title>
+<style>
+:root{--bg:#0f1115;--card:#181b22;--border:#2a2f3a;--text:#e8eaf0;--muted:#8b93a7;--accent:#ff3d3d;--ok:#3ecf8e;--err:#ff6b6b}*{box-sizing:border-box}body{margin:0;min-height:100vh;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Segoe UI",sans-serif;padding:36px 20px}main{max-width:1180px;margin:auto}.global-nav{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:22px;padding:10px 12px 10px 14px;background:rgba(24,27,34,.82);border:1px solid var(--border);border-radius:14px}.brand{font-weight:700!important;color:var(--text)!important}.links{display:flex;gap:4px;flex-wrap:wrap}.global-nav a{color:var(--muted);text-decoration:none;font-size:13px;padding:8px 11px;border-radius:9px}.global-nav a:hover,.global-nav a[aria-current=page]{color:var(--text);background:#2a2f3a}.global-nav a[aria-current=page]{box-shadow:inset 0 0 0 1px rgba(255,61,61,.35);background:rgba(255,61,61,.14)}h1{margin:0;font-size:27px}.sub{color:var(--muted);font-size:14px;margin:7px 0 22px}.card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:20px;margin-bottom:16px}.add{display:flex;gap:10px}.add input{flex:1;min-width:0;background:#0f1115;color:var(--text);border:1px solid var(--border);border-radius:10px;padding:12px 14px;font-size:14px;outline:none}.add input:focus{border-color:var(--accent)}button{border:0;border-radius:10px;background:var(--accent);color:#fff;padding:11px 17px;font-weight:700;cursor:pointer}button:disabled{opacity:.45;cursor:wait}.msg{font-size:13px;margin-top:10px;color:var(--err)}.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}.channel{display:flex;align-items:center;gap:14px;text-align:left;width:100%;background:var(--card);border:1px solid var(--border);border-radius:14px;padding:17px;color:var(--text);cursor:pointer}.channel:hover{border-color:#555e72;transform:translateY(-1px)}.avatar{width:58px;height:58px;border-radius:50%;object-fit:cover;background:#252a35;flex:none}.channel h2{font-size:16px;margin:0 0 5px}.meta{color:var(--muted);font-size:12px}.empty{text-align:center;padding:55px 20px;color:var(--muted)}.hidden{display:none!important}.back{background:transparent;color:var(--muted);padding:6px 0;margin-bottom:15px}.detail-head{display:flex;align-items:center;gap:18px}.detail-head .avatar{width:80px;height:80px}.detail-head h2{margin:0 0 6px}.detail-head p{color:var(--muted);font-size:13px;line-height:1.5;margin:8px 0 0;max-width:760px}.head-actions{margin-left:auto}.danger{background:transparent;border:1px solid var(--border);color:var(--err)}.shorts-title{display:flex;justify-content:space-between;align-items:end;margin:22px 0 12px}.shorts-title h2{font-size:19px;margin:0}.shorts-title span{font-size:12px;color:var(--muted)}.short{display:grid;grid-template-columns:150px 1fr;gap:17px}.short img{width:150px;aspect-ratio:9/16;max-height:220px;object-fit:cover;border-radius:9px;background:#000}.short h3{font-size:16px;line-height:1.45;margin:0}.short h3 a{color:var(--text);text-decoration:none}.stats{display:flex;gap:14px;flex-wrap:wrap;color:var(--muted);font-size:12px;margin:7px 0 13px}.label{font-size:11px;color:var(--muted);font-weight:700;margin-bottom:5px}.description{white-space:pre-wrap;font-size:13px;line-height:1.55;max-height:84px;overflow:auto;color:#cdd1dc}.pinned{margin-top:12px;padding:11px 13px;background:#11141a;border-radius:9px;font-size:13px;line-height:1.5}.loading{text-align:center;color:var(--muted);padding:60px}.spin{display:inline-block;width:16px;height:16px;border:2px solid #555;border-top-color:#fff;border-radius:50%;animation:s .8s linear infinite;margin-right:8px;vertical-align:-3px}@keyframes s{to{transform:rotate(360deg)}}@media(max-width:650px){body{padding:20px 12px}.global-nav{align-items:flex-start;flex-direction:column}.add,.detail-head{align-items:stretch;flex-direction:column}.head-actions{margin:0}.short{grid-template-columns:90px 1fr}.short img{width:90px}.description{max-height:105px}}
+.candidate{display:inline-flex;align-items:center;gap:7px;color:var(--text);font-size:12px;font-weight:700}.candidate input{accent-color:var(--accent);width:16px;height:16px}.candidate-error{color:var(--err);font-size:12px;margin-top:6px}
+</style></head>
+<body><main>
+<nav class="global-nav"><a class="brand" href="/">콘텐츠 작업실</a><div class="links"><a href="/">다운로드</a><a href="/helper">업로드 헬퍼</a><a href="/shorts">쇼츠 현황판</a><a href="/references" aria-current="page">레퍼 체크</a></div></nav>
+<section id="listView"><h1>레퍼 체크</h1><p class="sub">참고할 유튜브 채널과 성과가 검증된 쇼츠를 한곳에서 확인하세요.</p>
+<form class="card add" id="addForm"><input id="channelUrl" type="url" placeholder="유튜브 채널 URL 또는 /shorts URL" required><button id="addBtn">채널 추가</button></form><div class="msg" id="addError"></div>
+<div class="grid" id="channels"></div><div class="card empty hidden" id="empty">아직 등록된 채널이 없습니다.<br>위에서 첫 레퍼런스 채널을 추가해 보세요.</div></section>
+<section id="detailView" class="hidden"><button class="back" id="backBtn">← 채널 목록</button><div id="detail"></div></section>
+</main><script>
+const $=s=>document.querySelector(s), fmt=n=>n==null?'—':new Intl.NumberFormat('ko-KR',{notation:'compact',maximumFractionDigits:1}).format(n), esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let channels=[],currentChannel=null,currentShorts=[],latestAnalysis=null,candidates=new Map(),candidatePending=new Set(),candidateError='',candidateTimer=null;
+const candidateBus=('BroadcastChannel' in window)?new BroadcastChannel('shorts-board'):null;
+async function json(url,opt){const r=await fetch(url,opt),d=await r.json();if(!r.ok)throw new Error(d.error||'요청에 실패했습니다.');return d}
+function render(){ $('#channels').innerHTML=channels.map(c=>`<button class="channel" data-id="${encodeURIComponent(c.id)}"><img class="avatar" src="${esc(c.thumbnail||'')}" alt=""><span><h2>${esc(c.name)}</h2><span class="meta">구독자 ${fmt(c.subscriber_count)} · 상세 보기 →</span></span></button>`).join('');$('#empty').classList.toggle('hidden',channels.length>0);document.querySelectorAll('.channel').forEach(x=>x.onclick=()=>openDetail(decodeURIComponent(x.dataset.id)))}
+async function load(){const d=await json('/api/references');channels=d.items;render()}
+$('#addForm').onsubmit=async e=>{e.preventDefault();const b=$('#addBtn');b.disabled=true;b.textContent='확인 중…';$('#addError').textContent='';try{const d=await json('/api/references',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:$('#channelUrl').value})});channels.push(d.item);$('#channelUrl').value='';render()}catch(x){$('#addError').textContent=x.message}finally{b.disabled=false;b.textContent='채널 추가'}};
+let detailVersion=0;
+async function openDetail(id){
+ const version=++detailVersion;
+ $('#listView').classList.add('hidden');$('#detailView').classList.remove('hidden');
+ history.replaceState(null,'',`/references?channel=${encodeURIComponent(id)}`);
+ const channel=channels.find(c=>c.id===id);currentChannel=channel||null;currentShorts=[];candidates=new Map();candidateError='';loadCandidates();startCandidateSync();
+ $('#detail').innerHTML='<div class="loading">저장된 결과를 불러오는 중…</div>';
+ if(channel)renderDetail({channel,shorts:[]});
+ try{
+  let d=await json(`/api/references/${encodeURIComponent(id)}/analysis`,{method:'POST'});
+  if(version!==detailVersion)return;
+  if(!channel)renderDetail(d);
+  while(version===detailVersion){
+   updateAnalysis(d);
+   if(['complete','error'].includes(d.stage))break;
+   await new Promise(resolve=>setTimeout(resolve,800));
+   if(version!==detailVersion)return;
+   d=await json(`/api/references/${encodeURIComponent(id)}/analysis`);
+  }
+ }catch(x){if(version===detailVersion){const status=$('#analysisMessage');if(status)status.textContent=`진행 상황을 불러오지 못했습니다: ${x.message}. 채널을 다시 열어 확인해 주세요.`;else $('#detail').textContent=x.message}}
+}
+function updateAnalysis(d){
+ latestAnalysis=d;
+ currentChannel=d.channel||currentChannel;currentShorts=d.shorts||currentShorts;
+ $('#analysisMessage').textContent=d.message;
+ const bar=$('#analysisProgress');
+ if(d.stage==='complete'){bar.value=100;$('#analysisPercent').textContent='100%'}
+ else if(d.percent==null){bar.removeAttribute('value');$('#analysisPercent').textContent='목록 확인 중'}
+ else{bar.value=d.percent;$('#analysisPercent').textContent=`상세 분석 ${d.percent}%`}
+ if(d.stage==='error'){$('#analysisPercent').textContent='오류 · 저장된 결과는 유지됩니다';bar.removeAttribute('value')}
+ $('#cacheInfo').textContent=d.updated_at?`마지막 저장: ${d.updated_at} · 기존 영상 정보는 저장된 값을 사용합니다.`:'목록과 분석 결과를 파일에 순차 저장합니다.';
+ const all=currentShorts, items=all.filter(v=>v.view_count>=500000).sort((a,b)=>b.view_count-a.view_count);
+ $('#shortCount').textContent=`${items.length}개 · 조회수 높은 순`;
+ const list=$('#shortResults'),keep=new Set(items.map(v=>v.id));
+ for(const node of [...list.children])if(!keep.has(node.dataset.id))node.remove();
+ items.forEach((v,i)=>{
+  let node=[...list.children].find(n=>n.dataset.id===v.id), signature=JSON.stringify(v)+candidateSignature(v.id);
+  if(!node){node=document.createElement('div');node.dataset.id=v.id}
+  if(node.dataset.signature!==signature){node.innerHTML=shortCard(v);node.dataset.signature=signature}
+  if(list.children[i]!==node)list.insertBefore(node,list.children[i]||null);
+ });
+ $('#noShorts').classList.toggle('hidden',items.length>0||!['complete','error'].includes(d.stage));
+ const inventory=$('#inventory');
+ const present=new Set(all.map(v=>v.id));
+ for(const node of [...inventory.children])if(!present.has(node.dataset.id))node.remove();
+ for(const v of all){
+  let row=[...inventory.children].find(n=>n.dataset.id===v.id);
+  if(!row){row=document.createElement('li');row.dataset.id=v.id;inventory.appendChild(row)}
+  const state={pending:'상세 분석 대기',complete:'분석 완료',skipped:'50만 회 미만 · 목록 저장',error:'상세 조회 실패 · 다음 요청에 재시도'}[v.detail_status]||'저장됨';
+  const signature=`${v.title}|${v.view_count}|${state}|${candidateSignature(v.id)}`;
+  if(row.dataset.signature!==signature){row.innerHTML=`<label class="candidate">${candidateCheckbox(v)} <span>${esc(v.title)} · 조회 ${fmt(v.view_count)} · ${esc(state)}</span></label>`;row.dataset.signature=signature}
+ }
+ $('#inventoryCount').textContent=`전체 쇼츠 목록 (${all.length}개)`;
+}
+
+function renderDetail(d){const c=d.channel,items=d.shorts;$('#detail').innerHTML=`<div class="card detail-head"><img class="avatar" src="${esc(c.thumbnail||'')}" alt=""><div><h2>${esc(c.name)}</h2><div class="meta">구독자 ${fmt(c.subscriber_count)} · <a href="${esc(c.url)}" target="_blank" rel="noopener" style="color:#ff7777">유튜브에서 보기 ↗</a></div><p>${esc(c.description||'채널 설명이 없습니다.')}</p></div><div class="head-actions"><button class="danger" id="deleteBtn">채널 삭제</button></div></div><div class="card"><div id="analysisMessage" role="status" aria-live="polite">분석 준비 중…</div><div style="display:flex;align-items:center;gap:12px;margin:12px 0"><progress id="analysisProgress" max="100" style="flex:1;width:100%;accent-color:var(--accent)" aria-label="상세 분석 진행률"></progress><span id="analysisPercent" class="meta"></span></div><div id="cacheInfo" class="meta"></div></div><details class="card" open><summary id="inventoryCount">전체 쇼츠 목록 (0개)</summary><ul id="inventory" style="max-height:260px;overflow:auto;font-size:13px;line-height:1.9"></ul></details><div class="shorts-title"><h2>50만 회 이상 쇼츠</h2><span id="shortCount">0개</span></div><div id="shortResults"></div><div id="noShorts" class="card empty hidden">조회수 50만 회 이상인 쇼츠가 없습니다.</div>`;$('#deleteBtn').onclick=()=>removeChannel(c.id,c.name)}
+function candidateSignature(id){const c=candidates.get(id);return `${c?.status||''}|${candidatePending.has(id)}|${candidateError}`}
+function candidateCheckbox(v){const c=candidates.get(v.id),checked=!!c,locked=checked&&c.status!=='후보',busy=candidatePending.has(v.id);return `<input type="checkbox" data-candidate="${esc(v.id)}" ${checked?'checked':''} ${locked||busy||!!candidateError?'disabled':''}><span>${locked?`현황판 ${esc(c.status)} · 해제 잠김`:busy?'저장 중…':checked?'후보 등록됨':'후보로 승격'}</span>`}
+function shortCard(v){const pick=`<label class="candidate">${candidateCheckbox(v)}</label>${candidateError?`<div class="candidate-error">${esc(candidateError)}</div>`:''}`;if(v.detail_status==='pending'||v.detail_status==='error')return `<article class="card"><h3><a href="${esc(v.url)}" target="_blank" rel="noopener" style="color:var(--text)">${esc(v.title)}</a></h3><div class="meta">조회 ${fmt(v.view_count)} · ${v.detail_status==='error'?'상세 조회 실패 · 다음 요청에 재시도합니다.':'설명·통계·고정 댓글 분석 대기 중…'}</div>${pick}</article>`;const date=v.upload_date?`${v.upload_date.slice(0,4)}.${v.upload_date.slice(4,6)}.${v.upload_date.slice(6,8)}`:'날짜 미상';return `<article class="card short"><a href="${esc(v.url)}" target="_blank" rel="noopener"><img src="${esc(v.thumbnail||'')}" alt=""></a><div><h3><a href="${esc(v.url)}" target="_blank" rel="noopener">${esc(v.title)}</a></h3><div class="stats"><span>조회 ${fmt(v.view_count)}</span><span>좋아요 ${fmt(v.like_count)}</span><span>댓글 ${fmt(v.comment_count)}</span><span>${date}</span></div>${pick}<div class="label">설명</div><div class="description">${esc(v.description||'설명이 없습니다.')}</div>${v.pinned_comment?`<div class="pinned"><div class="label">📌 작성자 고정 댓글 · ${esc(v.pinned_comment.author)}</div>${esc(v.pinned_comment.text)}</div>`:'<div class="pinned meta">고정 댓글 정보가 제공되지 않았습니다.</div>'}</div></article>`}
+async function loadCandidates(){try{const d=await json('/api/shorts/candidates');candidates=new Map((d.items||[]).map(x=>[x.videoId,x]));candidateError='';refreshCandidateDom()}catch(e){candidateError=e.message;refreshCandidateDom()}}
+function refreshCandidateDom(){if(latestAnalysis)updateAnalysis(latestAnalysis)}
+async function toggleCandidate(input){const id=input.dataset.candidate,v=currentShorts.find(x=>x.id===id);if(!v)return;const adding=input.checked;candidatePending.add(id);refreshCandidateDom();try{const opt=adding?{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:v.url,title:v.title,channel:currentChannel?.name||''})}:{method:'DELETE'};await json(`/api/shorts/candidates/${encodeURIComponent(id)}`,opt);await loadCandidates();candidateBus?.postMessage('changed');localStorage.setItem('shorts-board-change',String(Date.now()))}catch(e){candidateError=e.message;await loadCandidates();alert(e.message)}finally{candidatePending.delete(id);refreshCandidateDom()}}
+document.addEventListener('change',e=>{const input=e.target.closest('input[data-candidate]');if(input)toggleCandidate(input)});
+function startCandidateSync(){clearInterval(candidateTimer);candidateTimer=setInterval(()=>{if(!document.hidden&&currentChannel)loadCandidates()},10000)}
+candidateBus?.addEventListener('message',()=>loadCandidates());window.addEventListener('storage',e=>{if(e.key==='shorts-board-change')loadCandidates()});document.addEventListener('visibilitychange',()=>{if(!document.hidden&&currentChannel)loadCandidates()});
+async function removeChannel(id,name){if(!confirm(`‘${name}’ 채널을 삭제할까요?`))return;try{await json(`/api/references/${encodeURIComponent(id)}`,{method:'DELETE'});channels=channels.filter(c=>c.id!==id);back();render()}catch(x){alert(x.message)}}
+function back(){detailVersion++;currentChannel=null;clearInterval(candidateTimer);history.replaceState(null,'','/references');$('#detailView').classList.add('hidden');$('#listView').classList.remove('hidden')}$('#backBtn').onclick=back;
+load().then(()=>{const id=new URLSearchParams(location.search).get('channel');if(id)openDetail(id)}).catch(x=>{$('#addError').textContent=x.message});
+</script></body></html>

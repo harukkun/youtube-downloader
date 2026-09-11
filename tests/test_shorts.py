@@ -109,6 +109,59 @@ class ThumbnailUploadTest(unittest.TestCase):
         self.assertEqual(r.get_json()["error"], "연결 실패")
 
 
+class CandidateApiTest(unittest.TestCase):
+    def setUp(self):
+        self.client = appmod.app.test_client()
+
+    def configured(self, response):
+        return patch.multiple(appmod, get_sheet_setting=lambda: SHEET,
+                              get_upload_setting=lambda: UPLOADER,
+                              apps_script_post=lambda _url, _payload: response)
+
+    def test_list(self):
+        response = {"ok": True, "items": [{"videoId": "kRl5OlSq7Sw", "status": "후보", "row": 3}]}
+        with self.configured(response):
+            r = self.client.get("/api/shorts/candidates")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.get_json()["items"][0]["status"], "후보")
+
+    def test_add_sends_sheet_and_video_metadata(self):
+        appmod._sheet_cache["at"] = 123
+        with patch.object(appmod, "get_sheet_setting", return_value=SHEET), \
+             patch.object(appmod, "get_upload_setting", return_value=UPLOADER), \
+             patch.object(appmod, "apps_script_post", return_value={"ok": True, "item": {"row": 3}}) as post:
+            r = self.client.put("/api/shorts/candidates/kRl5OlSq7Sw", json={
+                "url": "https://youtube.com/shorts/kRl5OlSq7Sw", "title": "원본", "channel": "채널"})
+        self.assertEqual(r.status_code, 200)
+        payload = post.call_args.args[1]
+        self.assertEqual(payload["action"], "candidate_add")
+        self.assertEqual(payload["sheetId"], "abc")
+        self.assertEqual(payload["videoId"], "kRl5OlSq7Sw")
+        self.assertEqual(payload["dishTitle"], "원본")
+        self.assertEqual(payload["referenceChannel"], "채널")
+        self.assertEqual(payload["referenceUrl"], "https://youtube.com/shorts/kRl5OlSq7Sw")
+        self.assertNotIn("title", payload)
+        self.assertNotIn("channel", payload)
+        self.assertNotIn("url", payload)
+        self.assertEqual(appmod._sheet_cache["at"], 0.0)
+
+    def test_remove_and_locked_error(self):
+        with self.configured({"ok": True, "removed": True}):
+            self.assertEqual(self.client.delete("/api/shorts/candidates/kRl5OlSq7Sw").status_code, 200)
+        with self.configured({"ok": False, "error": "not_candidate"}):
+            r = self.client.delete("/api/shorts/candidates/kRl5OlSq7Sw")
+        self.assertEqual(r.status_code, 409)
+        self.assertIn("제작 단계", r.get_json()["error"])
+
+    def test_requires_connections_and_reports_old_script(self):
+        with patch.object(appmod, "get_sheet_setting", return_value=None):
+            self.assertEqual(self.client.get("/api/shorts/candidates").status_code, 400)
+        with self.configured({"ok": False, "error": "unknown_action"}):
+            r = self.client.get("/api/shorts/candidates")
+        self.assertEqual(r.status_code, 409)
+        self.assertIn("최신 버전", r.get_json()["error"])
+
+
 class UploaderConfigTest(unittest.TestCase):
     def setUp(self):
         self.client = appmod.app.test_client()

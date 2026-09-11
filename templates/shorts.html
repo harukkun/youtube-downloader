@@ -86,6 +86,7 @@
   td.title .sub { display: block; color: var(--muted); font-weight: 400; font-size: 12px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; }
   td.title:hover { color: var(--info); }
   td .muted { color: var(--muted); font-size: 12px; }
+  .st-candidate{ color:#c084fc;border-color:rgba(168,85,247,.45)!important;background-color:rgba(168,85,247,.1)!important; }
   .st-before   { color: var(--muted); border-color: var(--border) !important; }
   .st-making   { color: var(--info); border-color: rgba(143,166,255,.4) !important; background-color: rgba(143,166,255,.1) !important; }
   .st-ready    { color: var(--warn); border-color: rgba(255,176,32,.4) !important; background-color: rgba(255,176,32,.1) !important; }
@@ -175,7 +176,7 @@
 </head>
 <body>
 <main>
-  <nav class="global-nav" aria-label="주요 메뉴"><a class="brand" href="/"><span class="logo"></span>콘텐츠 작업실</a><div class="links"><a href="/">다운로드</a><a href="/helper">업로드 헬퍼</a><a href="/shorts" aria-current="page">쇼츠 현황판</a></div></nav>
+  <nav class="global-nav" aria-label="주요 메뉴"><a class="brand" href="/"><span class="logo"></span>콘텐츠 작업실</a><div class="links"><a href="/">다운로드</a><a href="/helper">업로드 헬퍼</a><a href="/shorts" aria-current="page">쇼츠 현황판</a><a href="/references">레퍼 체크</a></div></nav>
   <div class="head"><h1><span class="logo"></span>쇼츠 현황판</h1></div>
 
   <section class="card">
@@ -265,7 +266,7 @@
   const $ = (id) => document.getElementById(id);
   const STATUSES = {{ statuses | tojson }};
   const PLATFORMS = {{ platforms | tojson }};
-  const STATUS_ORDER = ['before', 'making', 'ready', 'uploaded'].filter(k => k in STATUSES);
+  const STATUS_ORDER = ['candidate', 'before', 'making', 'ready', 'uploaded'].filter(k => k in STATUSES);
   const PLAT_ORDER = ['youtube', 'instagram', 'tiktok', 'naver_clip'].filter(k => k in PLATFORMS);  // 시트 열 순서와 동일
   // 플랫폼 아이콘 (인라인 SVG, 단순화한 형태)
   const PLAT_ICON = {
@@ -281,6 +282,7 @@
   let sheet = { configured: false };   // 서버가 알려 주는 시트 연결 상태
   let openId = null;                   // 상세를 펼친 항목 id
   let toastTimer = null;
+  const boardBus = ('BroadcastChannel' in window) ? new BroadcastChannel('shorts-board') : null;
 
   // ---- 유틸 ---------------------------------------------------------------
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -321,6 +323,10 @@
     renderSheetState(data.error);
     render();
   }
+  boardBus?.addEventListener('message', () => load(true).catch(() => {}));
+  window.addEventListener('storage', e => { if (e.key === 'shorts-board-change') load(true).catch(() => {}); });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) load(true).catch(() => {}); });
+  setInterval(() => { if (!document.hidden) load(true).catch(() => {}); }, 10000);
   function renderSheetState(error) {
     const meta = $('sheetMeta');
     if (!sheet.configured) {
@@ -378,7 +384,7 @@
   function renderChips() {
     const counts = Object.fromEntries(STATUS_ORDER.map(k => [k, 0]));
     items.forEach(it => { if (counts[it.status] !== undefined) counts[it.status]++; });
-    const colors = { before: 'var(--muted)', making: 'var(--info)', ready: 'var(--warn)', uploaded: 'var(--ok)' };
+    const colors = { candidate: '#a855f7', before: 'var(--muted)', making: 'var(--info)', ready: 'var(--warn)', uploaded: 'var(--ok)' };
     let html = `<button type="button" class="chip ${filters.status === '' ? 'active' : ''}" data-st="">전체 <b>${items.length}</b></button>`;
     for (const k of STATUS_ORDER) {
       html += `<button type="button" class="chip ${filters.status === k ? 'active' : ''}" data-st="${k}"><span class="dot" style="background:${colors[k]}"></span>${esc(STATUSES[k])} <b>${counts[k]}</b></button>`;
