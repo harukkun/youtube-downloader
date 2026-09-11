@@ -108,6 +108,17 @@
   .notes { margin-top: 12px; padding: 10px 14px; border-radius: 10px; background: rgba(255,176,32,.08); border: 1px solid rgba(255,176,32,.3); font-size: 13px; }
   .notes b { color: var(--warn); display: block; margin-bottom: 4px; font-size: 12px; }
   .notes ul { margin: 0; padding-left: 18px; line-height: 1.6; }
+  .platform-tabs { display:flex; gap:6px; margin-bottom:10px; }
+  .platform-tab { flex:1; background:transparent; border:1px solid var(--border); color:var(--muted); }
+  .platform-tab:hover { background:#222733; color:var(--text); }
+  .platform-tab.active { color:var(--text); border-color:rgba(255,61,61,.55); background:rgba(255,61,61,.12); }
+  .platform-output.hidden { display:none; }
+  .clarify { margin-top:14px; border-color:rgba(143,166,255,.45); background:linear-gradient(135deg,rgba(143,166,255,.1),var(--card) 42%); }
+  .clarify h3 { margin:0 0 5px; font-size:15px; }
+  .clarify > p { color:var(--muted); margin:0 0 14px; font-size:13px; line-height:1.5; }
+  .question { margin-top:12px; }
+  .question label { display:block; margin-bottom:6px; font-size:13px; font-weight:600; line-height:1.5; }
+  .question textarea { min-height:76px; }
   .msg { margin-top: 12px; padding: 10px 14px; border-radius: 10px; font-size: 13px; line-height: 1.5; }
   .msg.err { background: rgba(255,107,107,.12); color: var(--err); border: 1px solid rgba(255,107,107,.3); }
   .msg.ok { background: rgba(62,207,142,.12); color: var(--ok); border: 1px solid rgba(62,207,142,.3); }
@@ -189,14 +200,14 @@
 </head>
 <body>
 <main>
-  <nav class="global-nav" aria-label="주요 메뉴"><a class="brand" href="/"><span class="logo"></span>콘텐츠 작업실</a><div class="links"><a href="/">다운로드</a><a href="/helper" aria-current="page">업로드 헬퍼</a><a href="/shorts">쇼츠 현황판</a></div></nav>
+  <nav class="global-nav" aria-label="주요 메뉴"><a class="brand" href="/"><span class="logo"></span>콘텐츠 작업실</a><div class="links"><a href="/">다운로드</a><a href="/helper" aria-current="page">업로드 헬퍼</a><a href="/shorts">쇼츠 현황판</a><a href="/references">레퍼 체크</a></div></nav>
   <div class="head"><h1><span class="logo"></span>유튜브 업로드 헬퍼</h1></div>
 
   <div class="layout">
     <!-- 기능 목록: 새 기능은 여기 버튼 하나 + 아래 section.panel 하나를 추가한다 -->
     <aside class="card tools">
       <h2>기능</h2>
-      <button type="button" class="tool active" data-tool="recipe">📝 SNS 레시피 게시글<small>원본 레시피 → 인스타그램·스레드 게시글</small></button>
+      <button type="button" class="tool active" data-tool="recipe">📝 SNS 레시피 게시글<small>원본 레시피 → 인스타그램·유튜브·틱톡 게시글</small></button>
       <button type="button" class="tool" data-tool="thumbnail">🖼️ 쇼츠 썸네일 만들기<small>영상 장면 선택 → 세로형 커버 저장</small></button>
       <div class="tool soon">＋ 더 많은 기능 준비 중<small>제목·태그·고정 댓글 등</small></div>
     </aside>
@@ -257,16 +268,23 @@
               <button type="button" class="ghost" id="pasteBtn">클립보드에서 붙여넣기</button>
               <button type="button" class="ghost" id="clearSrcBtn">지우기</button>
               <span class="spacer"></span>
-              <button type="button" class="big" id="genBtn">내 템플릿으로 변형 →</button>
+              <button type="button" class="big" id="genBtn">플랫폼별 게시글 생성 →</button>
             </div>
           </section>
 
           <section class="card">
             <div class="lbl-row">
-              <label for="outText">SNS 게시글 결과</label>
+              <label id="resultLabel" for="instagramOut">플랫폼별 게시글 결과</label>
               <span class="counter" id="outCount">0자 · 권장 300–500자</span>
             </div>
-            <textarea id="outText" placeholder="변형된 설명 텍스트가 여기에 표시됩니다. 직접 고쳐서 복사할 수 있습니다."></textarea>
+            <div class="platform-tabs" role="tablist" aria-label="SNS 플랫폼">
+              <button type="button" class="platform-tab active" data-platform="instagram" role="tab" aria-selected="true">인스타그램</button>
+              <button type="button" class="platform-tab" data-platform="youtube" role="tab" aria-selected="false">유튜브</button>
+              <button type="button" class="platform-tab" data-platform="tiktok" role="tab" aria-selected="false">틱톡</button>
+            </div>
+            <textarea id="instagramOut" class="platform-output" data-platform="instagram" placeholder="인스타그램용 게시글이 여기에 표시됩니다. 직접 고쳐서 복사할 수 있습니다."></textarea>
+            <textarea id="youtubeOut" class="platform-output hidden" data-platform="youtube" placeholder="유튜브용 게시글이 여기에 표시됩니다. 직접 고쳐서 복사할 수 있습니다."></textarea>
+            <textarea id="tiktokOut" class="platform-output hidden" data-platform="tiktok" placeholder="틱톡용 게시글이 여기에 표시됩니다. 직접 고쳐서 복사할 수 있습니다."></textarea>
             <div class="notes hidden" id="notesBox"><b>⚠ 업로드 전 확인</b><ul id="notesList"></ul></div>
             <div class="btns">
               <span class="usage" id="usageInfo"></span>
@@ -276,6 +294,13 @@
             </div>
           </section>
         </div>
+        <section class="card clarify hidden" id="clarifyBox" aria-live="polite">
+          <h3>레시피 정보를 조금만 더 알려주세요</h3>
+          <p>없는 내용을 임의로 만들지 않도록 확인이 필요한 항목입니다. 답변하면 이어서 세 플랫폼의 게시글을 생성합니다.</p>
+          <div id="questionList"></div>
+          <div class="btns"><span class="spacer"></span><button type="button" class="big" id="answerBtn">답변하고 게시글 생성 →</button></div>
+          <div class="msg err hidden" id="answerErr"></div>
+        </section>
         <div class="msg err hidden" id="genErr"></div>
       </section>
       <!-- 기능 2: 쇼츠 썸네일 만들기 -->
@@ -458,15 +483,39 @@
   });
 
   // ---- 입력 / 결과 ------------------------------------------------------------
+  let activePlatform = 'instagram';
+  const recipePlatforms = { instagram: '인스타그램', youtube: '유튜브', tiktok: '틱톡' };
+  let pendingQuestions = [];
+  let collectedInfo = [];
+  function activeOutput() { return $(activePlatform + 'Out'); }
+  function selectPlatform(platform) {
+    activePlatform = platform;
+    document.querySelectorAll('.platform-tab').forEach(btn => {
+      const active = btn.dataset.platform === platform;
+      btn.classList.toggle('active', active); btn.setAttribute('aria-selected', String(active));
+    });
+    document.querySelectorAll('.platform-output').forEach(el => el.classList.toggle('hidden', el.dataset.platform !== platform));
+    $('resultLabel').setAttribute('for', activeOutput().id);
+    updateCounts();
+  }
+  document.querySelectorAll('.platform-tab').forEach(btn => btn.addEventListener('click', () => selectPlatform(btn.dataset.platform)));
+
   function updateCounts() {
     const n = $('srcText').value.length;
     $('srcCount').textContent = n.toLocaleString() + '자';
-    const m = Array.from($('outText').value).length;
+    const m = Array.from(activeOutput().value).length;
     $('outCount').textContent = m.toLocaleString() + '자 · 권장 300–500자';
     $('outCount').classList.toggle('over', m > 500 || (m > 0 && m < 300));
   }
-  $('srcText').addEventListener('input', () => { updateCounts(); try { localStorage.setItem('helper.recipe.src', $('srcText').value); } catch {} });
-  $('outText').addEventListener('input', updateCounts);
+  function clearClarification() {
+    pendingQuestions = []; collectedInfo = []; $('questionList').replaceChildren(); $('clarifyBox').classList.add('hidden');
+    showMsg($('answerErr'), '', 'err');
+  }
+  $('srcText').addEventListener('input', () => {
+    updateCounts(); clearClarification();
+    try { localStorage.setItem('helper.recipe.src', $('srcText').value); } catch {}
+  });
+  Object.keys(recipePlatforms).forEach(key => $(key + 'Out').addEventListener('input', updateCounts));
   try { $('srcText').value = localStorage.getItem('helper.recipe.src') || ''; } catch {}
   updateCounts();
 
@@ -478,10 +527,10 @@
     } catch { toast('클립보드를 읽을 수 없습니다. 직접 붙여 넣어 주세요 (⌘V)', true); $('srcText').focus(); }
   });
   $('clearSrcBtn').addEventListener('click', () => { $('srcText').value = ''; $('srcText').dispatchEvent(new Event('input')); $('srcText').focus(); });
-  $('clearOutBtn').addEventListener('click', () => { setResult('', [], null); });
+  $('clearOutBtn').addEventListener('click', () => { setResult({}, [], null); });
 
-  function setResult(text, notes, usage) {
-    $('outText').value = text || '';
+  function setResult(results, notes, usage) {
+    Object.keys(recipePlatforms).forEach(key => { $(key + 'Out').value = results?.[key] || ''; });
     $('notesList').innerHTML = (notes || []).map(n => '<li>' + n.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])) + '</li>').join('');
     $('notesBox').classList.toggle('hidden', !(notes && notes.length));
     let u = '';
@@ -497,33 +546,63 @@
     updateCounts();
   }
 
+  function renderQuestions(questions) {
+    pendingQuestions = questions || [];
+    const list = $('questionList'); list.replaceChildren();
+    pendingQuestions.forEach((question, index) => {
+      const wrap = document.createElement('div'); wrap.className = 'question';
+      const label = document.createElement('label'); label.htmlFor = 'answer-' + index; label.textContent = (index + 1) + '. ' + question;
+      const input = document.createElement('textarea'); input.id = 'answer-' + index; input.rows = 2; input.placeholder = '여기에 답변해 주세요';
+      wrap.append(label, input); list.append(wrap);
+    });
+    $('clarifyBox').classList.remove('hidden');
+    $('clarifyBox').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    list.querySelector('textarea')?.focus();
+  }
+
   let generating = false;
-  $('genBtn').addEventListener('click', async () => {
+  async function generate(additionalInfo = []) {
     if (generating) return;
     const src = $('srcText').value.trim();
     if (!src) { toast('원본 레시피 설명을 붙여 넣어 주세요', true); $('srcText').focus(); return; }
     generating = true;
-    const btn = $('genBtn'); const label = btn.innerHTML;
-    btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>변형 중… (수십 초 걸릴 수 있어요)';
+    const btn = additionalInfo.length ? $('answerBtn') : $('genBtn'); const label = btn.innerHTML;
+    $('genBtn').disabled = true; $('answerBtn').disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>생성 중… (수십 초 걸릴 수 있어요)';
     showMsg($('genErr'), '', 'err');
+    showMsg($('answerErr'), '', 'err');
     const started = Date.now();
     try {
-      const d = await api('POST', '/api/helper/recipe-description', { source_text: src, ...currentRecipeSettings() });
-      setResult(d.description, d.notes, d.usage);
-      toast('완료 (' + ((Date.now() - started) / 1000).toFixed(0) + '초)');
+      const d = await api('POST', '/api/helper/recipe-description', {
+        source_text: src, additional_info: additionalInfo, ...currentRecipeSettings()
+      });
+      if (d.status === 'needs_input') {
+        collectedInfo = additionalInfo; setResult({}, d.notes, d.usage); renderQuestions(d.questions);
+        toast('추가 정보가 필요합니다');
+      } else {
+        clearClarification(); setResult(d.results, d.notes, d.usage); selectPlatform('instagram');
+        toast('세 플랫폼 생성 완료 (' + ((Date.now() - started) / 1000).toFixed(0) + '초)');
+      }
     } catch (e) {
-      showMsg($('genErr'), e.message, 'err');
+      showMsg(additionalInfo.length ? $('answerErr') : $('genErr'), e.message, 'err');
     } finally {
-      generating = false; btn.disabled = false; btn.innerHTML = label;
+      generating = false; $('genBtn').disabled = false; $('answerBtn').disabled = false; btn.innerHTML = label;
     }
+  }
+  $('genBtn').addEventListener('click', () => { clearClarification(); generate(); });
+  $('answerBtn').addEventListener('click', () => {
+    const answers = pendingQuestions.map((question, index) => ({ question, answer: $('answer-' + index)?.value.trim() || '' }));
+    const missing = answers.findIndex(item => !item.answer);
+    if (missing >= 0) { showMsg($('answerErr'), '모든 질문에 답변해 주세요.', 'err'); $('answer-' + missing).focus(); return; }
+    generate([...collectedInfo, ...answers]);
   });
 
   $('copyBtn').addEventListener('click', async () => {
-    const text = $('outText').value;
+    const text = activeOutput().value;
     if (!text) { toast('복사할 내용이 없습니다', true); return; }
     try { await navigator.clipboard.writeText(text); }
-    catch { $('outText').focus(); $('outText').select(); document.execCommand('copy'); }
-    toast('클립보드에 복사했습니다');
+    catch { activeOutput().focus(); activeOutput().select(); document.execCommand('copy'); }
+    toast(recipePlatforms[activePlatform] + ' 게시글을 복사했습니다');
   });
 
   loadSettings();
