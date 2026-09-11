@@ -193,10 +193,10 @@ RECIPE_OUTPUT_SCHEMA = {
 
 # 쇼츠 현황판 상태/플랫폼 정의 (키는 저장값, 값은 화면 라벨)
 STATUSES = {
-    "candidate": "후보",
-    "before": "제작 전",
-    "making": "제작 중",
-    "ready": "제작 완료·업로드 대기",
+    "candidate": "촬영 후보",
+    "making": "촬영 중",
+    "editing": "편집 중",
+    "ready": "업로드 대기",
     "uploaded": "업로드 완료",
 }
 PLATFORMS = {
@@ -369,6 +369,75 @@ def _load_reference_cache(channel):
     return {"items": {}, "complete": False}
 
 
+# ---- 레퍼 체크 팀 동기화 (현황판 시트의 '레퍼 채널'·'레퍼 쇼츠' 탭) ------------------------
+REFERENCE_SYNC_CHUNK = 200
+
+
+def _reference_sync_status() -> dict:
+    """연결 상태만 본다(네트워크 없음). 시트 링크와 Apps Script URL·토큰이 모두 있어야 동기화 모드."""
+    sheet, uploader = bool(get_sheet_setting()), bool(get_upload_setting())
+    return {"enabled": sheet and uploader, "sheet_connected": sheet, "uploader_connected": uploader}
+
+
+def _reference_sync_enabled() -> bool:
+    """현황판 시트 + Apps Script 연결이 모두 저장돼 있으면 레퍼 데이터를 시트와 동기화한다."""
+    return _reference_sync_status()["enabled"]
+
+
+def _pull_references(enabled: bool) -> tuple[list[dict], str | None]:
+    """시트의 채널 목록을 원본으로 삼아 로컬 파일에 캐시한다. 실패하면 (로컬 목록, 오류 메시지)."""
+    if not enabled:
+        return load_references(), None
+    try:
+        items = [c for c in sheet_call("reference_list").get("items") or [] if isinstance(c, dict) and c.get("id")]
+    except SheetCallError as exc:
+        return load_references(), str(exc)
+    with references_lock:
+        save_references(items)
+    return items, None
+
+
+def _merge_reference_items(local: dict, remote: list[dict]) -> int:
+    """원격 쇼츠 항목을 로컬 캐시 dict 에 병합한다. 로컬에 없으면 채택, 둘 다 있으면 상세 분석이 끝난 쪽을 남긴다."""
+    changed = 0
+    for item in remote:
+        vid = item.get("id") if isinstance(item, dict) else None
+        if not vid:
+            continue
+        mine = local.get(vid)
+        if mine is None or (mine.get("detail_status") != "complete" and item.get("detail_status") == "complete"):
+            local[vid] = item
+            changed += 1
+    return changed
+
+
+def _pull_reference_shorts(channel: dict, cache: dict) -> str | None:
+    try:
+        result = sheet_call("reference_shorts_get", channelId=channel["id"])
+    except SheetCallError as exc:
+        return str(exc)
+    _merge_reference_items(cache["items"], result.get("items") or [])
+    cache["complete"] = bool(cache.get("complete") or result.get("complete"))
+    remote_at = result.get("updated_at")
+    if remote_at and str(remote_at) > str(cache.get("updated_at") or ""):
+        cache["updated_at"] = remote_at
+    return None
+
+
+def _push_reference_shorts(channel: dict, cache: dict, changed: set) -> str | None:
+    """변경된 항목만 시트에 올린다. 마지막 묶음에 완료 플래그·저장 시각을 함께 보낸다. 성공하면 changed 를 비운다."""
+    items = [cache["items"][vid] for vid in sorted(changed) if vid in cache["items"]]
+    chunks = [items[i:i + REFERENCE_SYNC_CHUNK] for i in range(0, len(items), REFERENCE_SYNC_CHUNK)] or [[]]
+    try:
+        for i, chunk in enumerate(chunks):
+            extra = {"complete": bool(cache.get("complete")), "updated_at": cache.get("updated_at")} if i == len(chunks) - 1 else {}
+            sheet_call("reference_shorts_put", channelId=channel["id"], items=chunk, **extra)
+    except SheetCallError as exc:
+        return str(exc)
+    changed.clear()
+    return None
+
+
 def analyze_reference_shorts(channel, publish):
     with reference_jobs_lock:
         lock = reference_analysis_locks.setdefault(channel["id"], threading.Lock())
@@ -379,14 +448,28 @@ def analyze_reference_shorts(channel, publish):
 def _analyze_reference_shorts(channel, publish):
     cache = _load_reference_cache(channel)
     items = cache["items"]
+    syncing = _reference_sync_enabled()
+    sync_error = None
+    changed = set()   # 시트에 아직 올리지 않은 영상 ID
     def report(stage, message, done=0, total=0):
+        if sync_error:
+            message += f" · 시트 동기화 실패: {sync_error}"
         publish({"channel": channel, "shorts": list(items.values()), "stage": stage,
                  "message": message, "processed": done, "total": total,
                  "percent": round(done / total * 100) if total else None,
-                 "minimum_views": 500_000, "updated_at": cache.get("updated_at")})
+                 "minimum_views": 500_000, "updated_at": cache.get("updated_at"),
+                 "sync": syncing, "sync_error": sync_error})
     def save():
         _write_json_atomic(_reference_cache_path(channel), cache)
+    def push():
+        nonlocal sync_error
+        if syncing:
+            sync_error = _push_reference_shorts(channel, cache, changed)
     report("listing", f"저장된 쇼츠 {len(items)}개 · 새 쇼츠 목록을 확인하고 있습니다.")
+    if syncing:
+        report("listing", "팀 시트에 저장된 결과를 불러오고 있습니다.")
+        sync_error = _pull_reference_shorts(channel, cache)
+        save()
     # /shorts is newest-first. A completed prior scan provides the boundary.
     known = set(items)
     previous_complete = cache.get("complete", False)
@@ -408,11 +491,13 @@ def _analyze_reference_shorts(channel, publish):
                 item["url"] = f"https://www.youtube.com/shorts/{vid}"
                 item["detail_status"] = "pending" if entry.get("view_count") is None or item["view_count"] >= 500_000 else "skipped"
                 items[vid] = item
+                changed.add(vid)
                 found += 1
                 save()
             report("listing", f"쇼츠 목록 확인 중 · 새 영상 {found}개 발견 · 총 {len(items)}개")
     cache["complete"] = True
     save()
+    push()
     candidates = [v for v in items.values() if v.get("detail_status") in ("pending", "error")]
     detail_opts = {"quiet": True, "no_warnings": True, "skip_download": True,
                    "getcomments": True, "socket_timeout": 20,
@@ -427,10 +512,12 @@ def _analyze_reference_shorts(channel, publish):
                 items[entry["id"]] = item
             except Exception as exc:
                 entry.update(detail_status="error", detail_error=_clean_error(exc))
+            changed.add(entry["id"])
             save()
             report("details", f"상세 정보 처리 {i + 1}/{len(candidates)}개", i + 1, len(candidates))
     cache["updated_at"] = _now()
     save()
+    push()
     failed = sum(v.get("detail_status") == "error" for v in items.values())
     report("complete", f"완료 · 저장된 쇼츠 {len(items)}개 · 새 영상 {found}개" + (f" · 상세 조회 실패 {failed}개 (다음 요청에 재시도)" if failed else ""), len(candidates), len(candidates))
 
@@ -482,7 +569,10 @@ SHEET_HEADER_KEYS = {
 }
 # 시트 상태 라벨(이모지 제거 후) → 상태 키. 예전 라벨도 받아 준다.
 SHEET_STATUS_KEYS = {
-    "후보": "candidate", "제작 전": "before", "제작 중": "making", "업로드 대기": "ready", "제작 완료·업로드 대기": "ready", "업로드 완료": "uploaded",
+    "촬영 후보": "candidate", "촬영 중": "making", "편집 중": "editing",
+    "업로드 대기": "ready", "업로드 완료": "uploaded",
+    # 예전 라벨 (setupSheets 를 다시 실행하기 전의 시트)
+    "후보": "candidate", "제작 전": "candidate", "제작 중": "making", "제작 완료·업로드 대기": "ready",
 }
 _YT_ID_RE = re.compile(r"(?:v=|/shorts/|youtu\.be/|/embed/|/live/)([A-Za-z0-9_-]{11})")
 
@@ -589,7 +679,7 @@ def parse_sheet_items(text: str) -> list[dict]:
             "source": {"url": src_url, "title": cell(r, "src_title", 500), "channel": cell(r, "src_channel", 200),
                        "thumbnail": youtube_thumbnail(src_url)},
             "reference_shorts": refs,
-            "status": SHEET_STATUS_KEYS.get(_clean_header(cell(r, "status", 50)), "before"),
+            "status": SHEET_STATUS_KEYS.get(_clean_header(cell(r, "status", 50)), "candidate"),
             "platforms": plats,
             "video": {"title": title, "description": cell(r, "desc"), "pinned_comment": cell(r, "pinned"),
                       "thumbnail": cell(r, "thumb_url", 2000)},
@@ -1184,9 +1274,17 @@ def references_page():
     return render_template("references.html")
 
 
+@app.get("/api/references/sync")
+def api_references_sync():
+    """화면이 목록을 불러오기 전에 모드(팀 동기화/로컬)를 먼저 표시할 수 있도록 연결 상태만 돌려준다."""
+    return jsonify(_reference_sync_status())
+
+
 @app.get("/api/references")
 def api_references_list():
-    return jsonify({"items": load_references()})
+    status = _reference_sync_status()
+    items, error = _pull_references(status["enabled"])
+    return jsonify({"items": items, "sync": {**status, "error": error}})
 
 
 @app.post("/api/references")
@@ -1202,7 +1300,18 @@ def api_references_add():
             return jsonify({"error": "이미 추가된 채널입니다."}), 409
         items.append(channel)
         save_references(items)
-    return jsonify({"item": channel}), 201
+    sync_error = None
+    if _reference_sync_enabled():
+        try:
+            result = sheet_call("reference_add", channel=channel)
+            if result.get("existing") and isinstance(result.get("item"), dict) and result["item"].get("id") == channel["id"]:
+                # 다른 팀원이 먼저 추가한 채널: 시트의 정보를 그대로 쓴다.
+                channel = result["item"]
+                with references_lock:
+                    save_references([channel if item.get("id") == channel["id"] else item for item in load_references()])
+        except SheetCallError as exc:
+            sync_error = str(exc)
+    return jsonify({"item": channel, "sync_error": sync_error}), 201
 
 
 @app.delete("/api/references/<channel_id>")
@@ -1213,7 +1322,17 @@ def api_references_delete(channel_id: str):
         if len(kept) == len(items):
             return jsonify({"error": "채널을 찾을 수 없습니다."}), 404
         save_references(kept)
-    return jsonify({"removed": 1})
+    try:
+        _reference_cache_path({"id": channel_id}).unlink()
+    except OSError:
+        pass
+    sync_error = None
+    if _reference_sync_enabled():
+        try:
+            sheet_call("reference_remove", id=channel_id)
+        except SheetCallError as exc:
+            sync_error = str(exc)
+    return jsonify({"removed": 1, "sync_error": sync_error})
 
 
 @app.route("/api/references/<channel_id>/analysis", methods=["GET", "POST"])
@@ -1290,43 +1409,66 @@ def api_shorts_list():
     })
 
 
-def _candidate_call(action: str, **values) -> tuple[dict | None, tuple | None]:
+class SheetCallError(RuntimeError):
+    """Apps Script 웹 앱 호출 실패. status 는 그대로 HTTP 응답 코드로 쓴다."""
+
+    def __init__(self, message: str, status: int = 502, code: str | None = None):
+        super().__init__(message)
+        self.status, self.code = status, code
+
+
+_SHEET_ERRORS = {
+    "unauthorized": (401, "Apps Script 업로드 토큰이 맞지 않습니다."),
+    "wrong_sheet": (409, "Apps Script가 연결된 구글 시트와 현황판 시트가 다릅니다."),
+    "busy": (503, "시트가 다른 작업을 처리 중입니다. 잠시 후 다시 시도해 주세요."),
+    "not_candidate": (409, "이미 다음 제작 단계로 넘어가 촬영 후보 등록을 해제할 수 없습니다."),
+    "bad_video": (400, "유효한 유튜브 쇼츠 정보가 아닙니다."),
+    "bad_channel": (400, "유효한 채널 정보가 아닙니다."),
+    "no_sheet": (502, "구글 시트에 '현황판' 탭이 없습니다."),
+    "unknown_action": (409, "Apps Script를 최신 버전(후보·레퍼 동기화 기능 포함)으로 업데이트해 주세요."),
+    "upgrade_required": (409, "Apps Script를 최신 버전(후보·레퍼 동기화 기능 포함)으로 업데이트해 주세요."),
+}
+
+
+def sheet_call(action: str, **values) -> dict:
+    """현황판 시트에 연결된 Apps Script 웹 앱 액션을 호출한다. 실패는 SheetCallError."""
     cfg, up = get_sheet_setting(), get_upload_setting()
     if not cfg:
-        return None, (jsonify({"error": "먼저 쇼츠 현황판에서 구글 시트를 연결해 주세요."}), 400)
+        raise SheetCallError("먼저 쇼츠 현황판에서 구글 시트를 연결해 주세요.", 400)
     if not up:
-        return None, (jsonify({"error": "현황판의 Apps Script 연결 정보를 먼저 저장해 주세요."}), 400)
+        raise SheetCallError("현황판의 Apps Script 연결 정보를 먼저 저장해 주세요.", 400)
     payload = {"action": action, "token": up["token"], "sheetId": cfg["sheet_id"], **values}
     try:
         result = apps_script_post(up["url"], payload)
     except RuntimeError as exc:
-        return None, (jsonify({"error": str(exc)}), 502)
+        raise SheetCallError(str(exc), 502) from exc
     if result.get("ok"):
-        return result, None
-    errors = {
-        "unauthorized": (401, "Apps Script 업로드 토큰이 맞지 않습니다."),
-        "wrong_sheet": (409, "Apps Script가 연결된 구글 시트와 현황판 시트가 다릅니다."),
-        "busy": (503, "시트가 다른 작업을 처리 중입니다. 잠시 후 다시 시도해 주세요."),
-        "not_candidate": (409, "이미 제작 단계로 변경되어 후보 등록을 해제할 수 없습니다."),
-        "bad_video": (400, "유효한 유튜브 쇼츠 정보가 아닙니다."),
-        "no_sheet": (502, "구글 시트에 '현황판' 탭이 없습니다."),
-        "unknown_action": (409, "Apps Script를 후보 기능이 포함된 최신 버전으로 업데이트해 주세요."),
-        "upgrade_required": (409, "Apps Script를 후보 기능이 포함된 최신 버전으로 업데이트해 주세요."),
-    }
-    status, message = errors.get(result.get("error"), (502, f"웹 앱 오류: {result.get('error', 'unknown')}"))
-    return None, (jsonify({"error": message, "code": result.get("error")}), status)
+        return result
+    status, message = _SHEET_ERRORS.get(result.get("error"), (502, f"웹 앱 오류: {result.get('error', 'unknown')}"))
+    raise SheetCallError(message, status, result.get("error"))
+
+
+def _sheet_call(action: str, **values) -> tuple[dict | None, tuple | None]:
+    """라우트용: (결과, None) 또는 (None, Flask 오류 응답)."""
+    try:
+        return sheet_call(action, **values), None
+    except SheetCallError as exc:
+        body = {"error": str(exc)}
+        if exc.code:
+            body["code"] = exc.code
+        return None, (jsonify(body), exc.status)
 
 
 @app.get("/api/shorts/candidates")
 def api_shorts_candidates():
-    result, error = _candidate_call("candidate_list")
+    result, error = _sheet_call("candidate_list")
     return error or jsonify(result)
 
 
 @app.put("/api/shorts/candidates/<video_id>")
 def api_shorts_candidate_add(video_id: str):
     data = request.get_json(silent=True) or {}
-    result, error = _candidate_call(
+    result, error = _sheet_call(
         "candidate_add", videoId=video_id,
         referenceUrl=_s(data.get("url"), 2000),
         dishTitle=_s(data.get("title"), 500),
@@ -1340,7 +1482,7 @@ def api_shorts_candidate_add(video_id: str):
 
 @app.delete("/api/shorts/candidates/<video_id>")
 def api_shorts_candidate_remove(video_id: str):
-    result, error = _candidate_call("candidate_remove", videoId=video_id)
+    result, error = _sheet_call("candidate_remove", videoId=video_id)
     if error:
         return error
     _sheet_cache_invalidate()

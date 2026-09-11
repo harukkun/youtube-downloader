@@ -240,6 +240,7 @@ youtube-downloader/
 ├── templates/
 │   ├── index.html        다운로더 페이지 (인라인 CSS/JS, 프레임워크 없음)
 │   ├── shorts.html       쇼츠 현황판 페이지 (구글 시트 뷰어)
+│   ├── references.html   레퍼 체크 페이지 (참고 채널·쇼츠 분석, 팀 시트 동기화)
 │   └── helper.html       유튜브 업로드 헬퍼 페이지
 ├── sheets/
 │   ├── Code.gs           쇼츠 현황판 구글 시트용 Apps Script
@@ -248,7 +249,7 @@ youtube-downloader/
 │   ├── favicon.svg       파비콘 (세 페이지 공통, /favicon.ico 도 이 파일로 응답)
 │   ├── thumbnail.js      쇼츠 썸네일 만들기 (Canvas 편집·저장)
 │   └── thumb-upload.js   썸네일을 현황판(시트)에 등록하는 공용 스크립트 (/shorts, /helper)
-├── tests/                unittest (접근 제어, 현황판 파싱·썸네일 등록 API)
+├── tests/                unittest (접근 제어, 현황판 파싱·썸네일 등록 API, 레퍼 체크·시트 동기화)
 ├── requirements.txt      flask, yt-dlp, anthropic(선택)
 ├── run.sh                가상환경 생성 + 서버 실행 스크립트
 └── .venv/                가상환경 (자동 생성, git 제외 대상)
@@ -260,8 +261,15 @@ youtube-downloader/
 ~/.youtube-downloader/
 ├── config.json           저장 위치, 쇼츠 현황판 시트 링크, 썸네일 업로드 웹 앱 URL·토큰
 ├── history.json          다운로드 내역
-└── helper.json           업로드 헬퍼 설정(템플릿 등)
+├── helper.json           업로드 헬퍼 설정(템플릿 등)
+├── references.json       레퍼 체크 채널 목록 (시트 연결 시 시트 내용의 로컬 캐시)
+└── reference-shorts/     채널별 쇼츠 분석 결과 JSON (시트 연결 시 시트와 병합)
 ```
+
+**레퍼 체크 팀 공유**: 쇼츠 현황판(`/shorts`)에 구글 시트와 Apps Script 웹 앱 URL·토큰이 저장돼 있으면 레퍼 체크의 채널 목록과
+쇼츠 분석 결과가 그 시트의 `레퍼 채널`·`레퍼 쇼츠` 탭에 저장되고, 같은 설정을 저장한 팀원의 로컬 앱과 공유됩니다.
+한 사람이 분석한 채널은 다른 사람이 다시 수집하지 않고 새 쇼츠만 증분으로 확인합니다. 시트 연결이 없으면 위 파일에만 저장됩니다.
+설정 방법은 [sheets/README.md](sheets/README.md)의 "웹 앱 배포"를 참고하세요.
 
 ## API
 
@@ -287,6 +295,11 @@ youtube-downloader/
 | `POST` | `/api/shorts/thumbnail` | multipart `{row, src_url?, dish?, file}` → 웹 앱을 거쳐 드라이브에 저장하고 시트의 해당 행에 기록 → `{ok, row, url}`. 행이 바뀌었으면 409, 토큰 오류 401, 8 MB 초과 413 |
 | `GET` | `/api/helper/settings` | 헬퍼 설정(레시피 템플릿·모델·호출 방식) + 기본값 + 환경(CLI/API 키 유무) |
 | `PUT` | `/api/helper/settings` | `{recipe: {template, instructions, model, backend}}` → 보낸 필드만 저장 |
+| `GET` | `/api/references` | 레퍼 채널 목록 + `sync {enabled, error}`. 시트가 연결돼 있으면 시트에서 읽어 로컬에 캐시, 실패 시 로컬 목록과 오류 |
+| `POST` | `/api/references` | `{url}` (채널 또는 `/shorts` URL) → 채널 추가 → `{item, sync_error}`. 시트에 이미 있으면 시트의 정보를 사용 |
+| `DELETE` | `/api/references/<channel_id>` | 채널 삭제 (로컬 캐시와 시트의 채널·쇼츠 행 모두) → `{removed, sync_error}` |
+| `POST`/`GET` | `/api/references/<channel_id>/analysis` | 쇼츠 분석 시작(POST)/진행 상태(GET). 시트의 팀 분석 결과를 먼저 병합하고 새 쇼츠만 수집, 변경분을 시트에 올림. `sync`, `sync_error` 포함 |
+| `GET` | `/api/shorts/candidates` · `PUT`/`DELETE` `/api/shorts/candidates/<video_id>` | 현황판 촬영 후보 목록 조회 · 레퍼 쇼츠를 촬영 후보로 등록/해제 (Apps Script 경유) |
 | `POST` | `/api/helper/recipe-description` | `{source_text, template?, instructions?, model?, backend?}` → `{description, notes, usage}` (설정 미전송 시 저장값 사용, 저장하지 않음) |
 
 `quality` 값은 세로 해상도 숫자(`"1080"`, `"720"` …) 또는 `"audio"` 입니다.

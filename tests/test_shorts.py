@@ -26,6 +26,14 @@ class ParseTest(unittest.TestCase):
         self.assertEqual(it["video"]["thumbnail"], "https://lh3.googleusercontent.com/d/FILE123")
         self.assertEqual(it["source"]["thumbnail"], "https://i.ytimg.com/vi/kRl5OlSq7Sw/hqdefault.jpg")
 
+    def test_status_labels_new_and_legacy(self):
+        rows = {"⭐ 촬영 후보": "candidate", "⭐ 후보": "candidate", "⬜ 제작 전": "candidate", "🎬 촬영 중": "making", "🎬 제작 중": "making",
+                "✂️ 편집 중": "editing", "⏳ 업로드 대기": "ready", "제작 완료·업로드 대기": "ready", "✅ 업로드 완료": "uploaded"}
+        for label, key in rows.items():
+            items = appmod.parse_sheet_items("\n".join([HEADER_GROUP, HEADER, label + "," + ROW.split(",", 1)[1]]))
+            self.assertEqual(items[0]["status"], key, label)
+        self.assertEqual(list(appmod.STATUSES), ["candidate", "making", "editing", "ready", "uploaded"])
+
     def test_old_sheet_without_column(self):
         header = HEADER.rsplit(",", 1)[0]
         row = ROW.rsplit(",", 1)[0]
@@ -119,11 +127,11 @@ class CandidateApiTest(unittest.TestCase):
                               apps_script_post=lambda _url, _payload: response)
 
     def test_list(self):
-        response = {"ok": True, "items": [{"videoId": "kRl5OlSq7Sw", "status": "후보", "row": 3}]}
+        response = {"ok": True, "items": [{"videoId": "kRl5OlSq7Sw", "status": "촬영 후보", "row": 3}]}
         with self.configured(response):
             r = self.client.get("/api/shorts/candidates")
         self.assertEqual(r.status_code, 200)
-        self.assertEqual(r.get_json()["items"][0]["status"], "후보")
+        self.assertEqual(r.get_json()["items"][0]["status"], "촬영 후보")
 
     def test_add_sends_sheet_and_video_metadata(self):
         appmod._sheet_cache["at"] = 123

@@ -37,18 +37,22 @@ const ROW_HEIGHT = 64;      // 썸네일이 보이는 데이터 행 높이
 const PROP_TOKEN = 'UPLOAD_TOKEN';
 const PROP_FOLDER = 'THUMB_FOLDER_ID';
 const THUMB_FOLDER_NAME = '쇼츠 현황판 썸네일';
-const UPLOAD_VERSION = 5;
+const UPLOAD_VERSION = 7;
 const thumbUrlFor = (id) => `https://lh3.googleusercontent.com/d/${id}`;   // IMAGE() 와 <img> 모두에서 열리는 형식
 const SOURCE_THUMB_RE = /i\.ytimg\.com|img\.youtube\.com/;                 // 예전 버전이 넣던 원본 영상 썸네일
 
+const stripEmoji = (s) => String(s || '').replace(/^[^\p{L}\p{N}]+/u, '').trim();   // '📌 상태' → '상태'
+// legacy: 이전 버전에서 쓰던 라벨(이모지 제외). setupSheets 가 데이터 행의 옛 라벨을 새 라벨로 바꾼다.
 const STATUSES = [
-  { label: '⭐ 후보',         legacy: '후보',                bg: '#f3e8ff', fg: '#7e22ce' },
-  { label: '⬜ 제작 전',     legacy: '제작 전',             bg: '#f1f5f9', fg: '#475569' },
-  { label: '🎬 제작 중',     legacy: '제작 중',             bg: '#dbeafe', fg: '#1d4ed8' },
-  { label: '⏳ 업로드 대기', legacy: '제작 완료·업로드 대기', bg: '#fef3c7', fg: '#b45309' },
-  { label: '✅ 업로드 완료', legacy: '업로드 완료',          bg: '#dcfce7', fg: '#15803d' },
+  { label: '⭐ 촬영 후보',   legacy: ['후보', '제작 전'],      bg: '#f3e8ff', fg: '#7e22ce' },   // '제작 전' 단계는 없어졌다 → 촬영 후보로 합친다
+  { label: '🎬 촬영 중',     legacy: ['제작 중'],             bg: '#dbeafe', fg: '#1d4ed8' },
+  { label: '✂️ 편집 중',     legacy: [],                      bg: '#e0f2fe', fg: '#0369a1' },
+  { label: '⏳ 업로드 대기', legacy: ['제작 완료·업로드 대기'], bg: '#fef3c7', fg: '#b45309' },
+  { label: '✅ 업로드 완료', legacy: [],                      bg: '#dcfce7', fg: '#15803d' },
 ];
 const UPLOADED = STATUSES[STATUSES.length - 1].label;
+const CANDIDATE = stripEmoji(STATUSES[0].label);                                   // '촬영 후보'
+const isCandidateStatus = (s) => s === CANDIDATE || STATUSES[0].legacy.includes(s); // 옛 라벨 '후보' 도 후보로 본다
 
 const PLATFORMS = [
   { key: 'youtube',   label: '유튜브',     emoji: '▶️' },
@@ -93,6 +97,42 @@ const GROUPS = {
 };
 const REMOVED_HEADERS = ['설명 글자수'];   // 이전 버전에 있었지만 지운 열 (헤더 이름으로 찾아 삭제)
 
+// 레퍼 체크(로컬 앱 /references) 팀 동기화 탭. 각 팀원의 로컬 앱이 웹 앱을 통해 읽고 쓰는 데이터 탭이라
+// 서식은 최소로 두고 사람이 직접 편집하지 않는다. 1행이 헤더, 2행부터 데이터.
+const REF_CHANNELS_NAME = '레퍼 채널';
+const REF_SHORTS_NAME = '레퍼 쇼츠';
+const REF_FIRST_DATA_ROW = 2;
+const REF_NOTE = '레퍼 체크(/references)가 자동으로 채우는 탭입니다. 직접 편집하지 마세요.';
+// number: 숫자 열(빈 값은 null) · bool: 체크 값 · 나머지는 텍스트(@ 서식으로 날짜/숫자 자동 변환을 막는다)
+const REF_CHANNEL_COLUMNS = [
+  { key: 'id',                header: '채널 ID',        width: 200 },
+  { key: 'name',              header: '채널 이름',      width: 180 },
+  { key: 'url',               header: '채널 URL',       width: 260 },
+  { key: 'thumbnail',         header: '프로필 이미지',  width: 200 },
+  { key: 'description',       header: '채널 설명',      width: 320 },
+  { key: 'subscriber_count',  header: '구독자',         width: 100, number: true },
+  { key: 'added_at',          header: '추가 시각',      width: 160 },
+  { key: 'shorts_complete',   header: '목록 수집 완료', width: 110, bool: true },
+  { key: 'shorts_updated_at', header: '분석 저장 시각', width: 160 },
+];
+const REF_SHORT_COLUMNS = [
+  { key: 'channel_id',            header: '채널 ID',          width: 200 },
+  { key: 'video_id',              header: '영상 ID',          width: 120 },
+  { key: 'title',                 header: '제목',             width: 260 },
+  { key: 'url',                   header: 'URL',              width: 240 },
+  { key: 'thumbnail',             header: '썸네일 URL',       width: 200 },
+  { key: 'view_count',            header: '조회수',           width: 100, number: true },
+  { key: 'like_count',            header: '좋아요',           width: 90,  number: true },
+  { key: 'comment_count',         header: '댓글 수',          width: 90,  number: true },
+  { key: 'upload_date',           header: '업로드일',         width: 100 },
+  { key: 'pinned_comment_text',   header: '고정 댓글',        width: 260 },
+  { key: 'pinned_comment_author', header: '고정 댓글 작성자', width: 140 },
+  { key: 'detail_status',         header: '상세 상태',        width: 100 },
+  { key: 'detail_error',          header: '상세 오류',        width: 200 },
+  { key: 'description',           header: '설명',             width: 320 },
+  { key: 'synced_at',             header: '동기화 시각',      width: 160 },
+];
+
 const COL = Object.fromEntries(COLUMNS.map((c, i) => [c.key, i + 1]));  // key → 1부터 시작하는 열 번호
 const LAST_COL = COLUMNS.length;
 const PLATFORM_FIRST_COL = COL[PLATFORMS[0].key + 'On'];
@@ -108,7 +148,6 @@ function colLetter(n) {
   while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); }
   return s;
 }
-const stripEmoji = (s) => String(s || '').replace(/^[^\p{L}\p{N}]+/u, '').trim();   // '📌 상태' → '상태'
 
 // ---------------------------------------------------------------------------
 // 메뉴
@@ -143,6 +182,7 @@ function setupSheets() {
   migrateLayout(sheet);
   setupBoardSheet(sheet);
   setupSummarySheet(ss);
+  setupReferenceSheets(ss);
   installEditTrigger(ss);
   thumbFolder();   // 드라이브의 썸네일 폴더를 미리 만든다 (여기서 드라이브 권한 승인이 뜬다). 이미 있으면 그대로 둔다.
   ss.setActiveSheet(sheet);
@@ -176,8 +216,10 @@ function migrateLayout(sheet) {
     const vals = rng.getValues();
     let changed = false;
     vals.forEach(r => {
-      const hit = STATUSES.find(s => s.legacy === String(r[0]).trim());
-      if (hit) { r[0] = hit.label; changed = true; }
+      const raw = String(r[0]).trim(), key = stripEmoji(raw);
+      if (!key) return;
+      const hit = STATUSES.find(s => stripEmoji(s.label) === key || s.legacy.includes(key));
+      if (hit && hit.label !== raw) { r[0] = hit.label; changed = true; }
     });
     // 예전 드롭다운 규칙(옛 라벨만 허용, 잘못된 값 거부)이 남아 있으면 새 라벨 쓰기가 거부되므로 먼저 걷어낸다.
     if (changed) { rng.clearDataValidations(); rng.setValues(vals); }
@@ -565,6 +607,7 @@ function doPost(e) {
   if (!token || String(body.token || '') !== token) return jsonOut({ ok: false, error: 'unauthorized' });
   if (body.action === 'ping') return jsonOut({ ok: true, ping: true, version: UPLOAD_VERSION });
   if (['candidate_list', 'candidate_add', 'candidate_remove'].includes(body.action)) return candidateAction(body);
+  if (String(body.action || '').startsWith('reference_')) return referenceAction(body);
   if (body.action !== 'thumbnail') return jsonOut({ ok: false, error: 'unknown_action' });
   const mime = String(body.mime || '');
   if (!/^image\/(jpeg|png|webp)$/.test(mime)) return jsonOut({ ok: false, error: 'bad_mime' });
@@ -654,12 +697,161 @@ function candidateAction(body) {
       sheet.getRange(row, COL.createdAt).setValue(now);
       sheet.setRowHeight(row, ROW_HEIGHT);
       ensureBoardFilter(sheet);
-      return jsonOut({ ok: true, item: { row, videoId, status: '후보' }, existing: false });
+      return jsonOut({ ok: true, item: { row, videoId, status: CANDIDATE }, existing: false });
     }
     if (!existing) return jsonOut({ ok: true, removed: false });
-    if (existing.status !== '후보') return jsonOut({ ok: false, error: 'not_candidate', item: existing });
+    if (!isCandidateStatus(existing.status)) return jsonOut({ ok: false, error: 'not_candidate', item: existing });
     sheet.deleteRow(existing.row);
     return jsonOut({ ok: true, removed: true, videoId });
+  } catch (err) {
+    return jsonOut({ ok: false, error: String((err && err.message) || err) });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 레퍼 체크 동기화 (웹 앱 액션 reference_*)
+// ---------------------------------------------------------------------------
+
+/** 레퍼 탭 두 개를 만들거나 헤더를 맞춘다. 데이터 행은 건드리지 않는다. */
+function setupReferenceSheets(ss) {
+  refSheet(ss, REF_CHANNELS_NAME, REF_CHANNEL_COLUMNS);
+  refSheet(ss, REF_SHORTS_NAME, REF_SHORT_COLUMNS);
+}
+
+function refSheet(ss, name, columns) {
+  let sheet = ss.getSheetByName(name);
+  if (!sheet) sheet = ss.insertSheet(name, ss.getSheets().length);
+  const n = columns.length;
+  if (sheet.getMaxRows() < REF_FIRST_DATA_ROW) sheet.insertRowsAfter(sheet.getMaxRows(), REF_FIRST_DATA_ROW - sheet.getMaxRows());
+  if (sheet.getMaxColumns() < n) sheet.insertColumnsAfter(sheet.getMaxColumns(), n - sheet.getMaxColumns());
+  else if (sheet.getMaxColumns() > n) sheet.deleteColumns(n + 1, sheet.getMaxColumns() - n);
+  sheet.getRange(1, 1, 1, n).setValues([columns.map(c => c.header)])
+    .setFontWeight('bold').setBackground(PALETTE.band).setFontColor(PALETTE.text).setNumberFormat('@');
+  sheet.getRange(1, 1).setNote(REF_NOTE);
+  columns.forEach((c, i) => {
+    sheet.setColumnWidth(i + 1, c.width);
+    // 텍스트 열은 @ 서식: "20250101" 같은 업로드일이나 채널 ID 가 숫자/날짜로 바뀌지 않게 한다.
+    sheet.getRange(REF_FIRST_DATA_ROW, i + 1, sheet.getMaxRows() - 1, 1).setNumberFormat(c.number ? '#,##0' : c.bool ? 'General' : '@');
+  });
+  if (sheet.getFrozenRows() < 1) sheet.setFrozenRows(1);
+  return sheet;
+}
+
+function refCell(value, col) {
+  if (col.bool) return value === true || value === 'TRUE' || value === 'true';
+  if (col.number) return (value === null || value === undefined || value === '') ? '' : Number(value);
+  if (value === null || value === undefined) return '';
+  return String(value).slice(0, 49000);   // 셀 최대 50,000자
+}
+
+function refValue(value, col) {
+  if (col.bool) return value === true || value === 'TRUE';
+  if (col.number) return (value === '' || value === null) ? null : Number(value);
+  if (value === '' || value === null || value === undefined) return null;
+  if (value instanceof Date) return value.toISOString();
+  return String(value);
+}
+
+/** 탭의 데이터 행을 {row, item} 목록으로 읽는다. width 를 주면 앞 열만 읽는다(키 조회용). */
+function refRows(sheet, columns, width) {
+  const last = sheet.getLastRow();
+  if (last < REF_FIRST_DATA_ROW) return [];
+  const cols = width ? columns.slice(0, width) : columns;
+  return sheet.getRange(REF_FIRST_DATA_ROW, 1, last - REF_FIRST_DATA_ROW + 1, cols.length).getValues()
+    .map((r, i) => ({ row: REF_FIRST_DATA_ROW + i, item: Object.fromEntries(cols.map((c, j) => [c.key, refValue(r[j], c)])) }));
+}
+
+function refDeleteRows(sheet, columns, width, keep) {
+  const rows = refRows(sheet, columns, width).filter(x => !keep(x.item)).map(x => x.row);
+  rows.reverse().forEach(r => sheet.deleteRow(r));   // 아래에서 위로 지워야 행 번호가 밀리지 않는다
+  return rows.length;
+}
+
+function refAppendRows(sheet, rows) {
+  if (!rows.length) return;
+  const start = sheet.getLastRow() + 1;
+  const need = start + rows.length - 1 - sheet.getMaxRows();
+  if (need > 0) sheet.insertRowsAfter(sheet.getMaxRows(), need);
+  sheet.getRange(start, 1, rows.length, rows[0].length).setValues(rows);
+}
+
+/** 로컬 앱의 쇼츠 항목(pinned_comment 객체 포함) ↔ 시트 한 행. */
+function shortToRow(channelId, item, syncedAt) {
+  const pinned = item.pinned_comment && typeof item.pinned_comment === 'object' ? item.pinned_comment : {};
+  const flat = { ...item, channel_id: channelId, video_id: item.id,
+                 pinned_comment_text: pinned.text, pinned_comment_author: pinned.author, synced_at: syncedAt };
+  return REF_SHORT_COLUMNS.map(c => refCell(flat[c.key], c));
+}
+
+function rowToShort(flat) {
+  const item = { id: flat.video_id, title: flat.title, description: flat.description, url: flat.url, thumbnail: flat.thumbnail,
+                 view_count: flat.view_count, like_count: flat.like_count, comment_count: flat.comment_count,
+                 upload_date: flat.upload_date, detail_status: flat.detail_status || 'pending',
+                 pinned_comment: flat.pinned_comment_text ? { text: flat.pinned_comment_text, author: flat.pinned_comment_author } : null };
+  if (flat.detail_error) item.detail_error = flat.detail_error;
+  return item;
+}
+
+function referenceAction(body) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (String(body.sheetId || '') !== ss.getId()) return jsonOut({ ok: false, error: 'wrong_sheet' });
+  const channels = ss.getSheetByName(REF_CHANNELS_NAME) || refSheet(ss, REF_CHANNELS_NAME, REF_CHANNEL_COLUMNS);
+  const shorts = ss.getSheetByName(REF_SHORTS_NAME) || refSheet(ss, REF_SHORTS_NAME, REF_SHORT_COLUMNS);
+  const channelId = String(body.channelId || body.id || '');
+
+  if (body.action === 'reference_list') {
+    return jsonOut({ ok: true, version: UPLOAD_VERSION, items: refRows(channels, REF_CHANNEL_COLUMNS).map(x => x.item).filter(c => c.id) });
+  }
+  if (body.action === 'reference_shorts_get') {
+    if (!channelId) return jsonOut({ ok: false, error: 'bad_channel' });
+    const channel = refRows(channels, REF_CHANNEL_COLUMNS).find(x => x.item.id === channelId);
+    const items = refRows(shorts, REF_SHORT_COLUMNS).filter(x => x.item.channel_id === channelId && x.item.video_id).map(x => rowToShort(x.item));
+    return jsonOut({ ok: true, version: UPLOAD_VERSION, items,
+                     complete: !!(channel && channel.item.shorts_complete),
+                     updated_at: channel ? channel.item.shorts_updated_at : null });
+  }
+  if (!['reference_add', 'reference_remove', 'reference_shorts_put'].includes(body.action)) return jsonOut({ ok: false, error: 'unknown_action' });
+
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(20000)) return jsonOut({ ok: false, error: 'busy' });
+  try {
+    if (body.action === 'reference_add') {
+      const channel = body.channel && typeof body.channel === 'object' ? body.channel : null;
+      if (!channel || !channel.id) return jsonOut({ ok: false, error: 'bad_channel' });
+      const existing = refRows(channels, REF_CHANNEL_COLUMNS).find(x => x.item.id === String(channel.id));
+      if (existing) return jsonOut({ ok: true, item: existing.item, existing: true });
+      refAppendRows(channels, [REF_CHANNEL_COLUMNS.map(c => refCell(channel[c.key], c))]);
+      return jsonOut({ ok: true, item: channel, existing: false });
+    }
+    if (body.action === 'reference_remove') {
+      if (!channelId) return jsonOut({ ok: false, error: 'bad_channel' });
+      const removed = refDeleteRows(channels, REF_CHANNEL_COLUMNS, 1, c => c.id !== channelId);
+      const shortsRemoved = refDeleteRows(shorts, REF_SHORT_COLUMNS, 1, v => v.channel_id !== channelId);
+      return jsonOut({ ok: true, removed: removed > 0, shortsRemoved });
+    }
+    // reference_shorts_put: (채널 ID, 영상 ID) 로 갱신하거나 새 행을 붙인다. 채널 행의 완료 플래그·저장 시각도 갱신.
+    if (!channelId) return jsonOut({ ok: false, error: 'bad_channel' });
+    const items = Array.isArray(body.items) ? body.items.filter(v => v && typeof v === 'object' && v.id) : [];
+    const syncedAt = new Date().toISOString();
+    const rowOf = new Map(refRows(shorts, REF_SHORT_COLUMNS, 2).map(x => [`${x.item.channel_id}\n${x.item.video_id}`, x.row]));
+    let updated = 0;
+    const fresh = [];
+    items.forEach(item => {
+      const row = shortToRow(channelId, item, syncedAt);
+      const at = rowOf.get(`${channelId}\n${item.id}`);
+      if (at) { shorts.getRange(at, 1, 1, row.length).setValues([row]); updated++; }
+      else fresh.push(row);
+    });
+    refAppendRows(shorts, fresh);
+    const channel = refRows(channels, REF_CHANNEL_COLUMNS, 1).find(x => x.item.id === channelId);
+    if (channel) {
+      const col = Object.fromEntries(REF_CHANNEL_COLUMNS.map((c, i) => [c.key, i + 1]));
+      if (body.complete !== undefined) channels.getRange(channel.row, col.shorts_complete).setValue(!!body.complete);
+      if (body.updated_at) channels.getRange(channel.row, col.shorts_updated_at).setValue(String(body.updated_at));
+    }
+    return jsonOut({ ok: true, updated, inserted: fresh.length, channelFound: !!channel });
   } catch (err) {
     return jsonOut({ ok: false, error: String((err && err.message) || err) });
   } finally {
