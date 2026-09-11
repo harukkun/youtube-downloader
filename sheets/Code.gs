@@ -37,7 +37,7 @@ const ROW_HEIGHT = 64;      // 썸네일이 보이는 데이터 행 높이
 const PROP_TOKEN = 'UPLOAD_TOKEN';
 const PROP_FOLDER = 'THUMB_FOLDER_ID';
 const THUMB_FOLDER_NAME = '쇼츠 현황판 썸네일';
-const UPLOAD_VERSION = 8;
+const UPLOAD_VERSION = 9;
 const thumbUrlFor = (id) => `https://lh3.googleusercontent.com/d/${id}`;   // IMAGE() 와 <img> 모두에서 열리는 형식
 const SOURCE_THUMB_RE = /i\.ytimg\.com|img\.youtube\.com/;                 // 예전 버전이 넣던 원본 영상 썸네일
 
@@ -110,9 +110,9 @@ const REF_THEME = { head_bg: '#0d9488', head_fg: '#ffffff' };   // 현황판 '�
 const REF_CHANNEL_COLUMNS = [
   { key: 'thumb',             header: '🖼️ 프로필',          width: 70,  image: 'thumbnail', align: 'center' },
   { key: 'name',              header: '📺 채널',            width: 230, link: 'url', bold: true },
-  { key: 'subscriber_count',  header: '👥 구독자',          width: 100, number: true, align: 'right' },
+  { key: 'subscriber_count',  header: '👥 구독자',          width: 100, number: true, compact: true, align: 'right' },
   { key: 'added_at',          header: '📅 추가 시각',       width: 140, date: true, align: 'center' },
-  { key: 'shorts_complete',   header: '📦 쇼츠 목록',       width: 110, flag: true, align: 'center' },
+  { key: 'shorts_complete',   header: '🎬 쇼츠 목록 저장',  width: 155, flag: true, align: 'center' },
   { key: 'shorts_updated_at', header: '🕒 분석 저장 시각',  width: 140, date: true, align: 'center' },
   { key: 'thumbnail',         header: '🔗 프로필 이미지 URL', width: 60, hidden: true },
   { key: 'description',       header: '📝 채널 설명',       width: 60,  hidden: true },
@@ -121,7 +121,7 @@ const REF_CHANNEL_COLUMNS = [
 // 이전 배치의 헤더 이름 → 키. setupSheets 가 옛 배치를 발견하면 이 표로 읽어 새 배치로 옮긴다.
 const REF_CHANNEL_LEGACY_HEADERS = {
   '채널 ID': 'id', '채널 이름': 'name', '채널 URL': 'url', '프로필 이미지': 'thumbnail', '채널 설명': 'description',
-  '구독자': 'subscriber_count', '추가 시각': 'added_at', '목록 수집 완료': 'shorts_complete', '분석 저장 시각': 'shorts_updated_at',
+  '쇼츠 목록': 'shorts_complete', '구독자': 'subscriber_count', '추가 시각': 'added_at', '목록 수집 완료': 'shorts_complete', '분석 저장 시각': 'shorts_updated_at',
 };
 const REF_FLAGS = [   // 쇼츠 목록 수집 상태 (flag 열). 첫 글자(이모지)로 판별한다.
   { label: '✅ 완료',   bg: '#dcfce7', fg: '#15803d' },
@@ -137,16 +137,16 @@ const REF_DETAIL_STATUSES = [
 ];
 // 레퍼 쇼츠: 채널의 쇼츠 한 줄. '📌 현황판' 열은 현황판 탭의 같은 영상 상태를 비추며, 이 탭에서는 ⭐ 촬영 후보 지정/해제만 할 수 있다.
 const REF_SHORT_COLUMNS = [
+  { key: 'board_status',          header: '📌 현황판',          width: 125, board: true, align: 'center', badges: STATUSES },
   { key: 'thumb',                 header: '🖼️ 썸네일',          width: 70,  image: 'thumbnail', align: 'center' },
+  { key: 'channel_name',          header: '📺 채널명',          width: 150 },
   { key: 'title',                 header: '🎬 제목',            width: 300, link: 'url', bold: true },
-  { key: 'view_count',            header: '👁️ 조회수',          width: 95,  number: true, align: 'right' },
-  { key: 'like_count',            header: '👍 좋아요',          width: 85,  number: true, align: 'right' },
+  { key: 'view_count',            header: '👁️ 조회수',          width: 95,  number: true, compact: true, align: 'right' },
+  { key: 'like_count',            header: '👍 좋아요',          width: 85,  number: true, compact: true, align: 'right' },
   { key: 'comment_count',         header: '💬 댓글',            width: 75,  number: true, align: 'right' },
   { key: 'upload_date',           header: '📅 업로드일',        width: 100, ymd: true, align: 'center' },
   { key: 'detail_status',         header: '🔎 상세 상태',       width: 110, detail: true, align: 'center', badges: REF_DETAIL_STATUSES },
-  { key: 'board_status',          header: '📌 현황판',          width: 125, board: true, align: 'center', badges: STATUSES },
   { key: 'pinned_comment_text',   header: '📍 고정 댓글',       width: 240 },
-  { key: 'pinned_comment_author', header: '✍️ 고정 댓글 작성자', width: 120, muted: true },
   { key: 'description',           header: '📝 설명',            width: 260 },
   { key: 'detail_error',          header: '⚠️ 상세 오류',       width: 160, muted: true },
   { key: 'synced_at',             header: '🕒 동기화 시각',     width: 130, date: true, align: 'center' },
@@ -899,8 +899,36 @@ function refSheet(ss, name, columns, legacy) {
   if (sheet.getFilter()) sheet.getFilter().remove();
   sheet.getRange(1, 1, sheet.getMaxRows(), n).createFilter();
   if (sheet.getFrozenRows() < 1) sheet.setFrozenRows(1);
+  if (name === REF_SHORTS_NAME) sheet.setFrozenColumns(1);
   if (carried.length) refWriteRows(sheet, columns, REF_FIRST_DATA_ROW, carried);
+  // 같은 배치로 초기 설정을 다시 해도 만 단위 표시를 유지한다.
+  columns.forEach((c, j) => {
+    if (!c.compact || sheet.getLastRow() < REF_FIRST_DATA_ROW) return;
+    const rng = sheet.getRange(REF_FIRST_DATA_ROW, j + 1, sheet.getLastRow() - 1, 1);
+    rng.setNumberFormats(rng.getValues().map(r => [refCompactFormat(r[0])]));
+  });
   return sheet;
+}
+
+// 값 자체는 정수로 보존한다. 수가 바뀌면 기존 표시를 쓰지 않고 원래 숫자로 표시한다.
+function refCompactFormat(value) {
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 10000
+    ? `[=${n}]"${Number((n / 10000).toFixed(1))}만";[<0]-#,##0;#,##0` : '#,##0';
+}
+
+/** 배포 후 첫 동기화에서 레퍼 탭만 새 배치로 옮긴다. */
+function refEnsureSheet(ss, name, columns, legacy) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sheet = ss.getSheetByName(name);
+    if (sheet) {
+      const headers = sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), 1)).getValues()[0];
+      if (headers.length === columns.length && columns.every((c, i) => headers[i] === c.header)) return sheet;
+    }
+    return refSheet(ss, name, columns, legacy);
+  } finally { lock.releaseLock(); }
 }
 
 /** 옛 배치의 탭을 헤더 이름으로 읽어 키→값 객체 목록으로 돌려준다 (레이아웃 변경 시 데이터 보존용). */
@@ -1019,10 +1047,17 @@ function refWriteRows(sheet, columns, startRow, items) {
   if (!items.length) return;
   const need = startRow + items.length - 1 - sheet.getMaxRows();
   if (need > 0) sheet.insertRowsAfter(sheet.getMaxRows(), need);
+  if (columns.some(c => c.key === 'channel_name')) {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const channels = ss.getSheetByName(REF_CHANNELS_NAME);
+    const names = new Map(channels ? refRows(channels, REF_CHANNEL_COLUMNS).map(r => [r.item.id, r.item.name]) : []);
+    items = items.map(it => ({ ...it, channel_name: names.get(it.channel_id) || it.channel_name || '' }));
+  }
   const matrix = items.map(it => columns.map(c => (c.image || c.link) ? '' : refCell(it[c.key], c, it)));
   sheet.getRange(startRow, 1, items.length, columns.length).setValues(matrix);
   columns.forEach((c, j) => {
     const rng = sheet.getRange(startRow, j + 1, items.length, 1);
+    if (c.compact) rng.setNumberFormats(items.map(it => [refCompactFormat(it[c.key])]));
     if (c.image) {
       const src = colLetter(columns.findIndex(x => x.key === c.image) + 1);
       rng.setFormulas(items.map((_, i) => [`=IF(${src}${startRow + i}="","",IMAGE(${src}${startRow + i}))`]));
@@ -1115,8 +1150,8 @@ function rowToChannel(flat) {
 function referenceAction(body) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   if (String(body.sheetId || '') !== ss.getId()) return jsonOut({ ok: false, error: 'wrong_sheet' });
-  const channels = ss.getSheetByName(REF_CHANNELS_NAME) || refSheet(ss, REF_CHANNELS_NAME, REF_CHANNEL_COLUMNS, REF_CHANNEL_LEGACY_HEADERS);
-  const shorts = ss.getSheetByName(REF_SHORTS_NAME) || refSheet(ss, REF_SHORTS_NAME, REF_SHORT_COLUMNS, REF_SHORT_LEGACY_HEADERS);
+  const channels = refEnsureSheet(ss, REF_CHANNELS_NAME, REF_CHANNEL_COLUMNS, REF_CHANNEL_LEGACY_HEADERS);
+  const shorts = refEnsureSheet(ss, REF_SHORTS_NAME, REF_SHORT_COLUMNS, REF_SHORT_LEGACY_HEADERS);
   const channelId = String(body.channelId || body.id || '');
   const channelRows = () => refRows(channels, REF_CHANNEL_COLUMNS).filter(x => x.item.id);
 
