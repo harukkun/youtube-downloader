@@ -7,7 +7,8 @@ import shutil
 import time
 from functools import wraps
 from pathlib import Path
-from flask import Blueprint, current_app, jsonify, render_template, request, send_file
+from urllib.parse import urlencode
+from flask import Blueprint, current_app, jsonify, render_template, request, send_file, redirect
 from .store import uid, valid_id
 from .service import Service, seconds
 from . import media, subtitles
@@ -45,6 +46,16 @@ def install(app, llm, settings):
                 return jsonify(error=str(e)), 400
         return wrapper
 
+    @bp.before_request
+    def separate_features():
+        if request.path.startswith('/api/hooks/jobs/') and request.view_args and request.view_args.get('ident'):
+            try:
+                state = service().store.read('jobs', request.view_args['ident'])
+                if state.get('feature'):
+                    return jsonify(error='후킹 클립 작업을 찾지 못했습니다.'), 404
+            except (FileNotFoundError, ValueError):
+                pass
+
     def body():
         data = request.get_json(silent=True)
         if not isinstance(data, dict):
@@ -57,9 +68,14 @@ def install(app, llm, settings):
             raise ValueError('진행 중인 작업이 끝난 뒤 변경해주세요.')
         return state
 
-    @bp.get('/hooks')
+    @bp.get('/edit-helper')
     def page():
-        return render_template('hooks.html')
+        return render_template('edit_helper.html')
+
+    @bp.get('/hooks')
+    def legacy_page():
+        query = urlencode(list(request.args.items(multi=True)))
+        return redirect('/edit-helper' + ('?' + query if query else '') + '#hooks', code=302)
 
     @bp.get('/api/hooks/config')
     def config():
@@ -185,6 +201,8 @@ def install(app, llm, settings):
         with s.store.lock:
             for p in (s.store.root / 'jobs').glob('*/state.json'):
                 state = s.store.read('jobs', p.parent.name)
+                if state.get('feature') == 'cooking-audio':
+                    continue
                 states.append({k: state.get(k) for k in ('id', 'video_name', 'youtube_title', 'url', 'status', 'updated')})
         return jsonify(jobs=sorted(states, key=lambda x: x['updated'], reverse=True)[:100])
 

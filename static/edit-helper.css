@@ -1,0 +1,16 @@
+.edit-layout{display:grid;grid-template-columns:220px minmax(0,1fr);gap:18px;align-items:start}.edit-content{min-width:0}.edit-tools .tool{display:block;text-decoration:none;white-space:normal}.edit-tools .tool small{display:block}.edit-helper .hook-heading{margin:0 0 20px}.edit-helper .hook-heading h2{font-size:24px;margin:8px 0}.edit-helper .hook-heading p{margin-bottom:0}.edit-helper .hook-layout{grid-template-columns:260px minmax(0,1fr);gap:16px}.edit-panel{scroll-margin-top:20px}
+@media(max-width:1200px){.edit-helper .hook-layout{grid-template-columns:1fr}.edit-helper .hook-layout>aside{display:grid;grid-template-columns:1fr 1fr;gap:12px}.edit-helper .hook-layout>aside>section:first-child{grid-row:span 2}}
+@media(max-width:800px){.edit-layout{grid-template-columns:1fr}.edit-tools{position:static}.edit-tools .tool{margin-bottom:0}}
+@media(max-width:550px){.edit-helper .hook-layout>aside{display:block}.edit-helper .hook-heading h2{font-size:20px}}
+/* Keep the function selector aligned with its panel, including full-page views. */
+.edit-tools{position:static;align-self:start}
+.edit-panel[hidden]{display:none!important}#ca-player{width:100%;max-height:460px;background:#111;border-radius:12px}#ca-error{color:#c0392b}#cooking-audio .candidate textarea{width:100%;box-sizing:border-box}#cooking-audio progress{width:100%}#cooking-audio .candidate-controls{flex-wrap:wrap}#cooking-audio .candidate{overflow-wrap:anywhere}
+/* Keep only the preview and playback controls visible while editing later candidates. */
+.cooking-preview:has(#ca-player[src]:not([hidden])){position:sticky;top:12px;z-index:20;box-shadow:0 10px 28px #0005}
+.cooking-preview #ca-player{display:block;max-height:min(32vh,300px);object-fit:contain}
+#ca-candidates .candidate{scroll-margin-top:calc(min(32vh,300px) + 170px)}
+@media(max-width:550px){
+  .cooking-preview:has(#ca-player[src]:not([hidden])){top:8px}
+  .cooking-preview #ca-player{max-height:28vh}
+  #ca-candidates .candidate{scroll-margin-top:calc(28vh + 150px)}
+}

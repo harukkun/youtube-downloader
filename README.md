@@ -354,10 +354,18 @@ node tests/test_board_edit.js
 
 Apps Script 버전 11과 고급 Google Sheets 서비스가 필요합니다. 실제 시트 설정과 배포는 사용자가 직접 진행하세요: [순서별 설정 TODO](docs/upload-process-setup.md).
 
-## 후킹 클립 (`/hooks`)
+## 후킹 클립 (`/edit-helper`)
 
 원본 영상과 YouTube 링크를 함께 입력해 한국어 자막에서 맛 평가·추천·자신감 발언을 찾습니다.
 후보 미리보기, 시간 보정, 수동 후보 추가, 복수 MP4 추출과 TXT/JSON/ZIP 다운로드를 지원합니다.
 동일 자막의 분석 결과를 재사용하며 구간 편집·재추출에는 AI를 호출하지 않습니다.
 영상 처리는 로컬에서 실행하고, 후보 분석 시 자막 텍스트는 현재 설정한 AI 연결로 전달합니다.
 필요 패키지는 `requirements.txt`에 포함되어 있습니다. 사용법·검증은 [후킹 클립 안내](docs/hook-clips.md)를 참고하세요.
+
+### 조리 대사 추출
+
+편집 헬퍼의 **조리 대사 추출**에서 원본·SRT·YouTube를 연결하거나 후킹 작업의 원본을 재사용합니다. 조리 동작과 연결된 짧은 리액션을 분석하고 문구·구간·순서를 편집한 뒤 개별 MP3와 TXT/JSON/ZIP을 저장합니다. 원본의 배경음은 유지됩니다.
+
+자막이 없을 때는 Apple Silicon Mac의 로컬 Whisper를 사용합니다. `scripts/setup-cooking-asr.sh`로 별도 Python 3.11 환경을 준비하세요. 최초 인식 때 모델이 다운로드됩니다. 자막 분석과 편집·추출은 기존 앱 환경에서 동작합니다.
+
+상세 정책·모듈·검증 기준은 [조리 대사 추출 계획](docs/cooking-dialogue-extraction-plan.md)을 참고하세요. 일반 검증은 `.venv/bin/python -m unittest discover -q`, 브라우저 검증은 `tests/cooking_browser_fixture.py` 실행 후 Playwright가 설치된 Node 환경에서 `node tests/test_cooking_browser.js`로 수행합니다.

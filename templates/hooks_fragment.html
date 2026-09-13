@@ -1,12 +1,5 @@
-<!doctype html>
-<html lang="ko">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>후킹 클립 · 콘텐츠 작업실</title><link rel="icon" href="/static/favicon.svg">
-<link rel="stylesheet" href="/static/helper.css"><link rel="stylesheet" href="/static/hooks.css">
-<script src="/static/hooks.js" defer></script></head>
-<body><main>
-<nav class="global-nav" aria-label="주요 메뉴"><a class="brand" href="/"><span class="logo"></span>콘텐츠 작업실</a><div class="links"><a href="/">다운로드</a><a href="/hooks" aria-current="page">후킹 클립</a><a href="/helper">업로드 헬퍼</a><a href="/upload-process">업로드 프로세스</a><a href="/shorts">쇼츠 현황판</a><a href="/references">레퍼 체크</a></div></nav>
-<header class="hook-heading"><div><span class="eyebrow">요리의 첫인상을 고르는 시간</span><h1>맛있는 한마디, 후킹 클립</h1><p>자막에서 좋은 평가를 찾고, 필요한 순간만 원본 그대로 저장하세요.</p></div><button id="newJob" class="secondary">새 작업</button></header>
+<section class="edit-panel" id="hooks" data-tool="hooks" aria-labelledby="hooksTool">
+<header class="hook-heading"><div><span class="eyebrow">요리의 첫인상을 고르는 시간</span><h2>후킹 클립</h2><p>자막에서 좋은 평가를 찾고, 필요한 순간만 원본 그대로 저장하세요.</p></div><button id="newJob" class="secondary">새 작업</button></header>
 <div class="hook-layout">
 <aside><section class="card"><h2>01 · 원본 가져오기</h2><p class="hint">영상 파일과 YouTube 링크를 함께 넣으면 링크에서 자막만 가져옵니다.</p>
 <label for="videoFile">원본 영상 <span>MP4 · MOV</span></label><input id="videoFile" type="file" accept=".mp4,.mov,video/mp4,video/quicktime">
@@ -35,4 +28,5 @@
 <div class="export-bar"><span id="selectionCount">선택한 후보 없음</span><button id="export" disabled>선택한 클립 추출</button></div>
 </section>
 <section class="card"><h2>04 · 저장한 클립</h2><div id="results" class="hint">추출한 MP4와 문구·시간 정보를 여기서 다운로드합니다.</div></section>
-</div></div></main></body></html>
+</div></div>
+</section>

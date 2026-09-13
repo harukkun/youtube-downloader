@@ -1,6 +1,6 @@
 # 후킹 클립
 
-`/hooks`에서 원본 파일(MP4/MOV), 원본 YouTube URL, SRT를 함께 입력할 수 있습니다.
+`/edit-helper`에서 원본 파일(MP4/MOV), 원본 YouTube URL, SRT를 함께 입력할 수 있습니다.
 파일이 있으면 파일을 자르고, URL은 자막만 보충합니다. URL만 입력하면 미리보기 때 원본을 받습니다.
 한국어 수동자막, 원본 자동자막을 지원하며 음성 인식·OCR·자동 번역은 하지 않습니다.
 
@@ -23,7 +23,7 @@
 - `hooks/media.py`: YouTube 자막/원본 확보, FFmpeg 추출·미리보기
 - `hooks/service.py`: 작업 흐름, 수동 후보와 시간 매핑, 내보내기 메타데이터
 - `hooks/routes.py`: 8MiB 분할 업로드 및 작업·파일 API
-- `templates/hooks.html`, `static/hooks.js`, `static/hooks.css`: 화면
+- `templates/edit_helper.html`, `templates/hooks_fragment.html`, `static/hooks.js`, `static/hooks.css`: 화면
 
 기존 AI 연결을 사용하며 후보 분석에는 자막 번호와 텍스트만 전달합니다.
 모델 출력은 시작·종료 자막 번호와 평가 종류뿐입니다. 도구 사용과 자막 속 지시 수행을 금지합니다.

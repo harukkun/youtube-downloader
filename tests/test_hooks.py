@@ -113,6 +113,17 @@ class HooksTest(unittest.TestCase):
         self.assertEqual(client.post('/api/hooks/uploads',json={'name':'x.mp4','size':3}).status_code,403)
         self.assertEqual(client.post('/api/hooks/uploads',json={'name':'x.mp4','size':3},headers=headers).status_code,200)
 
+    def test_edit_helper_and_legacy_work_links(self):
+        response=self.client.get('/edit-helper')
+        self.assertEqual(response.status_code,200)
+        html=response.get_data(as_text=True)
+        self.assertIn('편집 헬퍼',html)
+        self.assertIn('id="hooksTool"',html)
+        self.assertIn('id="candidates"',html)
+        self.assertNotIn('href="/hooks"',html)
+        self.assertEqual(self.client.get('/hooks').location,'/edit-helper#hooks')
+        self.assertEqual(self.client.get('/hooks?job=abc').location,'/edit-helper?job=abc#hooks')
+
     def test_upload_limits_checksum_and_cancel(self):
         self.assertEqual(self.client.post('/api/hooks/uploads',json={'name':'x.mp4','size':3*1024**3}).status_code,400)
         u=self.client.post('/api/hooks/uploads',json={'name':'x.mp4','size':3}).get_json()['id']

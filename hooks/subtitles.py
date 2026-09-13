@@ -8,7 +8,7 @@ import pysubs2
 VERSION = 1
 
 
-def parse(raw, fmt='srt'):
+def parse(raw, fmt='srt', preserve_context=False):
     if isinstance(raw, bytes):
         try:
             raw = raw.decode('utf-8-sig')
@@ -32,7 +32,8 @@ def parse(raw, fmt='srt'):
         if event.start < 0 or event.end <= event.start:
             raise ValueError(f'자막 {i}의 시작·종료 시간이 올바르지 않습니다.')
         original = html.unescape(re.sub(r'<[^>]+>', '', event.plaintext)).strip()
-        text = re.sub(r'\[(?:음악|박수|웃음|Music|Applause)\]', '', original, flags=re.I)
+        spoken = re.sub(r'\[(?:음악|박수|웃음|Music|Applause)\]', '', original, flags=re.I)
+        text = original if preserve_context else spoken
         text = ' '.join(text.split())
         if not text:
             continue
@@ -45,7 +46,7 @@ def parse(raw, fmt='srt'):
             if text.startswith(previous + ' '):
                 text = text[len(previous):].strip()
         cues.append({'id': i, 'start_ms': event.start, 'end_ms': event.end,
-                     'text': text, 'original_text': original})
+                     'text': text, 'original_text': original, **({'context_only': not spoken.strip()} if preserve_context else {})})
     if not cues:
         raise ValueError('분석 가능한 발언이 자막에 없습니다.')
     if any(a['start_ms'] > b['start_ms'] for a, b in zip(cues, cues[1:])):

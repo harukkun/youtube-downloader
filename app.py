@@ -2277,6 +2277,9 @@ install_hooks(app, lambda *args: llm_structured(*args),
               lambda: {k: get_recipe_settings()[k] for k in ("backend", "model")})
 
 
+from cooking_audio.routes import install as install_cooking_audio
+install_cooking_audio(app)
+
 def _open_browser() -> None:
     browser_host = "127.0.0.1" if HOST in ("0.0.0.0", "::") else HOST
     webbrowser.open(f"http://{browser_host}:{PORT}")

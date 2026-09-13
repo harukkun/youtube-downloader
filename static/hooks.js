@@ -20,7 +20,7 @@
   function time(t) {const n=Math.max(0,t);return `${Math.floor(n/60).toString().padStart(2,'0')}:${(n%60).toFixed(1).padStart(4,'0')}`;}
   function action(fn) {return async()=>{clearError();try{await fn();}catch(e){showError(e);}};}
   function apply(next) {
-    state=next;localStorage.setItem('hooks.job',state.id);window.history.replaceState(null,'','/hooks?job='+state.id);
+    state=next;localStorage.setItem('hooks.job',state.id);if(location.hash!=='#cooking-audio'){const u=new URL(location.href);u.searchParams.set('job',state.id);u.hash='hooks';window.history.replaceState(null,'',u);}
     const busy=state.busy||uploading, hasCues=state.cue_count>0;
     $('statusBadge').textContent=statuses[state.status]||state.status;
     $('statusBadge').classList.toggle('is-loading',state.busy);
@@ -74,12 +74,20 @@
         const wrap=el('label',label),input=el('input');input.type='number';input.step='.1';input.value=c[key].toFixed(3);input.disabled=busy;input.setAttribute('aria-label',label+' '+c.text);wrap.append(input);controls.append(wrap);inputs[key]=input;
       }
       const save=el('button','구간 저장','secondary');save.disabled=busy;save.onclick=action(async()=>{await mutate('/candidates/'+c.id,'PATCH',{start:Number(inputs.start.value),end:Number(inputs.end.value)});activeSegment=null;});
-      const preview=el('button','이 구간 재생','secondary');preview.disabled=busy;preview.onclick=action(async()=>{pendingSegment=c;if(state.preview_kind){playSegment(c);pendingSegment=null;}else await mutate('/preview','POST',{});});
+      const preview=el('button','구간 재생','secondary');preview.dataset.segmentId=c.id;preview.disabled=busy&&pendingSegment?.id!==c.id;preview.onclick=action(async()=>{if(pendingSegment?.id===c.id||(activeSegment?.id===c.id&&!$('player').paused)){pendingSegment=null;activeSegment=null;$('player').pause();syncPlaybackButtons();return;}pendingSegment=c;syncPlaybackButtons();if(state.preview_kind){pendingSegment=null;playSegment(c);}else {try{await mutate('/preview','POST',{});}catch(e){pendingSegment=null;syncPlaybackButtons();throw e;}}});
       const remove=el('button','삭제','ghost');remove.disabled=busy;remove.onclick=action(()=>mutate('/candidates/'+c.id,'DELETE'));
       controls.append(save,preview,remove);card.append(controls);target.append(card);
     }
+    syncPlaybackButtons();
   }
-  function playSegment(c){activeSegment={start:c.start,end:c.end};$('segment').textContent=`${time(c.start)} – ${time(c.end)}`;$('player').currentTime=Math.max(0,c.start);$('player').play().catch(showError);}
+  function syncPlaybackButtons(){
+    for(const button of $('candidates').querySelectorAll('[data-segment-id]')){
+      const playing=pendingSegment?.id===button.dataset.segmentId||(activeSegment?.id===button.dataset.segmentId&&!$('player').paused);
+      button.textContent=playing?'구간 재생 멈춤':'구간 재생';button.setAttribute('aria-pressed',String(playing));
+    }
+  }
+  function playSegment(c){activeSegment={id:c.id,start:c.start,end:c.end};$('segment').textContent=`${time(c.start)} – ${time(c.end)}`;$('player').currentTime=Math.max(0,c.start);$('player').play().catch(e=>{if(activeSegment?.id===c.id)activeSegment=null;syncPlaybackButtons();showError(e);});syncPlaybackButtons();}
+  for(const event of ['play','pause','ended','emptied'])$('player').addEventListener(event,syncPlaybackButtons);
   $('player').addEventListener('loadedmetadata',()=>{if(pendingSegment){playSegment(pendingSegment);pendingSegment=null;}});
   $('player').addEventListener('timeupdate',()=>{if(activeSegment&&$('player').currentTime>=activeSegment.end){if($('loop').checked){$('player').currentTime=Math.max(0,activeSegment.start);}else{$('player').pause();activeSegment=null;}}});
   $('player').addEventListener('error',()=>{if(mediaUrl)showError(new Error('원본을 재생하지 못했습니다. “재생이 안 되나요?”를 눌러 호환 미리보기를 만들어주세요.'));});
@@ -153,6 +161,6 @@
   $('useUrl').onclick=action(async()=>{await mutate('/source','POST',{asset_id:null});mediaUrl='';activeSegment=null;await mutate('/preview','POST',{});});
   async function loadHistory(){const data=await api('/jobs');$('history').replaceChildren(new Option('작업 선택',''));for(const job of data.jobs)$('history').append(new Option(job.video_name||job.youtube_title||job.url,job.id));if(state)$('history').value=state.id;}
   $('history').onchange=action(async()=>{if(!$('history').value)return;activeSegment=null;pendingSegment=null;apply(await api('/jobs/'+$('history').value));$('sourceUrl').value=state.url;});
-  $('newJob').onclick=()=>{localStorage.removeItem('hooks.job');location.href='/hooks';};
+  $('newJob').onclick=()=>{localStorage.removeItem('hooks.job');location.href='/edit-helper#hooks';};
   (async()=>{config=await api('/config');await loadHistory();const id=new URLSearchParams(location.search).get('job')||localStorage.getItem('hooks.job');if(id){try{apply(await api('/jobs/'+id));$('sourceUrl').value=state.url;$('history').value=id;}catch(e){localStorage.removeItem('hooks.job');showError(e);}}})().catch(showError);
 })();
