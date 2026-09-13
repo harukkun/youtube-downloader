@@ -1,0 +1,38 @@
+// Run tests/hooks_browser_fixture.py first. No real AI or Internet requests.
+const {chromium}=require('playwright');
+const assert=require('node:assert/strict');
+(async()=>{
+ const browser=await chromium.launch({channel:'chrome',headless:true});
+ const errors=[];
+ const context=await browser.newContext({viewport:{width:1400,height:1050}});
+ const p=await context.newPage();p.on('pageerror',e=>errors.push(e.message));
+ await p.goto('http://127.0.0.1:8878/hooks');
+ const video=await (await p.request.get('http://127.0.0.1:8878/_test/video')).body();
+ await p.locator('#videoFile').setInputFiles({name:'clock.mp4',mimeType:'video/mp4',buffer:video});
+ await p.locator('#sourceUrl').fill('https://youtu.be/ylPj5BQw5cs');
+ await p.locator('#prepare').click();
+ await p.waitForFunction(()=>!document.getElementById('analyze').disabled);
+ await p.locator('#analyze').click();await p.locator('.candidate').waitFor();
+ assert.equal(await p.locator('.candidate').count(),1);
+ await p.locator('.candidate button').filter({hasText:'이 구간 재생'}).click();
+ await p.waitForFunction(()=>document.getElementById('player').readyState>=2);
+ await p.locator('#player').evaluate(v=>v.pause());
+ await p.locator('#alignment').check();
+ await p.locator('#manualPanel summary').click();
+ await p.locator('#manualText').fill('자동자막이 놓친 말');
+ await p.locator('#manualStart').fill('1.4');await p.locator('#manualEnd').fill('3.1');
+ await p.locator('#addManual').click();await p.waitForFunction(()=>document.querySelectorAll('.candidate').length===2);
+ await p.locator('#offset').fill('0.5');await p.locator('#saveOffset').click();
+ await p.waitForFunction(()=>!document.getElementById('alignment').checked);
+ await p.locator('#alignment').check();
+ await p.locator('#export').click();
+ await p.locator('#results a').filter({hasText:'MP4'}).waitFor();
+ assert.ok((await p.locator('#results').innerText()).includes('자동자막이 놓친 말'));
+ await p.screenshot({path:'/tmp/hooks-desktop.png',fullPage:true});
+ await p.reload();await p.waitForFunction(()=>document.querySelectorAll('.candidate').length===2);
+ assert.ok((await p.locator('#results').innerText()).includes('전체 ZIP'));
+ await p.locator('#analyze').click();await p.waitForFunction(()=>document.getElementById('usage').textContent.includes('AI 0회'));
+ await p.setViewportSize({width:390,height:844});await p.screenshot({path:'/tmp/hooks-mobile.png',fullPage:true});
+ assert.equal(await p.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true);
+ assert.deepEqual(errors,[]);await browser.close();console.log('Hook browser flow passed');
+})().catch(e=>{console.error(e);process.exit(1)});

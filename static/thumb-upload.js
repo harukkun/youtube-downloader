@@ -31,9 +31,10 @@ window.ThumbUpload = (() => {
   }
 
   /** 시트의 특정 행에 썸네일 등록. 실패하면 서버 메시지를 담은 Error. */
-  async function upload({ row, srcUrl, dish, blob, filename }) {
+  async function upload({ row, itemId, srcUrl, dish, blob, filename }) {
     const form = new FormData();
     form.append('row', String(row));
+    if (itemId) form.append('item_id', itemId);
     form.append('src_url', srcUrl || '');
     form.append('dish', dish || '');
     form.append('file', blob, filename || `thumbnail-${row}.jpg`);
@@ -51,7 +52,7 @@ window.ThumbUpload = (() => {
 
   /** 현황판 항목 → 썸네일 만들기(대상 행 지정) 링크. */
   function helperUrl(item) {
-    const q = new URLSearchParams({ row: String(item.row), src: item.source?.url || '', dish: item.dish_title || '' });
+    const q = new URLSearchParams({ row: String(item.row), item_id: item.item_id || '', src: item.source?.url || '', dish: item.dish_title || '' });
     return '/helper?' + q.toString() + '#thumbnail';
   }
 

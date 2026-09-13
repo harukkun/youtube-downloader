@@ -172,11 +172,20 @@
   #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
   #toast.err { border-color: var(--err); color: var(--err); }
   .footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 16px; }
+  .form-actions { display:flex; justify-content:space-between; align-items:center; gap:16px; flex-wrap:wrap; }
+  .form-meta { color:var(--muted); font-size:12px; align-self:center; }
+  .form-meta p { color:var(--warn); margin:6px 0; }
+  .plat-row { display:grid; grid-template-columns:160px 1fr; gap:12px; margin:8px 0; align-items:center; }
+  .plat-row label { display:flex; align-items:center; gap:6px; }
+  .plat-fs { border:1px solid var(--border); border-radius:8px; min-width:0; }
+  .field input, .plat-row > input { width:100%; box-sizing:border-box; }
+  tr.busy td { opacity:.5; }
+  @media(max-width:650px) { .detail-grid {grid-template-columns:1fr;} .plat-row {grid-template-columns:1fr;} }
 </style>
 </head>
 <body>
 <main>
-  <nav class="global-nav" aria-label="주요 메뉴"><a class="brand" href="/"><span class="logo"></span>콘텐츠 작업실</a><div class="links"><a href="/">다운로드</a><a href="/helper">업로드 헬퍼</a><a href="/shorts" aria-current="page">쇼츠 현황판</a><a href="/references">레퍼 체크</a></div></nav>
+  <nav class="global-nav" aria-label="주요 메뉴"><a class="brand" href="/"><span class="logo"></span>콘텐츠 작업실</a><div class="links"><a href="/">다운로드</a><a href="/hooks">후킹 클립</a><a href="/helper">업로드 헬퍼</a><a href="/upload-process">업로드 프로세스</a><a href="/shorts" aria-current="page">쇼츠 현황판</a><a href="/references">레퍼 체크</a></div></nav>
   <div class="head"><h1><span class="logo"></span>쇼츠 현황판</h1></div>
 
   <section class="card">
@@ -188,7 +197,7 @@
     </div>
     <div class="sheet-meta" id="sheetMeta"></div>
     <details id="uploadBox" class="upload-box">
-      <summary>썸네일 업로드 설정 <span id="uploadState" class="upload-state"></span></summary>
+      <summary>시트 쓰기 연결 (편집·썸네일) <span id="uploadState" class="upload-state"></span></summary>
       <div class="sheet-row">
         <span class="lbl">🔑 웹 앱</span>
         <input type="text" id="uploadUrl" spellcheck="false" placeholder="https://script.google.com/macros/s/…/exec  (Apps Script › 배포 › 웹 앱 URL)">
@@ -216,7 +225,8 @@
       {% for k, v in platforms.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}
     </select>
     <span class="spacer"></span>
-    <a id="openSheetBtn" class="hidden" target="_blank" rel="noopener"><button type="button">시트에서 편집 ↗</button></a>
+    <button type="button" id="addBtn" disabled>＋ 새 항목</button>
+    <a id="openSheetBtn" class="hidden" target="_blank" rel="noopener"><button type="button">시트 열기 ↗</button></a>
   </section>
 
   <section class="card" style="padding: 6px 18px 10px;">
@@ -248,7 +258,7 @@
     </div>
   </section>
 
-  <p class="footer">이 화면은 구글 시트를 읽어서 보여 주는 뷰어입니다. 수정은 시트에서 하고(썸네일 등록은 여기서도 가능), 변경은 새로고침 또는 30초 뒤에 반영됩니다.</p>
+  <p class="footer">이 화면에서 항목을 추가·수정·삭제할 수 있습니다. 요리 제목을 누르면 편집 폼이 열립니다. 시트 변경은 10초마다 확인하며, CSV 반영에는 시간이 걸릴 수 있습니다.</p>
 </main>
 
 <div id="hoverPreview"><img alt=""></div>
@@ -262,6 +272,7 @@
 <div id="toast"></div>
 
 <script src="/static/thumb-upload.js"></script>
+<script src="/static/board-edit.js"></script>
 <script>
   const $ = (id) => document.getElementById(id);
   const STATUSES = {{ statuses | tojson }};
@@ -280,7 +291,6 @@
   let items = [];
   let filters = loadFilters();
   let sheet = { configured: false };   // 서버가 알려 주는 시트 연결 상태
-  let openId = null;                   // 상세를 펼친 항목 id
   let toastTimer = null;
   const boardBus = ('BroadcastChannel' in window) ? new BroadcastChannel('shorts-board') : null;
 
@@ -288,7 +298,7 @@
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   function toast(msg, isErr = false) {
     const t = $('toast'); t.textContent = msg; t.className = 'show' + (isErr ? ' err' : '');
-    clearTimeout(toastTimer); toastTimer = setTimeout(() => t.className = '', 1800);
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => t.className = '', isErr ? 8000 : 2500);
   }
   async function api(method, url, body, isForm = false) {
     const opt = { method, headers: {} };
@@ -297,7 +307,7 @@
     }
     const r = await fetch(url, opt);
     const data = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(data.error || ('요청 실패 (' + r.status + ')'));
+    if (!r.ok) { const err = new Error(data.error || ('요청 실패 (' + r.status + ')')); err.code = data.code; err.status = r.status; throw err; }
     return data;
   }
   function fmtDate(iso) {
@@ -308,6 +318,7 @@
   // 썸네일 = 내가 재가공한 쇼츠의 썸네일(시트 '썸네일 링크' 열). 원본 영상 썸네일(it.source.thumbnail)은 쓰지 않는다.
   function thumbUrl(it) { return it.video?.thumbnail || ''; }
   function rowUrl(it) { return sheet.row_url_template ? sheet.row_url_template.replace('{row}', it.row) : (sheet.edit_url || '#'); }
+  function safeUrl(url) { try { const u = new URL(url); return ['http:', 'https:'].includes(u.protocol) ? u.href : '#'; } catch { return '#'; } }
   function host(url) { try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return url; } }
   function loadFilters() {
     try { return Object.assign({ q: '', status: '', plat: '', sort: 'updated_at', dir: 'desc' }, JSON.parse(localStorage.getItem('shorts.filters') || '{}')); }
@@ -317,7 +328,9 @@
 
   // ---- 데이터 (구글 시트) --------------------------------------------------------
   async function load(refresh = false) {
+    const ticket = loadGate.read();
     const data = await api('GET', '/api/shorts' + (refresh ? '?refresh=1' : ''));
+    if (!loadGate.accepts(ticket)) return;
     items = data.items || [];
     sheet = data.sheet || { configured: false };
     renderSheetState(data.error);
@@ -348,31 +361,35 @@
     document.querySelector('.tbl-wrap').classList.toggle('hidden', !sheet.configured);
     // 썸네일 업로드(웹 앱) 연결 상태
     const us = $('uploadState');
-    us.textContent = sheet.upload_configured ? '· 연결됨' : '· 미설정 (썸네일 등록에 필요)';
+    us.textContent = sheet.upload_configured ? '· 연결됨' : '· 미설정 (편집·추가·삭제·썸네일에 필요)';
     us.className = 'upload-state ' + (sheet.upload_configured ? 'ok' : 'bad');
     if (document.activeElement !== $('uploadUrl')) $('uploadUrl').value = sheet.upload_url || '';
     $('uploadToken').placeholder = sheet.upload_configured ? '저장됨 · 바꿀 때만 입력' : '업로드 토큰';
   }
   $('uploadSaveBtn').addEventListener('click', async () => {
+    if (writing) return;
+    beginWrite();
     const url = $('uploadUrl').value.trim(), token = $('uploadToken').value.trim();
     const b = $('uploadSaveBtn'); b.disabled = true; b.textContent = '확인 중…';
     try {
       const r = await api('POST', '/api/shorts/uploader', { url, token });
       sheet = r.sheet || sheet; $('uploadToken').value = '';
       toast(url ? '썸네일 업로드를 연결했습니다' : '썸네일 업로드 연결을 해제했습니다');
-      renderSheetState(null);
+      renderSheetState(null); render();
     } catch (err) { toast(err.message, true); }
-    finally { b.disabled = false; b.textContent = '저장'; }
+    finally { endWrite(); b.disabled = false; b.textContent = '저장'; }
   });
   $('sheetSaveBtn').addEventListener('click', async () => {
+    if (writing || !closeEdit()) return;
+    beginWrite();
     const url = $('sheetUrl').value.trim();
     const b = $('sheetSaveBtn'); b.disabled = true; b.textContent = '확인 중…';
     try {
       const r = await api('POST', '/api/shorts/sheet', { url });
       toast(url ? `시트를 연결했습니다 (${r.count}개 항목)` : '시트 연결을 해제했습니다');
-      await load();
+      endWrite(); await load();
     } catch (err) { toast(err.message, true); $('sheetMeta').className = 'sheet-meta err'; $('sheetMeta').textContent = '⚠ ' + err.message; }
-    finally { b.disabled = false; b.textContent = '연결'; }
+    finally { if (writing) endWrite(); b.disabled = false; b.textContent = '연결'; }
   });
   $('sheetUrl').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('sheetSaveBtn').click(); });
   $('refreshBtn').addEventListener('click', async () => {
@@ -419,17 +436,19 @@
     return list;
   }
   function render() {
+    $('addBtn').disabled = writing || !sheet.configured || !sheet.upload_configured;
     renderChips();
     $('q').value = filters.q; $('fStatus').value = filters.status; $('fPlat').value = filters.plat;
     document.querySelectorAll('th.sortable').forEach(th => {
       th.querySelector('.arrow').textContent = th.dataset.sort === filters.sort ? (filters.dir === 'asc' ? '▲' : '▼') : '';
     });
     const list = visibleItems();
+    if (edit && !list.some(it => it.id === edit.id)) list.unshift(items.find(it => it.id === edit.id) || edit.item);
     $('empty').classList.toggle('hidden', list.length > 0);
-    $('rows').innerHTML = list.map(it => {
+    swapRows(list.map(it => {
       const refs = (it.reference_shorts || []).filter(r => r.url || r.channel);
       const refsHtml = refs.length
-        ? `<div class="refs">${refs.slice(0, 3).map(r => `<a href="${esc(r.url)}" target="_blank" rel="noopener" title="${esc(r.url)}">${esc(r.channel || host(r.url))}</a>`).join('')}${refs.length > 3 ? `<span class="muted">+${refs.length - 3}개 더</span>` : ''}</div>`
+        ? `<div class="refs">${refs.slice(0, 3).map(r => `<a href="${esc(safeUrl(r.url))}" target="_blank" rel="noopener" title="${esc(r.url)}">${esc(r.channel || host(r.url))}</a>`).join('')}${refs.length > 3 ? `<span class="muted">+${refs.length - 3}개 더</span>` : ''}</div>`
         : '<span class="muted">—</span>';
       const unlocked = it.status === 'uploaded';
       const plats = PLAT_ORDER.map(k => {
@@ -437,7 +456,7 @@
         const tip = esc(PLATFORMS[k]) + (on ? (p.url ? ' · ' + esc(p.url) : ' · 업로드됨') : ' · 미업로드');
         const inner = `${platIcon(k)}${on && p.url ? '<a>↗</a>' : ''}`;
         return on && p.url
-          ? `<a class="plat on" href="${esc(p.url)}" target="_blank" rel="noopener" title="${tip}">${inner}</a>`
+          ? `<a class="plat on" href="${esc(safeUrl(p.url))}" target="_blank" rel="noopener" title="${tip}">${inner}</a>`
           : `<span class="plat ${on ? 'on' : ''}" title="${tip}">${inner}</span>`;
       }).join('');
       const tu = thumbUrl(it);
@@ -446,10 +465,10 @@
         : `<span class="thumb none">없음</span>`;
       const thumb = `<button type="button" class="thumb-btn ${uploadingRow === it.row ? 'busy' : ''}" data-act="thumb" title="${tu ? '썸네일 바꾸기' : '썸네일 등록: 이미지 첨부 또는 썸네일 만들기'}">${thumbInner}</button>`;
       const src = it.source?.url
-        ? `<a href="${esc(it.source.url)}" target="_blank" rel="noopener" title="${esc(it.source.title || it.source.url)}">${esc(it.source.channel || host(it.source.url))} ↗</a>${it.source.title ? `<div class="muted" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(it.source.title)}</div>` : ''}`
+        ? `<a href="${esc(safeUrl(it.source.url))}" target="_blank" rel="noopener" title="${esc(it.source.title || it.source.url)}">${esc(it.source.channel || host(it.source.url))} ↗</a>${it.source.title ? `<div class="muted" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(it.source.title)}</div>` : ''}`
         : '<span class="muted">—</span>';
-      const isOpen = openId === it.id;
-      const main = `<tr data-id="${esc(it.id)}" class="${isOpen ? 'open' : ''}">
+      const isOpen = edit?.id === it.id;
+      const main = `<tr data-id="${esc(it.id)}" class="${isOpen ? 'open' : ''} ${busyRows.has(it.id) ? 'busy' : ''}">
         <td><span class="st-chip st-${esc(it.status)}">${esc(STATUSES[it.status] || it.status)}</span></td>
         <td class="title" data-act="toggle"><span class="caret">▶</span> ${esc(it.dish_title) || '<span class="muted">(제목 없음)</span>'}${it.video?.title ? `<span class="sub" title="${esc(it.video.title)}">${esc(it.video.title)}</span>` : ''}</td>
         <td>${src}</td>
@@ -457,21 +476,149 @@
         <td><div class="plats ${unlocked ? '' : 'locked'}" title="${unlocked ? '' : '업로드 완료 상태가 아닙니다'}">${plats}</div></td>
         <td>${thumb}</td>
         <td class="muted date" title="${esc(it.updated_at)}">${fmtDate(it.updated_at)}</td>
-        <td class="actions"><a href="${esc(rowUrl(it))}" target="_blank" rel="noopener"><button type="button" class="ghost mini" title="시트의 ${it.row}행으로 이동">시트에서 편집 ↗</button></a></td>
+        <td class="actions"><a href="${esc(rowUrl(it))}" target="_blank" rel="noopener"><button type="button" class="ghost mini" title="시트의 ${it.row}행으로 이동">시트 ↗</button></a> <button type="button" class="ghost mini" data-act="delete" ${writing || !it.item_id || !sheet.upload_configured ? 'disabled' : ''}>삭제</button></td>
       </tr>`;
       if (!isOpen) return main;
-      const field = (label, id, value, max, full, mono) => `<div class="field ${full ? 'full' : ''}">
-        <div class="lbl-row"><label>${label}</label><span><span class="counter ${max && [...value].length > max ? 'over' : ''}">${[...value].length}${max ? ' / ' + max : '자'}</span> <button type="button" class="ghost mini" data-copy="${id}">복사</button></span></div>
-        <textarea id="${id}" class="${mono ? 'mono' : ''}" readonly rows="${Math.min(12, Math.max(2, value.split('\n').length))}">${esc(value)}</textarea></div>`;
-      const v = it.video || {};
-      return main + `<tr class="detail" data-id="${esc(it.id)}"><td colspan="8"><div class="detail-grid">
-        ${field('영상 제목', 'd-title-' + it.row, v.title || '', 100, false)}
-        ${field('메모', 'd-memo-' + it.row, it.memo || '', 0, false)}
-        ${field('설명 (Description)', 'd-desc-' + it.row, v.description || '', 5000, true)}
-        ${field('고정 댓글', 'd-pinned-' + it.row, v.pinned_comment || '', 0, true, true)}
-      </div></td></tr>`;
-    }).join('');
+      return main + detailHtml(it);
+    }).join(''));
   }
+
+  const {flatOf, diffFlat} = BoardEdit;
+  let edit = null, writing = false;
+  const busyRows = new Set(), loadGate = BoardEdit.requestGate();
+  function formValues(tr) {
+    return Object.fromEntries([...tr.querySelectorAll('[data-f]')].map(el => [el.dataset.f, el.type === 'checkbox' ? el.checked : el.value]));
+  }
+  function detailNode() { return $('rows').querySelector('tr.detail'); }
+  function fieldEl(label, name, value, {kind='text', max=0, full=false, mono=false, copy=false}={}) {
+    const id = 'board-' + name;
+    const control = kind === 'textarea'
+      ? `<textarea id="${id}" data-f="${name}" class="${mono ? 'mono' : ''}" rows="${Math.min(10,Math.max(2,String(value).split('\n').length))}">${esc(value)}</textarea>`
+      : `<input id="${id}" data-f="${name}" type="text" value="${esc(value)}">`;
+    return `<div class="field ${full ? 'full' : ''}"><div class="lbl-row"><label for="${id}">${label}</label><span>
+      ${max ? `<span class="counter" data-count="${name}" data-max="${max}"></span>` : ''}
+      ${copy ? `<button type="button" class="ghost mini" data-copy="${id}">복사</button>` : ''}</span></div>${control}</div>`;
+  }
+  function detailHtml(it) {
+    const f = flatOf(it);
+    return `<tr class="detail" data-id="${esc(it.id)}"><td colspan="8"><div class="detail-grid">
+      <div class="field"><label for="board-status">상태</label><select id="board-status" data-f="status">${STATUS_ORDER.map(k => `<option value="${k}" ${f.status === k ? 'selected' : ''}>${esc(STATUSES[k])}</option>`).join('')}</select></div>
+      ${fieldEl('요리 제목','dish',f.dish)}
+      ${fieldEl('원본 링크','src_url',f.src_url)}
+      <div class="form-meta">원본 링크를 바꾸면 원본 제목·채널을 다시 가져옵니다. 직접 수정도 가능합니다.</div>
+      ${fieldEl('원본 제목','src_title',f.src_title)}${fieldEl('원본 채널','src_channel',f.src_channel)}
+      ${fieldEl('참고 쇼츠 링크 (한 줄에 하나)','ref_urls',f.ref_urls,{kind:'textarea'})}
+      ${fieldEl('참고 채널 (링크 변경 시 자동 채움)','ref_channels',f.ref_channels,{kind:'textarea'})}
+      <fieldset class="plat-fs full"><legend>업로드 플랫폼</legend><p class="lock-hint">업로드 완료 상태에서만 편집할 수 있습니다.</p>
+        ${PLAT_ORDER.map(k => `<div class="plat-row"><label><input type="checkbox" data-f="${k}_on" ${f[k+'_on'] ? 'checked' : ''}> ${platIcon(k)} ${esc(PLATFORMS[k])}</label><input type="text" aria-label="${esc(PLATFORMS[k])} 링크" data-f="${k}_url" value="${esc(f[k+'_url'] || '')}" placeholder="업로드 링크"></div>`).join('')}</fieldset>
+      ${fieldEl('영상 제목','title',f.title,{max:100,copy:true})}${fieldEl('메모','memo',f.memo,{kind:'textarea'})}
+      ${fieldEl('설명','desc',f.desc,{kind:'textarea',max:5000,full:true,copy:true})}
+      ${fieldEl('고정 댓글','pinned',f.pinned,{kind:'textarea',full:true,mono:true,copy:true})}
+      <div class="form-actions full"><div class="form-meta"><span data-dates></span> · <a data-row-link target="_blank" rel="noopener">시트에서 보기 ↗</a><p data-edit-hint></p></div>
+        <div><button type="button" class="secondary" data-act="cancel">취소</button> <button type="button" data-act="save">저장</button></div></div>
+    </div></td></tr>`;
+  }
+  function updateForm() {
+    const tr = detailNode(); if (!tr || !edit) return;
+    const values = formValues(tr);
+    edit.dirty = Object.keys(diffFlat(edit.snapshot, values)).length > 0;
+    const current = items.find(it => it.id === edit.id);
+    if (current) edit.item = current;
+    edit.missing = !current;
+    const blocked = writing || edit.missing || !sheet.upload_configured || !edit.item.item_id;
+    tr.querySelectorAll('[data-f]').forEach(el => { el.disabled = writing; });
+    const fs = tr.querySelector('.plat-fs'), locked = values.status !== 'uploaded';
+    fs.disabled = writing || locked; fs.classList.toggle('locked', locked);
+    fs.querySelector('.lock-hint').classList.toggle('hidden', !locked);
+    tr.querySelector('[data-act="save"]').disabled = blocked || !edit.dirty;
+    tr.querySelector('[data-act="save"]').textContent = edit.saving ? '저장 중…' : '저장';
+    tr.querySelector('[data-act="cancel"]').disabled = writing;
+    tr.querySelector('[data-edit-hint]').textContent = edit.missing ? '항목이 삭제되었거나 목록에서 찾을 수 없습니다. 입력은 보존됩니다. 새로고침 후 확인해 주세요.'
+      : !edit.item.item_id ? '편집하려면 새 Code.gs를 적용하고 시트 초기 설정 후 새로고침해 주세요.'
+      : !sheet.upload_configured ? '저장하려면 시트 쓰기 연결을 설정해 주세요.' : '';
+    tr.querySelector('[data-dates]').textContent = `등록 ${fmtDate(edit.item.created_at)} · 수정 ${fmtDate(edit.item.updated_at)}`;
+    tr.querySelector('[data-row-link]').href = rowUrl(edit.item);
+    tr.querySelectorAll('[data-count]').forEach(el => { const n = [...values[el.dataset.count]].length; el.textContent = `${n} / ${el.dataset.max}`; el.classList.toggle('over', n > Number(el.dataset.max)); });
+  }
+  function closeEdit(force=false) {
+    if (!force && (writing || (edit?.dirty && !confirm('저장하지 않은 변경 내용을 버릴까요?')))) return false;
+    detailNode()?.remove(); edit = null; return true;
+  }
+  function openEdit(it) {
+    if (!closeEdit()) return;
+    edit = {id:it.id,item:it,snapshot:flatOf(it),dirty:false,saving:false}; render();
+  }
+  function swapRows(html) {
+    const root = $('rows'), kept = detailNode();
+    if (!kept || !edit || kept.dataset.id !== edit.id) { root.innerHTML = html; updateForm(); return; }
+    const template = document.createElement('template'); template.innerHTML = `<table><tbody>${html}</tbody></table>`;
+    for (const child of [...root.children]) if (child !== kept) child.remove();
+    let after = false;
+    for (const child of [...template.content.querySelector('tbody').children]) {
+      if (child.classList.contains('detail')) { after = true; continue; }
+      root.insertBefore(child, after ? null : kept);
+    }
+    updateForm();
+  }
+  function beginWrite() { writing = true; loadGate.begin(); closeThumbMenu(); render(); }
+  function endWrite() { writing = false; loadGate.end(); render(); }
+  function changedNotice(result, message) {
+    toast([message,...(result.warnings || [])].join(' · '), !!result.warnings?.length);
+    boardBus?.postMessage('changed');
+    try { localStorage.setItem('shorts-board-change', String(Date.now())); } catch {}
+    setTimeout(() => load(true).catch(() => {}), 3000);
+  }
+  async function saveEdit() {
+    updateForm();
+    if (!edit || writing || !edit.dirty || edit.missing || !sheet.upload_configured || !edit.item.item_id) return;
+    const it = edit.item, fields = diffFlat(edit.snapshot, formValues(detailNode()));
+    edit.saving = true; beginWrite();
+    try {
+      const result = await api('PUT', `/api/shorts/items/${it.row}`, {item_id:it.item_id,fields});
+      items = items.map(x => x.id === it.id ? result.item : x);
+      closeEdit(true); edit = {id:result.item.id,item:result.item,snapshot:flatOf(result.item),dirty:false,saving:false};
+      changedNotice(result, '저장했습니다');
+    } catch (err) { toast(err.message, true); }
+    finally { if (edit) edit.saving = false; endWrite(); }
+    load(true).catch(() => {});
+  }
+  async function deleteItem(it) {
+    if (writing || !it.item_id || !sheet.upload_configured) return;
+    if (edit?.dirty && edit.id !== it.id) { toast('편집 중인 항목을 먼저 저장하거나 취소해 주세요.', true); return; }
+    if (!confirm(`‘${it.dish_title || '(제목 없음)'}’ 항목을 삭제할까요?${edit?.id === it.id && edit.dirty ? '\n저장하지 않은 변경도 사라집니다.' : ''}\n썸네일 파일은 드라이브에 남습니다.`)) return;
+    busyRows.add(it.id); beginWrite();
+    try {
+      const result = await api('DELETE', `/api/shorts/items/${it.row}`, {item_id:it.item_id});
+      // Use the locally displayed position; other clients may have moved the server row.
+      items = items.filter(x => x.id !== it.id).map(x => x.row > it.row ? {...x,row:x.row-1} : x);
+      if (edit?.id === it.id) closeEdit(true);
+      changedNotice(result, '삭제했습니다');
+    } catch (err) { toast(err.message + ' 새로고침 후 실제 반영 여부를 확인해 주세요.', true); }
+    finally { busyRows.delete(it.id); endWrite(); }
+    load(true).catch(() => {});
+  }
+  $('addBtn').addEventListener('click', async () => {
+    if (writing || !sheet.configured || !sheet.upload_configured) return;
+    if (edit?.dirty) { toast('편집 중인 항목을 먼저 저장하거나 취소해 주세요.', true); return; }
+    beginWrite();
+    try {
+      const result = await api('POST', '/api/shorts/items', {});
+      items = [result.item,...items.map(x => x.row >= result.item.row ? {...x,row:x.row+1} : x)];
+      filters.q = filters.status = filters.plat = ''; saveFilters();
+      closeEdit(true); edit = {id:result.item.id,item:result.item,snapshot:flatOf(result.item),dirty:false,saving:false};
+      changedNotice(result, '새 항목을 추가했습니다');
+    } catch (err) { toast(err.message + ' 새로고침 후 실제 반영 여부를 확인해 주세요.', true); }
+    finally { endWrite(); }
+    detailNode()?.querySelector('[data-f="dish"]')?.focus();
+    load(true).catch(() => {});
+  });
+  $('rows').addEventListener('input', updateForm);
+  $('rows').addEventListener('change', updateForm);
+  window.addEventListener('beforeunload', e => { if (edit?.dirty || writing) { e.preventDefault(); e.returnValue = ''; } });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && edit && !writing) { if (closeEdit()) render(); }
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && edit) { e.preventDefault(); saveEdit(); }
+  });
 
   // 표 이벤트: 상세 펼치기, 복사
   $('rows').addEventListener('click', async (e) => {
@@ -489,11 +636,15 @@
       if (it) openThumbMenu(tb, it);
       return;
     }
-    if (e.target.closest('a') || e.target.closest('textarea')) return;
+    const action = e.target.closest('[data-act]')?.dataset.act;
+    if (action === 'save') { await saveEdit(); return; }
+    if (action === 'cancel') { if (closeEdit()) render(); return; }
+    if (action === 'delete') { const it = items.find(x => x.id === e.target.closest('tr').dataset.id); if (it) await deleteItem(it); return; }
+    if (e.target.closest('a,input,select,textarea')) return;
     const tr = e.target.closest('tr[data-id]'); if (!tr || tr.classList.contains('detail')) return;
     if (!e.target.closest('[data-act="toggle"]')) return;
-    openId = openId === tr.dataset.id ? null : tr.dataset.id;
-    render();
+    if (edit?.id === tr.dataset.id) { if (closeEdit()) render(); }
+    else { const it = items.find(x => x.id === tr.dataset.id); if (it) openEdit(it); }
   });
   // 정렬
   document.querySelectorAll('th.sortable').forEach(th => th.addEventListener('click', () => {
@@ -512,7 +663,7 @@
   const menu = $('thumbMenu');
   function openThumbMenu(btn, it) {
     menuItem = it;
-    const ok = !!sheet.upload_configured;
+    const ok = !!sheet.upload_configured && !writing;
     menu.querySelectorAll('button[data-menu]').forEach(b => b.disabled = !ok);
     $('thumbMenuNote').classList.toggle('hidden', ok);
     const tu = thumbUrl(it);
@@ -537,16 +688,16 @@
   });
   $('thumbFile').addEventListener('change', async () => {
     const file = $('thumbFile').files?.[0], it = menuItem;
-    if (!file || !it) return;
-    uploadingRow = it.row; render();
+    if (!file || !it || writing) return;
+    uploadingRow = it.row; beginWrite();
     try {
       const blob = await ThumbUpload.normalizeImage(file);
-      const r = await ThumbUpload.upload({ row: it.row, srcUrl: it.source?.url, dish: it.dish_title, blob, filename: file.name.replace(/\.[^.]+$/, '') + '.jpg' });
+      const r = await ThumbUpload.upload({ row: it.row, itemId: it.item_id, srcUrl: it.source?.url, dish: it.dish_title, blob, filename: file.name.replace(/\.[^.]+$/, '') + '.jpg' });
       it.video = { ...(it.video || {}), thumbnail: r.url };   // 바로 보이게. 서버도 시트가 따라올 때까지 이 값을 덧씌워 준다
-      toast(`${r.row}행 썸네일을 등록했습니다`);
+      changedNotice(r, `${r.row}행 썸네일을 등록했습니다`);
       setTimeout(() => load(true).catch(() => {}), 3000);    // 수정일 등 나머지 변경 반영 (CSV 내보내기는 몇 초 늦다)
     } catch (err) { toast(err.message, true); }
-    finally { uploadingRow = null; render(); }
+    finally { uploadingRow = null; endWrite(); }
   });
 
   // 썸네일 호버 미리보기

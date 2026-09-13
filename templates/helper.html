@@ -8,199 +8,11 @@
 <link rel="preload" href="/static/fonts/CookieRun-Bold.otf" as="font" type="font/otf" crossorigin>
 <script src="/static/thumb-upload.js" defer></script>
 <script src="/static/thumbnail.js" defer></script>
-<style>
-  @font-face { font-family: CookieRun; src: url('/static/fonts/CookieRun-Bold.otf') format('opentype'); font-weight: 700; font-display: block; }
-  :root {
-    --bg: #0f1115; --card: #181b22; --border: #2a2f3a; --text: #e8eaf0; --muted: #8b93a7;
-    --accent: #ff3d3d; --accent-hover: #ff5c5c; --ok: #3ecf8e; --err: #ff6b6b; --warn: #ffb020; --info: #8fa6ff;
-  }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0; min-height: 100vh; background: var(--bg); color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Segoe UI", Roboto, sans-serif;
-    padding: 36px 20px;
-  }
-  main { max-width: 1280px; margin: 0 auto; }
-  a { color: var(--info); text-decoration: none; }
-  a:hover { text-decoration: underline; }
-  .head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 18px; flex-wrap: wrap; }
-  h1 { font-size: 24px; margin: 0; display: flex; align-items: center; gap: 10px; }
-  h1 .logo { width: 28px; height: 20px; background: var(--accent); border-radius: 6px; position: relative; }
-  h1 .logo::after { content: ""; position: absolute; left: 11px; top: 5px; border-left: 8px solid #fff; border-top: 5px solid transparent; border-bottom: 5px solid transparent; }
-  .nav { display: flex; gap: 14px; }
-  .nav a { color: var(--muted); font-size: 14px; }
-  .nav a:hover { color: var(--text); }
-  .global-nav { display:flex; align-items:center; justify-content:space-between; gap:20px; margin-bottom:22px; padding:10px 12px 10px 14px; background:rgba(24,27,34,.82); border:1px solid var(--border); border-radius:14px; }
-  .global-nav .brand { display:flex; align-items:center; gap:9px; color:var(--text); font-weight:700; font-size:14px; white-space:nowrap; }
-  .global-nav .brand .logo { width:24px; height:17px; background:var(--accent); border-radius:5px; position:relative; }
-  .global-nav .brand .logo::after { content:""; position:absolute; left:9px; top:4px; border-left:7px solid #fff; border-top:4.5px solid transparent; border-bottom:4.5px solid transparent; }
-  .global-nav .links { display:flex; gap:4px; flex-wrap:wrap; justify-content:flex-end; }
-  .global-nav a { color:var(--muted); font-size:13px; padding:8px 11px; border-radius:9px; text-decoration:none; }
-  .global-nav a:hover, .global-nav a:focus-visible { color:var(--text); background:#2a2f3a; outline:none; }
-  .global-nav a[aria-current="page"] { color:var(--text); background:rgba(255,61,61,.14); box-shadow:inset 0 0 0 1px rgba(255,61,61,.35); }
-  @media (max-width:700px) { .global-nav { align-items:flex-start; flex-direction:column; gap:8px; } .global-nav .links { justify-content:flex-start; } }
-  .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 16px 18px; margin-bottom: 14px; }
-
-  button {
-    background: var(--accent); color: #fff; border: 0; border-radius: 10px; padding: 9px 14px; font-size: 13px;
-    font-weight: 600; cursor: pointer; white-space: nowrap; transition: background .15s; font-family: inherit;
-  }
-  button:hover { background: var(--accent-hover); }
-  button:disabled { opacity: .45; cursor: not-allowed; }
-  button.secondary { background: #2a2f3a; }
-  button.secondary:hover { background: #343a48; }
-  button.ghost { background: transparent; border: 1px solid var(--border); color: var(--muted); }
-  button.ghost:hover { color: var(--text); border-color: #444b5a; }
-  button.big { padding: 12px 22px; font-size: 15px; }
-  select, textarea {
-    background: #0f1115; color: var(--text); border: 1px solid var(--border); border-radius: 9px;
-    padding: 9px 12px; font-size: 14px; outline: none; font-family: inherit; width: 100%;
-  }
-  select { width: auto; }
-  select:focus, textarea:focus { border-color: var(--accent); }
-  textarea { resize: vertical; line-height: 1.55; }
-  textarea.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
-  .hidden { display: none !important; }
-
-  /* 레이아웃: 왼쪽 기능 목록 + 오른쪽 작업 영역 */
-  .layout { display: grid; grid-template-columns: 240px 1fr; gap: 14px; align-items: start; }
-  .tools { padding: 10px; position: sticky; top: 20px; }
-  .tools h2 { font-size: 12px; color: var(--muted); font-weight: 600; margin: 6px 8px 10px; letter-spacing: .02em; }
-  .tool { display: block; width: 100%; text-align: left; background: transparent; border: 1px solid transparent; border-radius: 10px;
-    padding: 10px 12px; color: var(--text); font-weight: 600; font-size: 14px; }
-  .tool small { display: block; color: var(--muted); font-weight: 400; font-size: 12px; margin-top: 3px; line-height: 1.4; }
-  .tool:hover { background: rgba(255,255,255,.04); }
-  .tool.active { background: rgba(255,61,61,.1); border-color: rgba(255,61,61,.35); }
-  .tool.soon { color: var(--muted); cursor: default; font-weight: 500; }
-  .tool.soon:hover { background: transparent; }
-  .panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
-  .panel-head h2 { font-size: 18px; margin: 0; }
-  .panel-head p { margin: 0; color: var(--muted); font-size: 13px; }
-
-  /* 템플릿 설정 (접이식) */
-  details.tpl > summary { cursor: pointer; font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 10px; list-style: none; }
-  details.tpl > summary::-webkit-details-marker { display: none; }
-  details.tpl > summary::before { content: "▸"; color: var(--muted); font-size: 12px; transition: transform .15s; }
-  details.tpl[open] > summary::before { transform: rotate(90deg); }
-  details.tpl > summary .state { font-size: 12px; color: var(--muted); font-weight: 400; }
-  details.tpl > summary .state.dirty { color: var(--warn); }
-  .tpl-body { margin-top: 14px; }
-  .tpl-grid { display: grid; grid-template-columns: 3fr 2fr; gap: 14px; }
-  label.f { display: block; font-size: 12px; color: var(--muted); margin: 0 0 6px; }
-  .hint { font-size: 12px; color: var(--muted); line-height: 1.5; margin-top: 6px; }
-  .hint code { background: #0f1115; border: 1px solid var(--border); border-radius: 5px; padding: 1px 5px; font-size: 11.5px; }
-  .tpl-foot { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
-  .tpl-foot .spacer { flex: 1; }
-  .tpl-foot label { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
-  .env { font-size: 12px; color: var(--muted); }
-  .env .bad { color: var(--warn); }
-
-  /* 입력 / 결과 */
-  .io { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-  .io .card { margin-bottom: 0; display: flex; flex-direction: column; }
-  .lbl-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
-  .lbl-row label { margin: 0; font-size: 13px; font-weight: 600; }
-  .counter { font-size: 11px; color: var(--muted); }
-  .counter.over { color: var(--err); font-weight: 700; }
-  .io textarea { flex: 1; min-height: 420px; }
-  .btns { display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
-  .btns .spacer { flex: 1; }
-  .notes { margin-top: 12px; padding: 10px 14px; border-radius: 10px; background: rgba(255,176,32,.08); border: 1px solid rgba(255,176,32,.3); font-size: 13px; }
-  .notes b { color: var(--warn); display: block; margin-bottom: 4px; font-size: 12px; }
-  .notes ul { margin: 0; padding-left: 18px; line-height: 1.6; }
-  .platform-tabs { display:flex; gap:6px; margin-bottom:10px; }
-  .platform-tab { flex:1; background:transparent; border:1px solid var(--border); color:var(--muted); }
-  .platform-tab:hover { background:#222733; color:var(--text); }
-  .platform-tab.active { color:var(--text); border-color:rgba(255,61,61,.55); background:rgba(255,61,61,.12); }
-  .platform-output.hidden { display:none; }
-  .clarify { margin-top:14px; border-color:rgba(143,166,255,.45); background:linear-gradient(135deg,rgba(143,166,255,.1),var(--card) 42%); }
-  .clarify h3 { margin:0 0 5px; font-size:15px; }
-  .clarify > p { color:var(--muted); margin:0 0 14px; font-size:13px; line-height:1.5; }
-  .question { margin-top:12px; }
-  .question label { display:block; margin-bottom:6px; font-size:13px; font-weight:600; line-height:1.5; }
-  .question textarea { min-height:76px; }
-  .msg { margin-top: 12px; padding: 10px 14px; border-radius: 10px; font-size: 13px; line-height: 1.5; }
-  .msg.err { background: rgba(255,107,107,.12); color: var(--err); border: 1px solid rgba(255,107,107,.3); }
-  .msg.ok { background: rgba(62,207,142,.12); color: var(--ok); border: 1px solid rgba(62,207,142,.3); }
-  .usage { font-size: 11.5px; color: var(--muted); }
-  .spinner { display: inline-block; width: 13px; height: 13px; border: 2px solid rgba(255,255,255,.3);
-    border-top-color: #fff; border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -2px; margin-right: 6px; }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  .placeholder { color: var(--muted); font-size: 14px; text-align: center; padding: 40px 0; }
-
-  #toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%) translateY(20px); background: #222733; color: var(--text); border: 1px solid var(--border);
-    padding: 10px 18px; border-radius: 10px; font-size: 13px; opacity: 0; transition: all .2s; z-index: 200; pointer-events: none; }
-  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
-  #toast.err { border-color: var(--err); color: var(--err); }
-  .footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 16px; }
-
-  /* 썸네일 만들기 기능 */
-  .thumbnail-workspace { display:grid; grid-template-columns:minmax(0,1fr) minmax(300px,440px); gap:24px; align-items:start; }
-  .thumb-card { background:var(--card); border:1px solid var(--border); border-radius:14px; padding:20px; margin-bottom:14px; }
-  .thumb-card h2 { font-size:16px; margin:0 0 18px; letter-spacing:-.3px; }
-  .thumb-card h2 > span { font-size:12px; color:var(--accent); margin-right:12px; }
-  .thumb-card .drop { border:1px dashed #515766; border-radius:10px; text-align:center; padding:24px 16px; cursor:pointer; display:block; background:#12151b; }
-  .thumb-card .drop strong, .thumb-card .drop span { display:block; }
-  .thumb-card .drop strong { font-size:15px; color:var(--text); }
-  .thumb-card .drop span { font-size:12px; margin-top:8px; }
-  .thumb-card .drop input { display:block; font-size:12px; margin:16px auto 0; max-width:100%; }
-  .thumb-card .drop.dragging, .thumb-card .drop:focus-within { border-color:var(--accent); background:#271a20; }
-  .thumb-card label { display:block; font-size:13px; color:var(--muted); margin:14px 0 8px; }
-  .thumb-card input[type=text], .thumb-card input[type=number], .thumb-card textarea, .thumb-card select { width:100%; padding:10px 12px; background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); font:inherit; font-size:14px; }
-  .thumb-card textarea { resize:vertical; }
-  .thumb-card input[type=range] { width:100%; accent-color:var(--accent); cursor:pointer; }
-  .thumb-card output { float:right; font-variant-numeric:tabular-nums; font-size:12px; color:var(--text); }
-  .thumb-card button { border:0; background:var(--accent); color:white; font:inherit; font-size:13px; font-weight:600; padding:10px 14px; border-radius:8px; cursor:pointer; }
-  .thumb-card button:hover { filter:brightness(1.12); }
-  .thumb-card button:disabled { opacity:.4; cursor:not-allowed; }
-  .thumb-card button.secondary, .thumbnail-preview button.secondary { background:#2a2f3a; }
-  .thumbnail-workspace .buttons { display:flex; gap:8px; margin-top:14px; flex-wrap:wrap; }
-  .thumbnail-workspace #capture { margin-left:auto; }
-  .thumbnail-workspace video { width:100%; max-height:280px; background:#000; border-radius:8px; margin-top:12px; }
-  .thumbnail-workspace .status { font-size:12px; line-height:1.6; color:var(--muted); overflow-wrap:anywhere; }
-  .thumbnail-workspace .status.error { color:#ff8585; }
-  .thumbnail-workspace .type-controls { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin-bottom:18px; }
-  .thumbnail-workspace .type-controls label { font-size:11px; }
-  .thumbnail-workspace .color-controls { display:flex; gap:20px; margin:0 0 18px; }
-  .thumbnail-workspace .color-controls label { display:flex; align-items:center; gap:10px; margin:0; }
-  .thumbnail-workspace .color-controls input[type=color] { width:44px; height:32px; padding:3px; border:1px solid var(--border); border-radius:8px; background:var(--bg); cursor:pointer; }
-  .thumbnail-workspace .target-box { border-top:1px solid var(--border); margin-top:20px; padding-top:8px; }
-  .thumbnail-workspace .target-box input[type=search] { margin-bottom:8px; }
-  .thumbnail-workspace .target-box select { width:100%; }
-  .thumbnail-workspace .target-box .status { margin-top:8px; }
-  .thumbnail-workspace .target-box .status a { color:var(--info); }
-  .thumbnail-workspace .target-state { font-size:11px; color:var(--ok); margin-left:6px; }
-  .thumbnail-workspace .target-state.bad { color:var(--warn); }
-  .thumbnail-workspace .export { display:flex; align-items:end; gap:12px; border-top:1px solid var(--border); margin-top:20px; padding-top:8px; }
-  .thumbnail-workspace .export label { flex:1; margin-bottom:0; }
-  .thumbnail-workspace .export select { display:block; margin-top:8px; }
-  .thumbnail-preview { position:sticky; top:20px; }
-  .thumbnail-preview .preview-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
-  .thumbnail-preview .preview-head h2 { margin:0; font-size:16px; }
-  .thumbnail-preview .preview-head span { font-size:11px; border:1px solid var(--border); padding:6px 10px; border-radius:20px; color:var(--muted); }
-  .thumbnail-preview .canvas-wrap { position:relative; border:1px solid #363b46; border-radius:12px; overflow:hidden; background:#171a21; box-shadow:0 20px 60px #0005; }
-  .thumbnail-preview canvas { display:block; width:100%; height:auto; touch-action:none; cursor:grab; }
-  .thumbnail-preview canvas:active { cursor:grabbing; }
-  .thumbnail-preview #empty { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; background:radial-gradient(ellipse at 50% 40%,#292e39,#13161c); pointer-events:none; }
-  .thumbnail-preview #empty[hidden] { display:none; }
-  .thumbnail-preview #empty span { font-size:80px; font-weight:200; color:#414957; letter-spacing:-6px; margin-bottom:26px; }
-  .thumbnail-preview #empty strong { font-size:18px; }
-  .thumbnail-preview #empty p { font-size:12px; color:var(--muted); }
-
-  @media (max-width: 980px) {
-    .layout { grid-template-columns: 1fr; }
-    .tools { position: static; }
-    .io, .tpl-grid { grid-template-columns: 1fr; }
-    .io textarea { min-height: 260px; }
-    .thumbnail-workspace { grid-template-columns: 1fr; }
-    .thumbnail-preview { position: static; width:100%; max-width:440px; justify-self:center; }
-  }
-  @media (max-width: 560px) { .thumbnail-workspace .type-controls { grid-template-columns:1fr; gap:4px; } .thumbnail-workspace .color-controls { gap:12px; flex-wrap:wrap; } }
-</style>
+<link rel="stylesheet" href="/static/helper.css">
 </head>
 <body>
 <main>
-  <nav class="global-nav" aria-label="주요 메뉴"><a class="brand" href="/"><span class="logo"></span>콘텐츠 작업실</a><div class="links"><a href="/">다운로드</a><a href="/helper" aria-current="page">업로드 헬퍼</a><a href="/shorts">쇼츠 현황판</a><a href="/references">레퍼 체크</a></div></nav>
+  <nav class="global-nav" aria-label="주요 메뉴"><a class="brand" href="/"><span class="logo"></span>콘텐츠 작업실</a><div class="links"><a href="/">다운로드</a><a href="/hooks">후킹 클립</a><a href="/helper" aria-current="page">업로드 헬퍼</a><a href="/upload-process">업로드 프로세스</a><a href="/shorts">쇼츠 현황판</a><a href="/references">레퍼 체크</a></div></nav>
   <div class="head"><h1><span class="logo"></span>유튜브 업로드 헬퍼</h1></div>
 
   <div class="layout">
@@ -214,96 +26,7 @@
 
     <div>
       <!-- 기능 1: SNS 레시피 게시글 제작 -->
-      <section class="panel" data-tool="recipe">
-        <div class="panel-head">
-          <h2>SNS 레시피 게시글 제작</h2>
-          <p>다른 채널의 레시피 설명을 붙여 넣으면, 출처·재료·조리 순서를 살려 SNS 게시글로 다시 씁니다.</p>
-        </div>
-
-        <section class="card">
-          <details class="tpl" id="tplBox">
-            <summary>내 채널 템플릿 <span class="state" id="tplState"></span></summary>
-            <div class="tpl-body">
-              <div class="tpl-grid">
-                <div>
-                  <label class="f" for="tplText">설명 템플릿</label>
-                  <textarea id="tplText" class="mono" rows="18" spellcheck="false"></textarea>
-                  <div class="hint">그대로 남길 글자(이모지·구분선·소제목·고정 문구)는 그냥 쓰고, 채울 자리는 <code>{% raw %}{{ 여기에 무엇을 넣을지 설명 }}{% endraw %}</code> 형식으로 적습니다.</div>
-                </div>
-                <div>
-                  <label class="f" for="insText">추가 지시 (말투, 제거할 것 등)</label>
-                  <textarea id="insText" rows="8" spellcheck="false"></textarea>
-                  <div class="hint">원본에 없는 재료·분량·시간은 만들어 넣지 않도록 항상 지시됩니다. 여기에는 채널 고유의 규칙만 적으면 됩니다.</div>
-                </div>
-              </div>
-              <div class="tpl-foot">
-                <label>모델
-                  <select id="modelSel">
-                    {% for k, m in models.items() %}<option value="{{ k }}">{{ m.label }}</option>{% endfor %}
-                  </select>
-                </label>
-                <label>호출 방식
-                  <select id="backendSel">
-                    {% for k, v in backends.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}
-                  </select>
-                </label>
-                <span class="env" id="envInfo"></span>
-                <span class="spacer"></span>
-                <button type="button" class="ghost" id="tplResetBtn">기본값 복원</button>
-                <button type="button" class="secondary" id="tplSaveBtn">템플릿 저장</button>
-              </div>
-              <div class="msg hidden" id="tplMsg"></div>
-            </div>
-          </details>
-        </section>
-
-        <div class="io">
-          <section class="card">
-            <div class="lbl-row">
-              <label for="srcText">원본 레시피 설명</label>
-              <span class="counter" id="srcCount">0자</span>
-            </div>
-            <textarea id="srcText" placeholder="다른 채널의 영상 설명란에 있는 레시피 텍스트를 여기에 붙여 넣으세요.&#10;(재료, 분량, 만드는 순서가 포함된 부분이면 충분합니다)"></textarea>
-            <div class="btns">
-              <button type="button" class="ghost" id="pasteBtn">클립보드에서 붙여넣기</button>
-              <button type="button" class="ghost" id="clearSrcBtn">지우기</button>
-              <span class="spacer"></span>
-              <button type="button" class="big" id="genBtn">플랫폼별 게시글 생성 →</button>
-            </div>
-          </section>
-
-          <section class="card">
-            <div class="lbl-row">
-              <label id="resultLabel" for="instagramOut">플랫폼별 게시글 결과</label>
-              <span class="counter" id="outCount">0자 · 권장 300–500자</span>
-            </div>
-            <div class="platform-tabs" role="tablist" aria-label="SNS 플랫폼">
-              <button type="button" class="platform-tab active" data-platform="instagram" role="tab" aria-selected="true">인스타그램</button>
-              <button type="button" class="platform-tab" data-platform="youtube" role="tab" aria-selected="false">유튜브</button>
-              <button type="button" class="platform-tab" data-platform="tiktok" role="tab" aria-selected="false">틱톡</button>
-            </div>
-            <textarea id="instagramOut" class="platform-output" data-platform="instagram" placeholder="인스타그램용 게시글이 여기에 표시됩니다. 직접 고쳐서 복사할 수 있습니다."></textarea>
-            <textarea id="youtubeOut" class="platform-output hidden" data-platform="youtube" placeholder="유튜브용 게시글이 여기에 표시됩니다. 직접 고쳐서 복사할 수 있습니다."></textarea>
-            <textarea id="tiktokOut" class="platform-output hidden" data-platform="tiktok" placeholder="틱톡용 게시글이 여기에 표시됩니다. 직접 고쳐서 복사할 수 있습니다."></textarea>
-            <div class="notes hidden" id="notesBox"><b>⚠ 업로드 전 확인</b><ul id="notesList"></ul></div>
-            <div class="btns">
-              <span class="usage" id="usageInfo"></span>
-              <span class="spacer"></span>
-              <button type="button" class="ghost" id="clearOutBtn">지우기</button>
-              <button type="button" id="copyBtn">📋 결과 복사</button>
-            </div>
-          </section>
-        </div>
-        <section class="card clarify hidden" id="clarifyBox" aria-live="polite">
-          <h3>레시피 정보를 조금만 더 알려주세요</h3>
-          <p>없는 내용을 임의로 만들지 않도록 확인이 필요한 항목입니다. 답변하면 이어서 세 플랫폼의 게시글을 생성합니다.</p>
-          <div id="questionList"></div>
-          <div class="btns"><span class="spacer"></span><button type="button" class="big" id="answerBtn">답변하고 게시글 생성 →</button></div>
-          <div class="msg err hidden" id="answerErr"></div>
-        </section>
-        <div class="msg err hidden" id="genErr"></div>
-      </section>
-      <!-- 기능 2: 쇼츠 썸네일 만들기 -->
+      {% include "recipe_fragment.html" %}
       <section class="panel hidden" data-tool="thumbnail">
         <div class="panel-head">
           <h2>쇼츠 썸네일 만들기</h2>
@@ -319,12 +42,11 @@
 
 <div id="toast"></div>
 
+<script id="helperModels" type="application/json">{{ models | tojson }}</script>
+<script src="/static/recipe-editor.js" defer></script>
 <script>
   const $ = (id) => document.getElementById(id);
-  const MODELS = {{ models | tojson }};
   let toastTimer = null;
-  let saved = null;        // 서버에 저장된 레시피 설정
-  let defaults = null;     // 기본값 (기본값 복원용)
 
   function toast(msg, isErr = false) {
     const t = $('toast'); t.textContent = msg; t.className = 'show' + (isErr ? ' err' : '');
@@ -393,8 +115,9 @@
       renderTargetOptions('');
       const row = params.get('row');
       if (row) {
-        const hit = targets.find(it => String(it.row) === row);
-        if (hit) { $('targetRow').value = row; updateTargetState(); status.textContent = `현황판에서 넘어옴 · ${targetInfo(hit)} — 저장하면 이 행에 등록됩니다.`; }
+        const itemId = params.get('item_id');
+        const hit = targets.find(it => itemId ? it.item_id === itemId : String(it.row) === row);
+        if (hit) { $('targetRow').value = String(hit.row); updateTargetState(); status.textContent = `현황판에서 넘어옴 · ${targetInfo(hit)} — 저장하면 이 행에 등록됩니다.`; }
         else status.textContent = `현황판 ${row}행을 찾지 못했습니다. 아래에서 직접 고르세요.`;
       }
     } catch (e) { st.textContent = '· 불러오기 실패'; st.className = 'target-state bad'; status.textContent = '현황판 항목을 불러오지 못했습니다: ' + e.message; }
@@ -408,7 +131,7 @@
     status.textContent = `현황판 ${it.row}행에 등록하는 중…`;
     try {
       const blob = await ThumbUpload.normalizeImage(e.detail.blob);
-      const r = await ThumbUpload.upload({ row: it.row, srcUrl: it.source?.url, dish: it.dish_title, blob, filename: `shorts-thumbnail-${e.detail.stamp || Date.now()}.jpg` });
+      const r = await ThumbUpload.upload({ row: it.row, itemId: it.item_id, srcUrl: it.source?.url, dish: it.dish_title, blob, filename: `shorts-thumbnail-${e.detail.stamp || Date.now()}.jpg` });
       status.innerHTML = `현황판 ${r.row}행(${(it.dish_title || '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))})에 등록했습니다 · <a href="/shorts">현황판 보기 →</a>`;
       toast(`현황판 ${r.row}행에 썸네일을 등록했습니다`);
     } catch (err) {
@@ -418,194 +141,6 @@
   });
   loadTargets();
 
-  // ---- 템플릿 설정 ------------------------------------------------------------
-  function currentRecipeSettings() {
-    return { template: $('tplText').value, instructions: $('insText').value, model: $('modelSel').value, backend: $('backendSel').value };
-  }
-  function fillRecipeSettings(s) {
-    $('tplText').value = s.template || ''; $('insText').value = s.instructions || '';
-    $('modelSel').value = s.model || 'gpt-5.6-sol'; $('backendSel').value = s.backend || 'codex';
-    filterModels(); updateTplState();
-  }
-  function isDirty() {
-    if (!saved) return false;
-    const c = currentRecipeSettings();
-    return ['template', 'instructions', 'model', 'backend'].some(k => (c[k] || '') !== (saved[k] || ''));
-  }
-  function updateTplState() {
-    const st = $('tplState');
-    const dirty = isDirty();
-    st.textContent = dirty ? '· 저장되지 않은 변경 있음 (변형에는 현재 내용이 쓰입니다)' : ('· ' + (MODELS[$('modelSel').value]?.label || ''));
-    st.classList.toggle('dirty', dirty);
-  }
-  ['tplText', 'insText', 'modelSel', 'backendSel'].forEach(id => {
-    $(id).addEventListener('input', updateTplState); $(id).addEventListener('change', updateTplState);
-  });
-
-  function filterModels() {
-    const codex = $('backendSel').value === 'codex';
-    for (const option of $('modelSel').options) {
-      option.hidden = option.disabled = !!MODELS[option.value].codex !== codex;
-    }
-    if ($('modelSel').selectedOptions[0]?.disabled) $('modelSel').value = codex ? 'gpt-5.6-sol' : 'sonnet';
-  }
-  $('backendSel').addEventListener('change', () => { filterModels(); updateTplState(); });
-  function renderEnv(env) {
-    const parts = [env.codex_available ? "Codex CLI 사용 가능" : "Codex CLI 없음"];
-    parts.push(env.cli_available ? 'CLI 사용 가능' : '<span class="bad">CLI(claude) 없음</span>');
-    parts.push(env.api_key_set ? 'API 키 있음' : '<span class="bad">API 키 없음</span>');
-    $('envInfo').innerHTML = parts.join(' · ');
-  }
-
-  async function loadSettings() {
-    try {
-      const d = await api('GET', '/api/helper/settings');
-      saved = d.recipe; defaults = d.recipe_defaults;
-      fillRecipeSettings(saved);
-      renderEnv(d.env || {});
-    } catch (e) { showMsg($('tplMsg'), '설정을 불러오지 못했습니다: ' + e.message, 'err'); }
-  }
-
-  $('tplSaveBtn').addEventListener('click', async () => {
-    const btn = $('tplSaveBtn'); btn.disabled = true;
-    try {
-      const d = await api('PUT', '/api/helper/settings', { recipe: currentRecipeSettings() });
-      saved = d.recipe; updateTplState();
-      showMsg($('tplMsg'), '템플릿을 저장했습니다. 다음 실행 때도 유지됩니다.', 'ok');
-      setTimeout(() => showMsg($('tplMsg'), '', ''), 2500);
-    } catch (e) { showMsg($('tplMsg'), e.message, 'err'); }
-    finally { btn.disabled = false; }
-  });
-  $('tplResetBtn').addEventListener('click', () => {
-    if (!defaults) return;
-    if (!confirm('템플릿과 추가 지시를 기본값으로 되돌릴까요? (저장을 눌러야 적용됩니다)')) return;
-    fillRecipeSettings({ ...defaults, model: $('modelSel').value, backend: $('backendSel').value });
-  });
-
-  // ---- 입력 / 결과 ------------------------------------------------------------
-  let activePlatform = 'instagram';
-  const recipePlatforms = { instagram: '인스타그램', youtube: '유튜브', tiktok: '틱톡' };
-  let pendingQuestions = [];
-  let collectedInfo = [];
-  function activeOutput() { return $(activePlatform + 'Out'); }
-  function selectPlatform(platform) {
-    activePlatform = platform;
-    document.querySelectorAll('.platform-tab').forEach(btn => {
-      const active = btn.dataset.platform === platform;
-      btn.classList.toggle('active', active); btn.setAttribute('aria-selected', String(active));
-    });
-    document.querySelectorAll('.platform-output').forEach(el => el.classList.toggle('hidden', el.dataset.platform !== platform));
-    $('resultLabel').setAttribute('for', activeOutput().id);
-    updateCounts();
-  }
-  document.querySelectorAll('.platform-tab').forEach(btn => btn.addEventListener('click', () => selectPlatform(btn.dataset.platform)));
-
-  function updateCounts() {
-    const n = $('srcText').value.length;
-    $('srcCount').textContent = n.toLocaleString() + '자';
-    const m = Array.from(activeOutput().value).length;
-    $('outCount').textContent = m.toLocaleString() + '자 · 권장 300–500자';
-    $('outCount').classList.toggle('over', m > 500 || (m > 0 && m < 300));
-  }
-  function clearClarification() {
-    pendingQuestions = []; collectedInfo = []; $('questionList').replaceChildren(); $('clarifyBox').classList.add('hidden');
-    showMsg($('answerErr'), '', 'err');
-  }
-  $('srcText').addEventListener('input', () => {
-    updateCounts(); clearClarification();
-    try { localStorage.setItem('helper.recipe.src', $('srcText').value); } catch {}
-  });
-  Object.keys(recipePlatforms).forEach(key => $(key + 'Out').addEventListener('input', updateCounts));
-  try { $('srcText').value = localStorage.getItem('helper.recipe.src') || ''; } catch {}
-  updateCounts();
-
-  $('pasteBtn').addEventListener('click', async () => {
-    try {
-      const t = await navigator.clipboard.readText();
-      if (!t) { toast('클립보드가 비어 있습니다', true); return; }
-      $('srcText').value = t; $('srcText').dispatchEvent(new Event('input'));
-    } catch { toast('클립보드를 읽을 수 없습니다. 직접 붙여 넣어 주세요 (⌘V)', true); $('srcText').focus(); }
-  });
-  $('clearSrcBtn').addEventListener('click', () => { $('srcText').value = ''; $('srcText').dispatchEvent(new Event('input')); $('srcText').focus(); });
-  $('clearOutBtn').addEventListener('click', () => { setResult({}, [], null); });
-
-  function setResult(results, notes, usage) {
-    Object.keys(recipePlatforms).forEach(key => { $(key + 'Out').value = results?.[key] || ''; });
-    $('notesList').innerHTML = (notes || []).map(n => '<li>' + n.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])) + '</li>').join('');
-    $('notesBox').classList.toggle('hidden', !(notes && notes.length));
-    let u = '';
-    if (usage) {
-      const bits = [];
-      if (usage.model) bits.push(usage.model);
-      if (usage.duration_ms) bits.push((usage.duration_ms / 1000).toFixed(1) + '초');
-      if (usage.cost_usd != null) bits.push('$' + Number(usage.cost_usd).toFixed(3) + ' 상당');
-      if (usage.input_tokens != null) bits.push(usage.input_tokens + '→' + usage.output_tokens + ' 토큰');
-      u = bits.join(' · ');
-    }
-    $('usageInfo').textContent = u;
-    updateCounts();
-  }
-
-  function renderQuestions(questions) {
-    pendingQuestions = questions || [];
-    const list = $('questionList'); list.replaceChildren();
-    pendingQuestions.forEach((question, index) => {
-      const wrap = document.createElement('div'); wrap.className = 'question';
-      const label = document.createElement('label'); label.htmlFor = 'answer-' + index; label.textContent = (index + 1) + '. ' + question;
-      const input = document.createElement('textarea'); input.id = 'answer-' + index; input.rows = 2; input.placeholder = '여기에 답변해 주세요';
-      wrap.append(label, input); list.append(wrap);
-    });
-    $('clarifyBox').classList.remove('hidden');
-    $('clarifyBox').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    list.querySelector('textarea')?.focus();
-  }
-
-  let generating = false;
-  async function generate(additionalInfo = []) {
-    if (generating) return;
-    const src = $('srcText').value.trim();
-    if (!src) { toast('원본 레시피 설명을 붙여 넣어 주세요', true); $('srcText').focus(); return; }
-    generating = true;
-    const btn = additionalInfo.length ? $('answerBtn') : $('genBtn'); const label = btn.innerHTML;
-    $('genBtn').disabled = true; $('answerBtn').disabled = true;
-    btn.innerHTML = '<span class="spinner"></span>생성 중… (수십 초 걸릴 수 있어요)';
-    showMsg($('genErr'), '', 'err');
-    showMsg($('answerErr'), '', 'err');
-    const started = Date.now();
-    try {
-      const d = await api('POST', '/api/helper/recipe-description', {
-        source_text: src, additional_info: additionalInfo, ...currentRecipeSettings()
-      });
-      if (d.status === 'needs_input') {
-        collectedInfo = additionalInfo; setResult({}, d.notes, d.usage); renderQuestions(d.questions);
-        toast('추가 정보가 필요합니다');
-      } else {
-        clearClarification(); setResult(d.results, d.notes, d.usage); selectPlatform('instagram');
-        toast('세 플랫폼 생성 완료 (' + ((Date.now() - started) / 1000).toFixed(0) + '초)');
-      }
-    } catch (e) {
-      showMsg(additionalInfo.length ? $('answerErr') : $('genErr'), e.message, 'err');
-    } finally {
-      generating = false; $('genBtn').disabled = false; $('answerBtn').disabled = false; btn.innerHTML = label;
-    }
-  }
-  $('genBtn').addEventListener('click', () => { clearClarification(); generate(); });
-  $('answerBtn').addEventListener('click', () => {
-    const answers = pendingQuestions.map((question, index) => ({ question, answer: $('answer-' + index)?.value.trim() || '' }));
-    const missing = answers.findIndex(item => !item.answer);
-    if (missing >= 0) { showMsg($('answerErr'), '모든 질문에 답변해 주세요.', 'err'); $('answer-' + missing).focus(); return; }
-    generate([...collectedInfo, ...answers]);
-  });
-
-  $('copyBtn').addEventListener('click', async () => {
-    const text = activeOutput().value;
-    if (!text) { toast('복사할 내용이 없습니다', true); return; }
-    try { await navigator.clipboard.writeText(text); }
-    catch { activeOutput().focus(); activeOutput().select(); document.execCommand('copy'); }
-    toast(recipePlatforms[activePlatform] + ' 게시글을 복사했습니다');
-  });
-
-  loadSettings();
 </script>
 </body>
 </html>

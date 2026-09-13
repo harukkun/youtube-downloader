@@ -6,6 +6,7 @@
  *   2) 편집기 상단 함수 선택에서 setupSheets 를 고르고 ▶ 실행 → 권한 승인
  *   3) 시트로 돌아오면 '현황판'·'요약' 시트와 '쇼츠 현황판' 메뉴가 생긴다
  *
+ * 웹 편집: board_add / board_update / board_delete (숨김 itemId로 식별)
  * 자동화:
  *   - 원본 링크 열에 유튜브 링크를 붙이면 원본 제목·채널이 채워진다
  *   - 참고 쇼츠 링크 열(여러 개는 줄바꿈)을 채우면 참고 채널이 줄마다 채워진다
@@ -37,7 +38,7 @@ const ROW_HEIGHT = 64;      // 썸네일이 보이는 데이터 행 높이
 const PROP_TOKEN = 'UPLOAD_TOKEN';
 const PROP_FOLDER = 'THUMB_FOLDER_ID';
 const THUMB_FOLDER_NAME = '쇼츠 현황판 썸네일';
-const UPLOAD_VERSION = 9;
+const UPLOAD_VERSION = 12;
 const thumbUrlFor = (id) => `https://lh3.googleusercontent.com/d/${id}`;   // IMAGE() 와 <img> 모두에서 열리는 형식
 const SOURCE_THUMB_RE = /i\.ytimg\.com|img\.youtube\.com/;                 // 예전 버전이 넣던 원본 영상 썸네일
 
@@ -85,6 +86,7 @@ const COLUMNS = [
   { key: 'createdAt',   header: '📅 등록일',       width: 130, group: 'etc', date: true },
   // 숨김 열: 썸네일 이미지의 URL(텍스트). IMAGE() 수식은 CSV 로 내보내면 빈 칸이 되므로 웹 현황판은 이 열을 읽는다.
   { key: 'thumbUrl',    header: '🔗 썸네일 링크',  width: 60,  group: 'etc', hidden: true, note: '웹 현황판이 쓰는 칸입니다. 직접 고치지 마세요.' },
+  { key: 'itemId', header: '🆔 항목 ID', width: 60, group: 'etc', hidden: true, note: '항목 고유 ID. 직접 수정하거나 복사하지 마세요.' },
 ];
 // 그룹 띠 색: strong = 1행 배경(흰 글자), light/dark = 2행 열 이름 배경/글자
 const GROUPS = {
@@ -209,6 +211,7 @@ function setupSheets() {
   }
   migrateLayout(sheet);
   setupBoardSheet(sheet);
+  ensureBoardIds(sheet);
   setupSummarySheet(ss);
   setupReferenceSheets(ss);
   installEditTrigger(ss);
@@ -366,14 +369,7 @@ function setupBoardSheet(sheet) {
   const checkboxRule = SpreadsheetApp.newDataValidation().requireCheckbox().build();
   COLUMNS.forEach((c, i) => { if (c.checkbox) sheet.getRange(FIRST_DATA_ROW, i + 1, dataRows, 1).setDataValidation(checkboxRule); });
 
-  // 글자수 열: 첫 데이터 행에 ARRAYFORMULA 하나로 전체 계산 (아래 셀은 비워 둬야 하므로 정리)
-  COLUMNS.forEach((c, i) => {
-    if (!c.lenOf) return;
-    const src = colLetter(COL[c.lenOf]);
-    if (dataRows > 1) sheet.getRange(FIRST_DATA_ROW + 1, i + 1, dataRows - 1, 1).clearContent();
-    sheet.getRange(FIRST_DATA_ROW, i + 1)
-      .setFormula(`=ARRAYFORMULA(IF(${src}${FIRST_DATA_ROW}:${src}="","",LEN(${src}${FIRST_DATA_ROW}:${src})))`);
-  });
+  ensureLenFormulas(sheet);
 
   // 조건부 서식 (이 시트의 규칙을 통째로 다시 만든다. 앞에 있는 규칙이 우선)
   const rules = [];
@@ -495,7 +491,7 @@ function handleEdit(e) {
     for (let c = left; c < left + numCols; c++) {
       if (c > LAST_COL) continue;
       const def = COLUMNS[c - 1];
-      if (def.key === 'updatedAt' || def.key === 'createdAt' || def.lenOf) continue;
+      if (def.key === 'itemId' || def.key === 'updatedAt' || def.key === 'createdAt' || def.lenOf) continue;
 
       if (def.platform && !isUploaded(sheet, r)) {
         revertPlatformCell(sheet, r, c, def, single ? e.oldValue : undefined);
@@ -510,6 +506,7 @@ function handleEdit(e) {
       touched = true;
     }
     if (touched) touchRow(sheet, r, now);
+    ensureBoardRowId(sheet, r);
   }
   if (affectedVideos.size) refSyncBoardVideos(sheet.getParent(), [...affectedVideos]);
 }
@@ -541,7 +538,7 @@ function handleRefShortsEdit(e) {
         continue;
       }
       if (!wanted) {                                   // 해제: 현황판의 후보 행을 지운다
-        if (existing) board.deleteRow(existing.row);
+        if (existing) { board.deleteRow(existing.row); ensureLenFormulas(board); }
         refSyncBoardVideos(ss, [vid]);
         continue;
       }
@@ -571,8 +568,7 @@ function revertPlatformCell(sheet, row, col, def, oldValue) {
   } else {
     return;   // 비우는 편집은 그대로 둔다
   }
-  SpreadsheetApp.getActiveSpreadsheet().toast(
-    `업로드 플랫폼은 상태가 '${UPLOADED}'일 때만 입력할 수 있어요. (${row}행)`, '쇼츠 현황판', 5);
+  safeToast(`업로드 플랫폼은 상태가 '${UPLOADED}'일 때만 입력할 수 있어요. (${row}행)`);
 }
 
 function touchRow(sheet, row, now) {
@@ -608,11 +604,11 @@ function fillSource(sheet, row, force) {
   if (!force && targets.getValues()[0].every(v => String(v).trim() !== '')) return false;
   const m = fetchMeta(url);
   if (!m) {
-    SpreadsheetApp.getActiveSpreadsheet().toast(`원본 정보를 가져올 수 없어요. 링크를 확인해 주세요. (${row}행)`, '쇼츠 현황판', 5);
+    safeToast(`원본 정보를 가져올 수 없어요. 링크를 확인해 주세요. (${row}행)`);
     return false;
   }
-  sheet.getRange(row, COL.srcTitle).setValue(m.title);
-  sheet.getRange(row, COL.srcChannel).setValue(m.channel);
+  sheet.getRange(row, COL.srcTitle).setValue(String(m.title).replace(/^=+/, ''));
+  sheet.getRange(row, COL.srcChannel).setValue(String(m.channel).replace(/^=+/, ''));
   return true;
 }
 
@@ -621,10 +617,11 @@ function fillRefs(sheet, row, force) {
   const raw = String(sheet.getRange(row, COL.refUrls).getValue());
   const target = sheet.getRange(row, COL.refChannels);
   const urls = raw.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
-  if (!urls.length) { target.clearContent(); return false; }
+  if (!urls.length) { target.clearContent(); return true; }
   if (!force && String(target.getValue()).trim() !== '') return false;
-  const names = urls.map(u => { const m = fetchMeta(u); return m ? m.channel : '(확인 불가)'; });
-  target.setValue(names.join('\n'));
+  const metadata = urls.map(fetchMeta);
+  if (metadata.some(m => !m)) return false; // Preserve the full input, including extra/empty channel lines.
+  target.setValue(metadata.map(m => m.channel).join('\n').replace(/^=+/, ''));
   return true;
 }
 
@@ -684,6 +681,8 @@ function doPost(e) {
   try { body = JSON.parse(e && e.postData && e.postData.contents || ''); } catch (err) { return jsonOut({ ok: false, error: 'bad_json' }); }
   const token = uploadToken(false);
   if (!token || String(body.token || '') !== token) return jsonOut({ ok: false, error: 'unauthorized' });
+  if (String(body.action || '').startsWith('upload_')) return uploadAction(body);
+  if (String(body.action || '').startsWith('board_')) return boardAction(body);
   if (body.action === 'ping') return jsonOut({ ok: true, ping: true, version: UPLOAD_VERSION });
   if (['candidate_list', 'candidate_add', 'candidate_remove'].includes(body.action)) return candidateAction(body);
   if (String(body.action || '').startsWith('reference_')) return referenceAction(body);
@@ -697,7 +696,8 @@ function doPost(e) {
   try {
     const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
     if (!sheet) return jsonOut({ ok: false, error: 'no_sheet' });
-    const row = locateRow(sheet, Number(body.row), String(body.srcUrl || '').trim(), String(body.dish || '').trim());
+    if (body.sheetId && String(body.sheetId) !== SpreadsheetApp.getActiveSpreadsheet().getId()) return jsonOut({ok:false,error:'wrong_sheet'});
+    const row = body.itemId ? boardLocateId(sheet, String(body.itemId).trim()) : locateRow(sheet, Number(body.row), String(body.srcUrl || '').trim(), String(body.dish || '').trim());
     if (!row) return jsonOut({ ok: false, error: 'row_mismatch' });
 
     const folder = thumbFolder();
@@ -772,6 +772,7 @@ function boardAddCandidate(sheet, videoId, dishTitle, referenceChannel) {
   sheet.getRange(row, COL.refChannels).setValue(String(referenceChannel || '').slice(0, 200));
   sheet.getRange(row, COL.updatedAt).setValue(now);
   sheet.getRange(row, COL.createdAt).setValue(now);
+  sheet.getRange(row, COL.itemId).setValue(Utilities.getUuid());
   sheet.setRowHeight(row, ROW_HEIGHT);
   ensureBoardFilter(sheet);
   return row;
@@ -785,6 +786,7 @@ function nextCandidateRow(sheet) {
   const target = sheet.getRange(row, 1, 1, LAST_COL);
   template.copyTo(target, SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
   template.copyTo(target, SpreadsheetApp.CopyPasteType.PASTE_DATA_VALIDATION, false);
+  ensureLenFormulas(sheet);
   return row;
 }
 
@@ -811,6 +813,7 @@ function candidateAction(body) {
     if (!existing) return jsonOut({ ok: true, removed: false });
     if (!isCandidateStatus(existing.status)) return jsonOut({ ok: false, error: 'not_candidate', item: existing });
     sheet.deleteRow(existing.row);
+    ensureLenFormulas(sheet);
     refSyncBoardVideos(ss, [videoId]);
     return jsonOut({ ok: true, removed: true, videoId });
   } catch (err) {
@@ -1294,4 +1297,298 @@ function regenerateUploadToken() {
   if (answer !== ui.Button.YES) return;
   PropertiesService.getScriptProperties().deleteProperty(PROP_TOKEN);
   showUploadInfo();
+}
+
+// 현황판 편집 웹 앱. ID와 계산 열은 일반 편집에서 제외한다.
+const BOARD_EDITABLE = new Set(COLUMNS.filter(c => !c.date && !c.lenOf && !['thumb', 'thumbUrl', 'itemId'].includes(c.key)).map(c => c.key));
+const BOARD_LIMITS = {dish:200, srcUrl:2000, srcTitle:500, srcChannel:200, refUrls:5000, refChannels:2000,
+  title:500, desc:20000, pinned:20000, memo:5000,
+  ...Object.fromEntries(PLATFORMS.map(p => [p.key + 'Url', 2000]))};
+function safeToast(msg) {
+  try { SpreadsheetApp.getActiveSpreadsheet().toast(msg, '쇼츠 현황판', 5); } catch (_) {}
+}
+function boardCellText(v) {
+  if (v instanceof Date) return Utilities.formatDate(v, refTz(), 'yyyy-MM-dd HH:mm');
+  return typeof v === 'boolean' ? v : String(v == null ? '' : v);
+}
+function boardReadRow(sheet, row) {
+  const vals = sheet.getRange(row, 1, 1, LAST_COL).getValues()[0];
+  return Object.fromEntries(COLUMNS.filter(c => c.key !== 'thumb' && !c.lenOf).map(c => [c.key, boardCellText(vals[COL[c.key] - 1])]));
+}
+function boardHasContent(vals) {
+  return COLUMNS.some((c, i) => !['itemId', 'updatedAt'].includes(c.key) && !c.lenOf && c.key !== 'thumb' &&
+    vals[i] !== false && vals[i] != null && String(vals[i]).trim() !== '');
+}
+function ensureBoardIds(sheet) {
+  const last = sheet.getLastRow();
+  if (last < FIRST_DATA_ROW) return;
+  const rows = sheet.getRange(FIRST_DATA_ROW, 1, last - FIRST_DATA_ROW + 1, LAST_COL).getValues();
+  rows.forEach((vals, i) => {
+    if (!String(vals[COL.itemId - 1] || '').trim() && boardHasContent(vals))
+      sheet.getRange(FIRST_DATA_ROW + i, COL.itemId).setValue(Utilities.getUuid());
+  });
+}
+function ensureBoardRowId(sheet, row) {
+  const vals = sheet.getRange(row, 1, 1, LAST_COL).getValues()[0];
+  if (!String(vals[COL.itemId - 1] || '').trim() && boardHasContent(vals))
+    sheet.getRange(row, COL.itemId).setValue(Utilities.getUuid());
+}
+function boardLocateId(sheet, itemId) {
+  if (!itemId || sheet.getLastRow() < FIRST_DATA_ROW) return 0;
+  const hits = sheet.getRange(FIRST_DATA_ROW, COL.itemId, sheet.getLastRow() - FIRST_DATA_ROW + 1, 1)
+    .getValues().map((r, i) => String(r[0]).trim() === itemId ? i + FIRST_DATA_ROW : 0).filter(Boolean);
+  return hits.length === 1 ? hits[0] : 0;
+}
+function ensureLenFormulas(sheet) {
+  const count = sheet.getMaxRows() - FIRST_DATA_ROW + 1;
+  if (count < 1) return;
+  COLUMNS.forEach(c => {
+    if (!c.lenOf) return;
+    // Remove the old anchor first (insertion moves it to row 4).
+    sheet.getRange(FIRST_DATA_ROW, COL[c.key], count, 1).clearContent();
+    const src = colLetter(COL[c.lenOf]);
+    sheet.getRange(FIRST_DATA_ROW, COL[c.key]).setFormula(`=ARRAYFORMULA(IF(${src}${FIRST_DATA_ROW}:${src}="","",LEN(${src}${FIRST_DATA_ROW}:${src})))`);
+  });
+}
+function boardValidateFields(fields, current) {
+  if (!fields || typeof fields !== 'object' || Array.isArray(fields)) return {error:'bad_fields'};
+  const writes = [];
+  const status = Object.prototype.hasOwnProperty.call(fields, 'status') ? boardLabelOf(fields.status) : (boardLabelOf(current.status) || STATUSES[0].label);
+  if (!STATUSES.some(s => s.label === status)) return {error:'bad_status'};
+  for (const [key, raw] of Object.entries(fields)) {
+    if (!BOARD_EDITABLE.has(key)) return {error:'bad_fields'};
+    const def = COLUMNS[COL[key] - 1];
+    let value = raw;
+    if (key === 'status') value = status;
+    else if (def.checkbox) { if (typeof raw !== 'boolean') return {error:'bad_fields'}; }
+    else {
+      if (typeof raw !== 'string' || Array.from(raw).length > BOARD_LIMITS[key]) return {error:'bad_fields'};
+      value = (key === 'refChannels' ? raw : raw.trim()).replace(/^=+/, '');
+    }
+    if (value === current[key]) continue;
+    if (def.platform && status !== UPLOADED && value !== false && value !== '') return {error:'locked_platform'};
+    writes.push({key, col:COL[key], value});
+  }
+  return {writes};
+}
+function boardAfterWrite(ss, sheet, row, changed, beforeIds, warnings) {
+  if (changed.includes('srcUrl')) {
+    try { if (!fillSource(sheet, row, true) && String(sheet.getRange(row, COL.srcUrl).getValue()).trim()) warnings.push('원본 정보를 가져오지 못했습니다. 제목과 채널을 확인해 주세요.'); }
+    catch (_) { warnings.push('원본 자동 채움에 실패했습니다.'); }
+  }
+  if (changed.includes('refUrls')) {
+    try { if (!fillRefs(sheet, row, true)) warnings.push('일부 참고 채널을 가져오지 못했습니다. 입력값을 유지했습니다.'); }
+    catch (_) { warnings.push('참고 채널 자동 채움에 실패했습니다.'); }
+  }
+  if (changed.some(k => ['status','srcUrl','refUrls'].includes(k))) {
+    try { refSyncBoardVideos(ss, [...new Set([...beforeIds, ...boardRowVideoIds(sheet, row)])]); }
+    catch (_) { warnings.push('저장은 완료됐지만 레퍼 현황판 동기화에 실패했습니다. 레퍼 화면을 새로고침해 주세요.'); }
+  }
+}
+function boardAction(body) {
+  if (!['board_add','board_update','board_delete'].includes(body.action)) return jsonOut({ok:false,error:'unknown_action'});
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (String(body.sheetId || '') !== ss.getId()) return jsonOut({ok:false,error:'wrong_sheet'});
+  const sheet = ss.getSheetByName(SHEET_NAME);
+  if (!sheet) return jsonOut({ok:false,error:'no_sheet'});
+  if (sheet.getMaxColumns() < COL.itemId || String(sheet.getRange(HEADER_ROW, COL.itemId).getValue()) !== COLUMNS[COL.itemId-1].header)
+    return jsonOut({ok:false,error:'upgrade_required'});
+  const adding = body.action === 'board_add', deleting = body.action === 'board_delete';
+  if (!adding && (!Number.isInteger(body.row) || body.row < FIRST_DATA_ROW)) return jsonOut({ok:false,error:'bad_row'});
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(20000)) return jsonOut({ok:false,error:'busy'});
+  try {
+    let row = adding ? 0 : boardLocateId(sheet, String(body.itemId || '').trim());
+    if (!adding && !row) return jsonOut({ok:false,error:'row_mismatch'});
+    const before = adding ? {status:STATUSES[0].label} : boardReadRow(sheet, row);
+    const beforeIds = adding ? [] : boardRowVideoIds(sheet, row);
+    const warnings = [];
+    if (deleting) {
+      sheet.deleteRow(row);
+      try { ensureLenFormulas(sheet); } catch (_) { warnings.push('삭제는 완료됐지만 글자수 수식 복구에 실패했습니다. 초기 설정을 실행해 주세요.'); }
+      try { refSyncBoardVideos(ss, beforeIds); } catch (_) { warnings.push('삭제는 완료됐지만 레퍼 동기화에 실패했습니다.'); }
+      return jsonOut({ok:true,row,cells:before,warnings});
+    }
+    const fields = body.fields === undefined && adding ? {} : body.fields;
+    const valid = boardValidateFields(fields, before);
+    if (valid.error) return jsonOut({ok:false,error:valid.error});
+    if (!adding && !Object.keys(fields).length) return jsonOut({ok:false,error:'bad_fields'});
+    if (adding) {
+      row = nextCandidateRow(sheet);
+      const now = new Date();
+      sheet.getRange(row, COL.itemId).setValue(Utilities.getUuid());
+      sheet.getRange(row, COL.status).setValue(STATUSES[0].label);
+      sheet.getRange(row, COL.updatedAt).setValue(now);
+      sheet.getRange(row, COL.createdAt).setValue(now);
+      sheet.setRowHeight(row, ROW_HEIGHT);
+      ensureBoardFilter(sheet);
+    }
+    valid.writes.forEach(w => sheet.getRange(row, w.col).setValue(w.value));
+    const changed = valid.writes.map(w => w.key);
+    if (changed.length) touchRow(sheet, row, new Date());
+    boardAfterWrite(ss, sheet, row, changed, beforeIds, warnings);
+    return jsonOut({ok:true,row,changed,before,cells:boardReadRow(sheet,row),warnings});
+  } catch (err) {
+    return jsonOut({ok:false,error:String((err && err.message) || err)});
+  } finally { lock.releaseLock(); }
+}
+
+// Upload funnel. Reads bypass CSV; only upload_submit writes after confirmation.
+const UPLOAD_FIELDS = ['title','srcUrl','refUrls','memo','desc'];
+const UPLOAD_COMPARE = ['itemId','status', ...UPLOAD_FIELDS, 'thumbUrl','srcTitle','srcChannel','refChannels'];
+function uploadHash(value) {
+  return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, JSON.stringify(value), Utilities.Charset.UTF_8)
+    .map(b => (b & 255).toString(16).padStart(2,'0')).join('');
+}
+function uploadRevision(cells) { return uploadHash(UPLOAD_COMPARE.map(k => cells[k] || '')); }
+function uploadReceipt(ss, requestId) {
+  if (!requestId) return null;
+  const result = Sheets.Spreadsheets.DeveloperMetadata.search({dataFilters:[{developerMetadataLookup:{metadataKey:'upload_process_' + requestId}}]},ss.getId());
+  const found = result.matchedDeveloperMetadata || [];
+  if (found.length > 1) throw Error('ambiguous receipt');
+  return found.length ? JSON.parse(found[0].developerMetadata.metadataValue) : null;
+}
+// Read through the same API used for the atomic commit, avoiding in-execution read caches.
+function uploadReadRow(sheet, row) {
+  const range = "'" + SHEET_NAME.replace(/'/g,"''") + "'!A" + row + ':' + colLetter(LAST_COL) + row;
+  const data = Sheets.Spreadsheets.Values.get(SpreadsheetApp.getActiveSpreadsheet().getId(),range,
+    {valueRenderOption:'UNFORMATTED_VALUE',dateTimeRenderOption:'FORMATTED_STRING'});
+  const values = (data.values || [[]])[0];
+  return Object.fromEntries(COLUMNS.filter(c=>c.key!=='thumb' && !c.lenOf).map(c=>[c.key,boardCellText(values[COL[c.key]-1])]));
+}
+function uploadReply(sheet, row, extra) {
+  const cells = uploadReadRow(sheet,row);
+  return {ok:true,row,cells,revision:uploadRevision(cells),...extra};
+}
+function uploadCell(sheetId, row, key, value, formula=false) {
+  return {updateCells:{range:{sheetId,startRowIndex:row-1,endRowIndex:row,startColumnIndex:COL[key]-1,endColumnIndex:COL[key]},
+    rows:[{values:[{userEnteredValue:formula ? {formulaValue:value} : typeof value === 'number' ? {numberValue:value} : {stringValue:String(value)}}]}],fields:'userEnteredValue'}};
+}
+function uploadPendingKey(requestId) { return 'UPLOAD_PENDING_' + requestId; }
+function uploadForget(requestId) { PropertiesService.getScriptProperties().deleteProperty(uploadPendingKey(requestId)); }
+function uploadDiscard(file) { if (file) { try { file.setTrashed(true); } catch (_) {} } }
+function uploadAction(body) {
+  if (!['upload_get','upload_submit'].includes(body.action)) return jsonOut({ok:false,error:'unknown_action'});
+  if (typeof Sheets === 'undefined') return jsonOut({ok:false,error:'sheets_service_required'});
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (body.sheetId !== ss.getId()) return jsonOut({ok:false,error:'wrong_sheet'});
+  const sheet = ss.getSheetByName(SHEET_NAME);
+  if (!sheet) return jsonOut({ok:false,error:'no_sheet'});
+  if (sheet.getMaxColumns() < COL.itemId || String(sheet.getRange(HEADER_ROW,COL.itemId).getValue()) !== COLUMNS[COL.itemId-1].header)
+    return jsonOut({ok:false,error:'upgrade_required'});
+  if (typeof body.itemId !== 'string' || !body.itemId.trim() || body.itemId.length > 200) return jsonOut({ok:false,error:'row_mismatch'});
+  const writing = body.action === 'upload_submit';
+  if ((writing || body.requestId) && !/^[A-Za-z0-9_-]{16,80}$/.test(body.requestId || '')) return jsonOut({ok:false,error:'bad_fields'});
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(20000)) return jsonOut({ok:false,error:'busy'});
+  let file = null, createdFile = false, committing = false;
+  try {
+    let row = boardLocateId(sheet,body.itemId);
+    if (!row) return jsonOut({ok:false,error:'row_mismatch'});
+    const before = uploadReadRow(sheet,row);
+    if (before.itemId !== body.itemId) return jsonOut({ok:false,error:'row_mismatch'});
+    const receipt = uploadReceipt(ss,body.requestId);
+    if (!writing) {
+      if (receipt && receipt.itemId !== body.itemId) return jsonOut({ok:false,error:'request_mismatch'});
+      if (receipt) { try { uploadForget(body.requestId); } catch (_) {} }
+      return jsonOut(uploadReply(sheet,row,{submitted:!!receipt,requestId:receipt ? body.requestId : null}));
+    }
+    const fields = body.fields;
+    if (!fields || Array.isArray(fields) || Object.keys(fields).length !== UPLOAD_FIELDS.length ||
+        UPLOAD_FIELDS.some(k => typeof fields[k] !== 'string') || !['existing','new'].includes(body.thumbnailMode) ||
+        !/^[a-f0-9]{64}$/.test(body.revision || '')) return jsonOut({ok:false,error:'bad_fields'});
+    const valid = boardValidateFields(fields,before);
+    if (valid.error || ['title','srcUrl','refUrls','desc'].some(k => !fields[k].trim().replace(/^=+/,'')))
+      return jsonOut({ok:false,error:valid.error || 'bad_fields'});
+    let bytes = null;
+    if (body.thumbnailMode === 'new') {
+      if (!/^image\/(jpeg|png|webp)$/.test(body.mime || '') || typeof body.data !== 'string' || body.data.length > 11200000)
+        return jsonOut({ok:false,error:'bad_fields'});
+      bytes = Utilities.base64Decode(body.data);
+      if (!bytes.length || bytes.length > 8*1024*1024) return jsonOut({ok:false,error:'bad_fields'});
+      const b = bytes.slice(0,12).map(v => v & 255);
+      const mime = b[0]===255 && b[1]===216 && b[2]===255 ? 'image/jpeg' :
+        b.slice(0,8).join(',')==='137,80,78,71,13,10,26,10' ? 'image/png' :
+        b.slice(0,4).join(',')==='82,73,70,70' && b.slice(8,12).join(',')==='87,69,66,80' ? 'image/webp' : '';
+      if (mime !== body.mime) return jsonOut({ok:false,error:'bad_fields'});
+    } else if (body.data || body.mime) return jsonOut({ok:false,error:'bad_fields'});
+    const digest = uploadHash([body.itemId,body.revision,UPLOAD_FIELDS.map(k => fields[k]),body.thumbnailMode,body.mime || '',body.data || '']);
+    if (receipt) {
+      if (receipt.itemId !== body.itemId || receipt.digest !== digest) return jsonOut({ok:false,error:'request_mismatch'});
+      uploadForget(body.requestId);
+      return jsonOut(uploadReply(sheet,row,{submitted:true,requestId:body.requestId}));
+    }
+    if (before.status === UPLOADED) return jsonOut({ok:false,error:'already_uploaded'});
+    if (body.revision !== uploadRevision(before)) return jsonOut({ok:false,error:'conflict'});
+    if (body.thumbnailMode === 'existing' && !before.thumbUrl) return jsonOut({ok:false,error:'bad_fields'});
+    const warnings = [], writes = valid.writes.slice(), oldIds = [...allVideoIds(before.srcUrl), ...allVideoIds(before.refUrls)];
+    // Prepare metadata without mutating the row. Failed lookups preserve existing cells.
+    if (writes.some(w => w.key === 'srcUrl')) {
+      const meta = fetchMeta(fields.srcUrl);
+      if (meta) writes.push({key:'srcTitle',value:String(meta.title).replace(/^=+/,'')},{key:'srcChannel',value:String(meta.channel).replace(/^=+/,'')});
+      else warnings.push('원본 제목·채널을 가져오지 못했습니다. 기존 값을 유지했습니다.');
+    }
+    if (writes.some(w => w.key === 'refUrls')) {
+      const metas = fields.refUrls.split(/\r?\n/).map(s=>s.trim()).filter(Boolean).map(fetchMeta);
+      if (metas.every(Boolean)) writes.push({key:'refChannels',value:metas.map(m=>m.channel).join('\n').replace(/^=+/,'')});
+      else warnings.push('일부 참고 채널을 가져오지 못했습니다. 기존 값을 유지했습니다.');
+    }
+    let thumbUrl = before.thumbUrl;
+    const props = PropertiesService.getScriptProperties();
+    const pending = JSON.parse(props.getProperty(uploadPendingKey(body.requestId)) || 'null');
+    if (pending && pending.digest !== digest) return jsonOut({ok:false,error:'request_mismatch'});
+    if (bytes) {
+      try {
+        if (pending?.fileId) file = DriveApp.getFileById(pending.fileId);
+        if (!file || file.isTrashed()) {
+          file = thumbFolder().createFile(Utilities.newBlob(bytes,body.mime,'upload-' + body.requestId + (body.mime==='image/png'?'.png':body.mime==='image/webp'?'.webp':'.jpg')));
+          createdFile = true;
+          file.setSharing(DriveApp.Access.ANYONE_WITH_LINK,DriveApp.Permission.VIEW);
+        }
+        thumbUrl = thumbUrlFor(file.getId());
+      } catch (_) { if (createdFile) uploadDiscard(file); return jsonOut({ok:false,error:'image_failed'}); }
+    }
+    // Recheck after slow network/image preparation; script locks do not lock native editing.
+    row = boardLocateId(sheet,body.itemId);
+    if (!row || uploadRevision(uploadReadRow(sheet,row)) !== body.revision) {
+      if (createdFile) uploadDiscard(file);
+      return jsonOut({ok:false,error:row?'conflict':'row_mismatch'});
+    }
+    props.setProperty(uploadPendingKey(body.requestId),JSON.stringify({digest,fileId:file ? file.getId():null}));
+    writes.push({key:'status',value:UPLOADED});
+    const requests = writes.map(w=>uploadCell(sheet.getSheetId(),row,w.key,w.value));
+    // Sheets date serial, expressed in the spreadsheet's time zone. Existing date format remains.
+    const localDate = Utilities.formatDate(new Date(),ss.getSpreadsheetTimeZone(),"yyyy-MM-dd'T'HH:mm:ss");
+    requests.push(uploadCell(sheet.getSheetId(),row,'updatedAt',Date.parse(localDate+'Z')/86400000+25569));
+    if (bytes) {
+      requests.push(uploadCell(sheet.getSheetId(),row,'thumb',`=IMAGE("${thumbUrl}")`,true));
+      requests.push(uploadCell(sheet.getSheetId(),row,'thumbUrl',thumbUrl));
+    }
+    // A deterministic, unique metadata ID makes even an overlapping retry fail atomically.
+    const metadataId = (parseInt(uploadHash(body.requestId).slice(0,8),16) & 0x7fffffff) || 1;
+    requests.push({createDeveloperMetadata:{developerMetadata:{metadataId,metadataKey:'upload_process_' + body.requestId,
+      metadataValue:JSON.stringify({itemId:body.itemId,digest}),visibility:'DOCUMENT',location:{spreadsheet:true}}}});
+    committing = true;
+    try {
+      Sheets.Spreadsheets.batchUpdate({requests},ss.getId());
+    } catch (err) {
+      let recorded;
+      try { recorded = uploadReceipt(ss,body.requestId); } catch (_) { return jsonOut({ok:false,error:'commit_unknown'}); }
+      if (!recorded) {
+        const definite = /Invalid requests|Invalid value|Permission denied|does not have permission|insufficient.*permission|not found|already exists/i.test(String(err));
+        if (definite && (createdFile || !file)) { uploadDiscard(file); uploadForget(body.requestId); }
+        return jsonOut({ok:false,error:definite?'commit_failed':'commit_unknown'});
+      }
+      if (recorded.digest !== digest || recorded.itemId !== body.itemId) return jsonOut({ok:false,error:'request_mismatch'});
+    }
+    // Everything below is post-commit; auxiliary failures must not turn success into failure.
+    try { uploadForget(body.requestId); } catch (_) { warnings.push('제출 임시 기록 정리가 지연되었습니다.'); }
+    try { if (bytes && before.thumbUrl !== thumbUrl) trashOldThumb(before.thumbUrl,thumbFolder()); } catch (_) {}
+    try { refSyncBoardVideos(ss,[...new Set([...oldIds,...allVideoIds(fields.srcUrl),...allVideoIds(fields.refUrls)])]); }
+    catch (_) { warnings.push('저장은 완료됐지만 레퍼 동기화에 실패했습니다. 레퍼 화면을 새로고침해 주세요.'); }
+    return jsonOut(uploadReply(sheet,row,{before,submitted:true,requestId:body.requestId,warnings}));
+  } catch (err) {
+    if (!committing && createdFile) { uploadDiscard(file); }
+    return jsonOut({ok:false,error:committing?'commit_unknown':writing?'commit_failed':'read_failed'});
+  } finally { lock.releaseLock(); }
 }

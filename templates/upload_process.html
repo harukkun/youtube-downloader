@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+<title>업로드 프로세스 · 콘텐츠 작업실</title>
+<link rel="stylesheet" href="/static/helper.css"><link rel="stylesheet" href="/static/upload-process.css">
+<script src="/static/thumb-upload.js" defer></script><script src="/static/thumbnail.js" defer></script>
+<script src="/static/recipe-editor.js" defer></script><script src="/static/upload-process.js" defer></script>
+</head>
+<body data-upload-process="true">
+<main>
+<nav class="global-nav" aria-label="주요 메뉴"><a class="brand" href="/">콘텐츠 작업실</a><div class="links"><a href="/">다운로드</a><a href="/hooks">후킹 클립</a><a href="/helper">업로드 헬퍼</a><a href="/upload-process" aria-current="page">업로드 프로세스</a><a href="/shorts">쇼츠 현황판</a><a href="/references">레퍼 체크</a></div></nav>
+<div class="head"><div><h1>업로드 프로세스</h1><p class="hint">영상 정보부터 설명글과 썸네일까지, 한 번에 준비하세요.</p></div><a href="/shorts">현황판 보기 →</a></div>
+<div id="processMessage" class="msg hidden" role="status" aria-live="polite"></div>
+<div id="draftStatus" class="hint" role="status" aria-live="polite"></div>
+<div id="recovery" class="card hidden"><p id="recoveryText"></p><button type="button" id="checkSubmission">저장 결과 확인</button> <button type="button" id="retrySubmission" class="secondary" hidden>같은 내용 다시 제출</button></div>
+<div id="conflictBox" class="card hidden"><p>시트의 최신 내용과 이 초안이 다릅니다. 초안을 복사해 보관하거나, 최신 내용으로 다시 시작할 수 있습니다.</p><button type="button" id="restartDraft" class="secondary">최신 내용으로 다시 시작</button></div>
+<nav class="process-steps" aria-label="업로드 진행 단계">
+{% for name in ['항목 선택','기본 정보','SNS 설명글','썸네일','최종 확인'] %}<button type="button" data-goto="{{ loop.index0 }}"><span>{{ loop.index }}</span>{{ name }}</button>{% endfor %}
+</nav>
+<fieldset id="processWork">
+<section data-step="0" class="card">
+<div class="panel-head"><h2>작업할 영상을 선택하세요</h2><button type="button" id="refreshItems" class="secondary">목록 새로고침</button></div>
+<p class="hint">업로드 완료 전인 항목만 표시합니다. 선택한 영상의 최신 정보를 확인한 뒤 시작합니다.</p>
+<label for="itemSearch" class="f">영상 찾기</label><input id="itemSearch" type="search" placeholder="요리 제목 또는 영상 제목 검색" autocomplete="off">
+<div id="itemList" class="item-list" aria-live="polite">현황판을 불러오는 중입니다…</div>
+</section>
+<section data-step="1" class="card" hidden>
+<div class="panel-head"><h2>영상 기본 정보</h2><span class="selected-label"></span></div>
+<div class="basic-grid">
+<div class="wide"><label for="videoTitle" class="f">영상 제목 <span>필수</span></label><input id="videoTitle" type="text" maxlength="500" required></div>
+<div><label for="sourceUrl" class="f">원본 링크 <span>필수</span></label><input id="sourceUrl" type="url" maxlength="2000" required></div>
+<div><label for="referenceUrls" class="f">참고 쇼츠 링크 <span>필수</span></label><textarea id="referenceUrls" rows="3" maxlength="5000" required placeholder="여러 링크는 한 줄에 하나씩 입력하세요."></textarea></div>
+<div class="wide"><label for="videoMemo" class="f">메모 · 선택</label><textarea id="videoMemo" rows="3" maxlength="5000"></textarea></div>
+</div>
+</section>
+<section data-step="2" hidden>
+{% include 'recipe_fragment.html' %}
+<div class="confirm-row card"><p>수정한 <strong>유튜브 게시글</strong>이 현황판의 설명에 저장됩니다.</p><button type="button" id="confirmRecipe">유튜브 설명글 확정</button><span id="recipeState" role="status"></span></div>
+</section>
+<section data-step="3" hidden>
+<div class="panel-head"><h2>쇼츠 썸네일 만들기</h2><span class="selected-label"></span></div>
+<div class="card thumbnail-choice"><div><img id="existingThumb" alt="기존 썸네일" hidden><p id="existingThumbInfo">기존 썸네일이 없습니다.</p><button type="button" id="useExisting" class="secondary" disabled>기존 썸네일 사용</button></div><div><img id="confirmedThumb" alt="확정한 썸네일" hidden><p id="thumbState" role="status">새 썸네일을 만들거나 기존 썸네일을 선택하세요.</p><p class="hint">확정한 이미지는 새로고침 후에도 복원됩니다. 원본 파일과 미확정 편집 장면은 다시 선택해야 합니다.</p><button type="button" id="confirmThumbnail">현재 썸네일 확정</button></div></div>
+{% include 'thumbnail_fragment.html' %}
+</section>
+<section data-step="4" class="card" hidden>
+<div class="panel-head"><h2>제출 내용을 확인하세요</h2><span class="selected-label"></span></div>
+<div class="review-grid"><div><dl id="reviewFields"></dl><h3>유튜브 설명글</h3><pre id="reviewDescription"></pre></div><img id="reviewThumbnail" alt="제출할 썸네일"></div>
+<p class="hint">승인하면 현황판에 저장하고 상태를 ✅ 업로드 완료로 변경합니다. 실제 유튜브 게시 기능은 포함하지 않습니다.</p>
+<button type="button" id="submitProcess" class="big">현황판에 제출</button>
+</section>
+<div id="stepActions" class="step-actions" hidden><button type="button" id="previousStep" class="secondary">← 이전</button><button type="button" id="nextStep">다음 →</button></div>
+</fieldset>
+<section id="completed" class="card hidden"><h2>현황판에 저장했습니다</h2><p id="completedInfo"></p><a href="/shorts">현황판 보기 →</a> <button type="button" id="nextItem">다음 항목 진행</button></section>
+</main><div id="toast"></div>
+<div id="processLoading" class="process-loading" role="status" aria-live="polite" hidden>
+<div class="process-loading-card"><span class="spinner" aria-hidden="true"></span><strong id="processLoadingTitle"></strong><p id="processLoadingDetail"></p></div>
+</div>
+<script id="helperModels" type="application/json">{{ models | tojson }}</script>
+</body></html>

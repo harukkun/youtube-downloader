@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="ko">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>후킹 클립 · 콘텐츠 작업실</title><link rel="icon" href="/static/favicon.svg">
+<link rel="stylesheet" href="/static/helper.css"><link rel="stylesheet" href="/static/hooks.css">
+<script src="/static/hooks.js" defer></script></head>
+<body><main>
+<nav class="global-nav" aria-label="주요 메뉴"><a class="brand" href="/"><span class="logo"></span>콘텐츠 작업실</a><div class="links"><a href="/">다운로드</a><a href="/hooks" aria-current="page">후킹 클립</a><a href="/helper">업로드 헬퍼</a><a href="/upload-process">업로드 프로세스</a><a href="/shorts">쇼츠 현황판</a><a href="/references">레퍼 체크</a></div></nav>
+<header class="hook-heading"><div><span class="eyebrow">요리의 첫인상을 고르는 시간</span><h1>맛있는 한마디, 후킹 클립</h1><p>자막에서 좋은 평가를 찾고, 필요한 순간만 원본 그대로 저장하세요.</p></div><button id="newJob" class="secondary">새 작업</button></header>
+<div class="hook-layout">
+<aside><section class="card"><h2>01 · 원본 가져오기</h2><p class="hint">영상 파일과 YouTube 링크를 함께 넣으면 링크에서 자막만 가져옵니다.</p>
+<label for="videoFile">원본 영상 <span>MP4 · MOV</span></label><input id="videoFile" type="file" accept=".mp4,.mov,video/mp4,video/quicktime">
+<label for="sourceUrl">원본 YouTube URL</label><input id="sourceUrl" type="url" placeholder="https://www.youtube.com/watch?v=…">
+<label for="srtFile">자막 파일 <span>선택 · SRT</span></label><input id="srtFile" type="file" accept=".srt">
+<p class="hint">직접 제공한 SRT → 영상 내 자막 → YouTube 한국어 자막 순으로 확인합니다.</p>
+<button id="prepare" class="wide">원본 연결 · 자막 확인</button><button id="cancelUpload" class="ghost wide" hidden>업로드 취소</button>
+<progress id="uploadProgress" max="100" value="0" hidden></progress><p id="uploadStatus" class="hint" role="status"></p>
+<button id="useUrl" class="ghost wide" hidden>YouTube 영상을 원본으로 사용</button>
+</section>
+<section class="card"><h2>이전 작업</h2><select id="history" aria-label="이전 작업 선택"><option value="">작업 선택</option></select><p class="hint">분석 결과와 선택한 구간을 다시 불러옵니다.</p></section>
+<section class="card"><h2>추출 기준</h2><p class="hint">맛에 대한 긍정 평가 · 추천 · 자신감</p><p class="hint">3–5초를 권장하지만 문장을 우선 보존합니다. 원본 화면과 음성을 유지하며 추가 자막은 넣지 않습니다.</p></section></aside>
+<div class="hook-work">
+<section class="card status-card"><div class="status-top"><span id="statusBadge" class="badge">시작 전</span><span id="sourceBadge" class="hint"></span></div><p id="status" role="status" aria-live="polite">원본 파일 또는 YouTube 링크를 연결해주세요.</p><p id="error" role="alert" hidden></p><p id="usage" class="hint"></p></section>
+<section class="card"><div class="section-head"><h2>02 · 미리보기</h2><button id="preview" class="secondary" disabled>원본 미리보기 준비</button></div>
+<div id="emptyVideo">발언과 화면을 확인한 뒤, 시작과 끝을 다듬으세요.</div><video id="player" controls playsinline preload="metadata" hidden></video>
+<div class="player-tools"><label class="inline"><input id="loop" type="checkbox" checked> 선택 구간 반복</label><span id="segment" class="hint"></span><button id="compat" class="ghost" disabled>재생이 안 되나요?</button></div>
+<div id="syncPanel" hidden><p id="durationWarning" class="warning" hidden>영상 길이가 다릅니다. 미리보기에서 시간 일치를 확인해주세요.</p>
+<div class="offset-row"><label for="offset">전체 자막 시간 보정 (초)</label><input id="offset" type="number" step="0.1" value="0"><button id="saveOffset" class="secondary">적용</button></div><p class="hint">양수는 뒤로, 음수는 앞으로 이동합니다. 직접 추가한 후보는 이동하지 않습니다.</p>
+<label id="alignmentLabel" class="inline"><input id="alignment" type="checkbox">미리보기에서 자막과 발언의 시간 일치를 확인했습니다.</label></div>
+</section>
+<section class="card"><div class="section-head"><h2>03 · 후킹 후보 <span id="candidateCount">0</span></h2><button id="analyze" disabled>자막에서 후보 찾기</button></div>
+<p id="candidateHint" class="hint">자동자막이 놓친 발언은 아래에서 직접 추가할 수 있습니다.</p><div id="candidates"><div class="empty">자막을 확인하면 후보를 찾을 수 있습니다.</div></div>
+<details id="manualPanel"><summary>＋ 놓친 발언 직접 추가</summary><p class="hint">영상에서 구간을 고르고 들리는 문구를 입력하세요. AI 분석 없이 저장합니다.</p><label for="manualText">문구</label><textarea id="manualText" rows="2" maxlength="2000" placeholder="예: 진짜 너무 귀한 레시피다"></textarea>
+<div class="manual-times"><div><label for="manualStart">시작 (초)</label><input id="manualStart" type="number" min="0" step="0.1" value="0"><button id="markStart" class="ghost">현재 위치로 시작</button></div><div><label for="manualEnd">종료 (초)</label><input id="manualEnd" type="number" min="0" step="0.1" value="4"><button id="markEnd" class="ghost">현재 위치로 종료</button></div></div><button id="addManual" class="secondary" disabled>직접 입력한 후보 추가</button></details>
+<div class="export-bar"><span id="selectionCount">선택한 후보 없음</span><button id="export" disabled>선택한 클립 추출</button></div>
+</section>
+<section class="card"><h2>04 · 저장한 클립</h2><div id="results" class="hint">추출한 MP4와 문구·시간 정보를 여기서 다운로드합니다.</div></section>
+</div></div></main></body></html>

@@ -1,0 +1,16 @@
+const assert=require('node:assert/strict');
+const {basicValid,canReach,key}=require('../static/upload-process.js');
+const fields={title:'title',src_url:'https://source',ref_urls:'https://ref',memo:''};
+assert.equal(basicValid(fields),true);
+assert.equal(basicValid({...fields,title:''}),false);
+assert.equal(basicValid({...fields,title:'😀'.repeat(501)}),false);
+assert.equal(canReach(0,{}),true);
+assert.equal(canReach(1,{}),false);
+assert.equal(canReach(2,{item:{},fields}),true);
+assert.equal(canReach(3,{item:{},fields,recipeConfirmed:false}),false);
+assert.equal(canReach(3,{item:{},fields,recipeConfirmed:true}),true);
+assert.equal(canReach(4,{item:{},fields,recipeConfirmed:true,thumb:null}),false);
+assert.equal(canReach(4,{item:{},fields,recipeConfirmed:true,thumb:{mode:'existing'}}),true);
+assert.notEqual(key('sheetA','id'),key('sheetB','id'));
+assert.notEqual(key('sheetA','id'),key('sheetA','other'));
+console.log('Upload progression, required inputs and draft identity passed.');

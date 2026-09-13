@@ -1,0 +1,90 @@
+      <section class="panel" data-tool="recipe">
+        <div class="panel-head">
+          <h2>SNS 레시피 게시글 제작</h2>
+          <p>다른 채널의 레시피 설명을 붙여 넣으면, 출처·재료·조리 순서를 살려 SNS 게시글로 다시 씁니다.</p>
+        </div>
+
+        <section class="card">
+          <details class="tpl" id="tplBox">
+            <summary>내 채널 템플릿 <span class="state" id="tplState"></span></summary>
+            <div class="tpl-body">
+              <div class="tpl-grid">
+                <div>
+                  <label class="f" for="tplText">설명 템플릿</label>
+                  <textarea id="tplText" class="mono" rows="18" spellcheck="false"></textarea>
+                  <div class="hint">그대로 남길 글자(이모지·구분선·소제목·고정 문구)는 그냥 쓰고, 채울 자리는 <code>{% raw %}{{ 여기에 무엇을 넣을지 설명 }}{% endraw %}</code> 형식으로 적습니다.</div>
+                </div>
+                <div>
+                  <label class="f" for="insText">추가 지시 (말투, 제거할 것 등)</label>
+                  <textarea id="insText" rows="8" spellcheck="false"></textarea>
+                  <div class="hint">원본에 없는 재료·분량·시간은 만들어 넣지 않도록 항상 지시됩니다. 여기에는 채널 고유의 규칙만 적으면 됩니다.</div>
+                </div>
+              </div>
+              <div class="tpl-foot">
+                <label>모델
+                  <select id="modelSel">
+                    {% for k, m in models.items() %}<option value="{{ k }}">{{ m.label }}</option>{% endfor %}
+                  </select>
+                </label>
+                <label>호출 방식
+                  <select id="backendSel">
+                    {% for k, v in backends.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}
+                  </select>
+                </label>
+                <span class="env" id="envInfo"></span>
+                <span class="spacer"></span>
+                <button type="button" class="ghost" id="tplResetBtn">기본값 복원</button>
+                <button type="button" class="secondary" id="tplSaveBtn">템플릿 저장</button>
+              </div>
+              <div class="msg hidden" id="tplMsg"></div>
+            </div>
+          </details>
+        </section>
+
+        <div class="io">
+          <section class="card">
+            <div class="lbl-row">
+              <label for="srcText">원본 레시피 설명</label>
+              <span class="counter" id="srcCount">0자</span>
+            </div>
+            <textarea id="srcText" placeholder="다른 채널의 영상 설명란에 있는 레시피 텍스트를 여기에 붙여 넣으세요.&#10;(재료, 분량, 만드는 순서가 포함된 부분이면 충분합니다)"></textarea>
+            <div class="btns">
+              <button type="button" class="ghost" id="pasteBtn">클립보드에서 붙여넣기</button>
+              <button type="button" class="ghost" id="clearSrcBtn">지우기</button>
+              <span class="spacer"></span>
+              <button type="button" class="big" id="genBtn">플랫폼별 게시글 생성 →</button>
+            </div>
+          </section>
+
+          <section class="card">
+            <div class="lbl-row">
+              <label id="resultLabel" for="instagramOut">플랫폼별 게시글 결과</label>
+              <span class="counter" id="outCount">0자 · 권장 300–500자</span>
+            </div>
+            <div class="platform-tabs" role="tablist" aria-label="SNS 플랫폼">
+              <button type="button" class="platform-tab active" data-platform="instagram" role="tab" aria-selected="true">인스타그램</button>
+              <button type="button" class="platform-tab" data-platform="youtube" role="tab" aria-selected="false">유튜브</button>
+              <button type="button" class="platform-tab" data-platform="tiktok" role="tab" aria-selected="false">틱톡</button>
+            </div>
+            <textarea id="instagramOut" class="platform-output" data-platform="instagram" placeholder="인스타그램용 게시글이 여기에 표시됩니다. 직접 고쳐서 복사할 수 있습니다."></textarea>
+            <textarea id="youtubeOut" class="platform-output hidden" data-platform="youtube" placeholder="유튜브용 게시글이 여기에 표시됩니다. 직접 고쳐서 복사할 수 있습니다."></textarea>
+            <textarea id="tiktokOut" class="platform-output hidden" data-platform="tiktok" placeholder="틱톡용 게시글이 여기에 표시됩니다. 직접 고쳐서 복사할 수 있습니다."></textarea>
+            <div class="notes hidden" id="notesBox"><b>⚠ 업로드 전 확인</b><ul id="notesList"></ul></div>
+            <div class="btns">
+              <span class="usage" id="usageInfo"></span>
+              <span class="spacer"></span>
+              <button type="button" class="ghost" id="clearOutBtn">지우기</button>
+              <button type="button" id="copyBtn">📋 결과 복사</button>
+            </div>
+          </section>
+        </div>
+        <section class="card clarify hidden" id="clarifyBox" aria-live="polite">
+          <h3>레시피 정보를 조금만 더 알려주세요</h3>
+          <p>없는 내용을 임의로 만들지 않도록 확인이 필요한 항목입니다. 답변하면 이어서 세 플랫폼의 게시글을 생성합니다.</p>
+          <div id="questionList"></div>
+          <div class="btns"><span class="spacer"></span><button type="button" class="big" id="answerBtn">답변하고 게시글 생성 →</button></div>
+          <div class="msg err hidden" id="answerErr"></div>
+        </section>
+        <div class="msg err hidden" id="genErr"></div>
+      </section>
+      <!-- 기능 2: 쇼츠 썸네일 만들기 -->

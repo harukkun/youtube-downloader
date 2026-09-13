@@ -3,6 +3,7 @@
   const $ = id => document.getElementById(id);
   const canvas = $('canvas'), ctx = canvas.getContext('2d');
   let video = $('video'), objectURL = null, frame = null, fontReady = false, exporting = false;
+  let editRevision = 0;
   let generation = 0, offsetX = 0, offsetY = 0, zoom = 1, drag = null;
   const defaults = {subtitle: {size: 88, x: 50, y: 39}, title: {size: 230, x: 50, y: 50}};
   const styles = structuredClone(defaults);
@@ -44,7 +45,8 @@
       ctx.strokeText(line, x, baseline); ctx.fillText(line, x, baseline);
     });
   }
-  function render() {
+  function render(changed = true) {
+    if (changed) { editRevision++; document.dispatchEvent(new CustomEvent("thumbnail:changed")); }
     ctx.fillStyle = '#171a21'; ctx.fillRect(0, 0, 1080, 1920);
     if (frame) { const c = crop(); ctx.drawImage(frame, c.x, c.y, c.width, c.height); }
     if (frame && fontReady) { drawText('subtitle'); drawText('title'); }
@@ -63,7 +65,7 @@
       await face.load(); document.fonts.add(face); fontReady = true;
       message('fontStatus', 'CookieRun Bold · 미리보기와 동일한 이미지로 저장됩니다.');
     } catch { message('fontStatus', '폰트를 불러오지 못했습니다. 다시 시도해 주세요.', true); $('retryFont').hidden = false; }
-    render();
+    render(false);
   }
   $('retryFont').onclick = loadFont;
   function bindVideo(v, token) {
@@ -184,26 +186,47 @@
   canvas.onpointerdown = e => { if (!frame) return; drag = {x: e.clientX, y: e.clientY}; canvas.setPointerCapture(e.pointerId); };
   canvas.onpointermove = e => { if (!drag || !frame) return; const ratio = 1080 / canvas.getBoundingClientRect().width; offsetX += (e.clientX - drag.x) * ratio; offsetY += (e.clientY - drag.y) * ratio; drag = {x: e.clientX, y: e.clientY}; render(); };
   canvas.onpointerup = canvas.onpointercancel = canvas.onlostpointercapture = () => { drag = null; };
-  $('export').onclick = async () => {
-    if (!frame || !fontReady || exporting) return;
-    exporting = true; controls(); message('exportStatus', '이미지를 만드는 중입니다…');
-    const token = generation, extension = $('format').value;
+  async function exportImage(extension = 'jpg', quality = 1) {
+    if (!frame || !fontReady || exporting) throw new Error('장면과 폰트를 먼저 준비해 주세요.');
+    exporting = true; controls();
+    const token = generation, revision = editRevision;
     try {
-      render();
-      const blob = await new Promise(resolve => canvas.toBlob(resolve, extension === 'jpg' ? 'image/jpeg' : 'image/png', 1));
-      if (generation !== token) return;
-      if (!blob) throw new Error('empty image');
-      const url = URL.createObjectURL(blob), a = document.createElement('a');
-      const date = new Date(); const pad = n => String(n).padStart(2, '0');
+      render(false);
+      const blob = await new Promise(resolve => canvas.toBlob(resolve, extension === 'jpg' ? 'image/jpeg' : 'image/png', quality));
+      if (token !== generation || revision !== editRevision) throw new Error('이미지가 변경되었습니다. 다시 확정해 주세요.');
+      if (!blob) throw new Error('이미지를 만들지 못했습니다.');
+      return blob;
+    } finally { exporting = false; controls(); }
+  }
+  function download(blob, extension, stamp) {
+    const url = URL.createObjectURL(blob), a = document.createElement('a');
+    a.href = url; a.download = `shorts-thumbnail-${stamp}.${extension}`; document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  }
+  $('export').onclick = async () => {
+    message('exportStatus', '이미지를 만드는 중입니다…');
+    const extension = $('format').value;
+    try {
+      const blob = await exportImage(extension);
+      const date = new Date(), pad = n => String(n).padStart(2, '0');
       const stamp = `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
-      a.href = url; a.download = `shorts-thumbnail-${stamp}.${extension}`; document.body.append(a); a.click(); a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      download(blob, extension, stamp);
       message('exportStatus', `1080 × 1920 ${extension.toUpperCase()} 다운로드를 시작했습니다.`);
-      // 현황판 등록 등 후속 처리는 페이지 스크립트(helper.html)가 이 이벤트로 이어받는다.
-      document.dispatchEvent(new CustomEvent('thumbnail:exported', { detail: { blob, extension, stamp } }));
-    } catch { message('exportStatus', '이미지를 저장하지 못했습니다. 다시 시도해 주세요.', true); }
-    finally { exporting = false; controls(); }
+      document.dispatchEvent(new CustomEvent('thumbnail:exported', {detail:{blob, extension, stamp}}));
+    } catch (e) { message('exportStatus', e.message, true); }
   };
+  function reset() {
+    generation++; video.pause(); video.removeAttribute('src'); video.load();
+    if (objectURL) URL.revokeObjectURL(objectURL);
+    objectURL = null; frame = null; drag = null; zoom = 1; offsetX = offsetY = 0;
+    Object.assign(styles, structuredClone(defaults));
+    $('title').value = ''; $('subtitle').value = ''; $('fileInfo').textContent = '';
+    $('videoArea').hidden = true; $('frameInfo').textContent = '새 파일을 선택해 편집하세요.';
+    $('zoom').value = $('zoom-range').value = 100; $('zoomValue').textContent = '100%';
+    message('exportStatus', ''); message('videoStatus', '영상이나 이미지를 선택해 시작하세요.');
+    updateOutputs(); render();
+  }
+  window.ThumbnailEditor = {exportImage, reset, download};
   window.addEventListener('beforeunload', () => { if (objectURL) URL.revokeObjectURL(objectURL); });
-  updateOutputs(); render(); loadFont();
+  updateOutputs(); render(false); loadFont();
 })();

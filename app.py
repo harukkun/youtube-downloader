@@ -5,12 +5,15 @@
 """
 
 import base64
+import hashlib
 import csv
+import copy
 import io
 import json
 import os
 import re
 import time
+from functools import wraps
 from datetime import datetime
 import shutil
 import subprocess
@@ -38,7 +41,7 @@ CONFIG_FILE = Path.home() / ".youtube-downloader" / "config.json"
 HISTORY_FILE = Path.home() / ".youtube-downloader" / "history.json"
 REFERENCES_FILE = Path.home() / ".youtube-downloader" / "references.json"
 HISTORY_MAX = 500
-# 쇼츠 현황판: 데이터는 구글 스프레드시트(sheets/Code.gs 로 만든 '현황판' 탭)에 있고, 여기서는 CSV로 읽어 보여주기만 한다.
+# 쇼츠 현황판: 데이터는 구글 스프레드시트(sheets/Code.gs 로 만든 '현황판' 탭)에 있고, CSV로 읽고 Apps Script 웹 앱으로 편집한다.
 SHEET_CACHE_TTL = 30          # 초. 시트 CSV 를 다시 받기 전까지 캐시 유지
 SHEET_FETCH_TIMEOUT = 15
 # 썸네일 등록: 이미지는 Flask → Apps Script 웹 앱(sheets/Code.gs doPost) → 구글 드라이브 → 시트 IMAGE() 수식 순으로 흐른다.
@@ -217,8 +220,18 @@ jobs_lock = threading.Lock()
 settings_lock = threading.Lock()
 history_lock = threading.Lock()
 sheet_lock = threading.Lock()
+board_write_lock = threading.Lock()
 helper_lock = threading.Lock()
 references_lock = threading.Lock()
+
+
+def board_write_serialized(fn):
+    """Keep this process's write acknowledgements and connection changes in order."""
+    @wraps(fn)
+    def wrapped(*args, **kwargs):
+        with board_write_lock:
+            return fn(*args, **kwargs)
+    return wrapped
 
 
 # ---------------------------------------------------------------------------
@@ -565,6 +578,7 @@ SHEET_HEADER_KEYS = {
     "네이버 클립": "naver_clip_on", "네이버 클립 링크": "naver_clip_url",
     "영상 제목": "title", "제목 글자수": "title_len", "설명": "desc", "설명 글자수": "desc_len",
     "고정 댓글": "pinned", "메모": "memo", "수정일": "updated", "등록일": "created",
+    "항목 ID": "item_id",
     "썸네일 링크": "thumb_url",   # 숨김 열. 재가공 쇼츠 썸네일 이미지 URL (Code.gs doPost 가 기록)
 }
 # 시트 상태 라벨(이모지 제거 후) → 상태 키. 예전 라벨도 받아 준다.
@@ -658,36 +672,101 @@ def parse_sheet_items(text: str) -> list[dict]:
 
     def cell(r, key, limit=20000):
         i = col.get(key)
-        return _s(r[i], limit) if i is not None and i < len(r) else ""
+        return (str(r[i])[:limit] if key in ("ref_urls", "ref_channels") else _s(r[i], limit)) if i is not None and i < len(r) else ""
 
     items = []
     for offset, r in enumerate(rows[header_idx + 1:], start=1):
-        dish, src_url, title = cell(r, "dish", 200), cell(r, "src_url", 2000), cell(r, "title", 500)
-        if not (dish or src_url or title):
-            continue
-        sheet_row = header_idx + 1 + offset   # 1부터 시작하는 실제 시트 행 번호
-        ref_urls = [u for u in cell(r, "ref_urls").splitlines() if u.strip()]
-        ref_chs = [c for c in cell(r, "ref_channels").splitlines()]
-        refs = [{"url": u.strip(), "channel": (ref_chs[i].strip() if i < len(ref_chs) else "")} for i, u in enumerate(ref_urls)]
-        plats = {}
-        for k in PLATFORMS:
-            plats[k] = {"checked": cell(r, f"{k}_on", 10).upper() == "TRUE", "url": cell(r, f"{k}_url", 2000)}
-        items.append({
-            "id": f"r{sheet_row}",
-            "row": sheet_row,
-            "dish_title": dish,
-            "source": {"url": src_url, "title": cell(r, "src_title", 500), "channel": cell(r, "src_channel", 200),
-                       "thumbnail": youtube_thumbnail(src_url)},
-            "reference_shorts": refs,
-            "status": SHEET_STATUS_KEYS.get(_clean_header(cell(r, "status", 50)), "candidate"),
-            "platforms": plats,
-            "video": {"title": title, "description": cell(r, "desc"), "pinned_comment": cell(r, "pinned"),
-                      "thumbnail": cell(r, "thumb_url", 2000)},
-            "memo": cell(r, "memo", 5000),
-            "updated_at": _iso(cell(r, "updated")),
-            "created_at": _iso(cell(r, "created")),
-        })
+        item = _item_from_cells(header_idx + 1 + offset, lambda key, limit=20000: cell(r, key, limit))
+        if item is not None:
+            items.append(item)
     return items
+
+
+def _item_from_cells(sheet_row, cell):
+    dish, src_url, title = cell("dish", 200), cell("src_url", 2000), cell("title", 500)
+    # Identity and modification timestamps can survive clearing a sheet row.
+    # Keep explicitly registered blank items and any actual user content.
+    content_keys = ["status", "dish", "src_url", "src_title", "src_channel", "title",
+                    "ref_urls", "ref_channels", "desc", "pinned", "memo", "thumb_url", "created",
+                    *(f"{k}_url" for k in PLATFORMS)]
+    if not (any(cell(k).strip() for k in content_keys) or
+            any(cell(f"{k}_on", 10).upper() == "TRUE" for k in PLATFORMS)):
+        return None
+    ref_urls = [u for u in cell("ref_urls").splitlines() if u.strip()]
+    ref_chs = [c for c in cell("ref_channels").splitlines()]
+    refs = [{"url": u.strip(), "channel": (ref_chs[i].strip() if i < len(ref_chs) else "")} for i, u in enumerate(ref_urls)]
+    plats = {}
+    for k in PLATFORMS:
+        plats[k] = {"checked": cell(f"{k}_on", 10).upper() == "TRUE", "url": cell(f"{k}_url", 2000)}
+    return {
+        "id": cell("item_id") or f"r{sheet_row}",
+        "item_id": cell("item_id"),
+        "ref_urls": cell("ref_urls"),
+        "ref_channels": cell("ref_channels"),
+        "row": sheet_row,
+        "dish_title": dish,
+        "source": {"url": src_url, "title": cell("src_title", 500), "channel": cell("src_channel", 200),
+                   "thumbnail": youtube_thumbnail(src_url)},
+        "reference_shorts": refs,
+        "status": SHEET_STATUS_KEYS.get(_clean_header(cell("status", 50)), "candidate"),
+        "platforms": plats,
+        "video": {"title": title, "description": cell("desc"), "pinned_comment": cell("pinned"),
+                  "thumbnail": cell("thumb_url", 2000)},
+        "memo": cell("memo", 5000),
+        "updated_at": _iso(cell("updated")),
+        "created_at": _iso(cell("created")),
+    }
+
+
+SHEET_FIRST_DATA_ROW = 3
+SCRIPT_FIELDS = {
+    "status": "status", "dish": "dish", "src_url": "srcUrl", "src_title": "srcTitle",
+    "src_channel": "srcChannel", "ref_urls": "refUrls", "ref_channels": "refChannels",
+    "title": "title", "desc": "desc", "pinned": "pinned", "memo": "memo",
+    "updated": "updatedAt", "created": "createdAt", "thumb_url": "thumbUrl", "item_id": "itemId",
+    **{f"{k}_{suffix}": ("naverClip" if k == "naver_clip" else k) + suffix.title()
+       for k in PLATFORMS for suffix in ("on", "url")},
+}
+BOARD_BOOL_FIELDS = {f"{k}_on" for k in PLATFORMS}
+BOARD_TEXT_LIMITS = {
+    "dish": 200, "src_url": 2000, "src_title": 500, "src_channel": 200,
+    "ref_urls": 5000, "ref_channels": 2000, "title": 500, "desc": 20000,
+    "pinned": 20000, "memo": 5000, **{f"{k}_url": 2000 for k in PLATFORMS},
+}
+
+
+def item_from_script(row, cells):
+    return _item_from_cells(row, lambda key, limit=20000: _s(cells.get(SCRIPT_FIELDS.get(key, key)), limit)
+                           if key not in ("ref_urls", "ref_channels") else str(cells.get(SCRIPT_FIELDS[key], "")))
+
+
+def _board_patch(raw):
+    if not isinstance(raw, dict) or not raw:
+        return None, "변경할 필드를 보내 주세요."
+    out = {}
+    for key, value in raw.items():
+        if key == "status":
+            if not isinstance(value, str) or value not in STATUSES:
+                return None, "상태가 올바르지 않습니다."
+            value = STATUSES[value]
+        elif key in BOARD_BOOL_FIELDS:
+            if type(value) is not bool:
+                return None, "플랫폼 체크 값은 true 또는 false여야 합니다."
+        elif key in BOARD_TEXT_LIMITS:
+            if key in ("ref_urls", "ref_channels") and isinstance(value, list):
+                if not all(isinstance(v, str) for v in value):
+                    return None, "참고 정보는 문자열 목록이어야 합니다."
+                value = "\n".join(value)
+            if not isinstance(value, str):
+                return None, "텍스트 필드는 문자열이어야 합니다."
+            value = value.replace("\r\n", "\n").replace("\r", "\n")
+            if len(value) > BOARD_TEXT_LIMITS[key]:
+                return None, f"{key}: 최대 {BOARD_TEXT_LIMITS[key]}자까지 입력할 수 있습니다."
+            value = value.lstrip("=") if key == "ref_channels" else value.strip().lstrip("=")
+        else:
+            return None, f"편집할 수 없는 필드입니다: {key}"
+        out[SCRIPT_FIELDS[key]] = value
+    return out, None
 
 
 def get_sheet_setting() -> dict | None:
@@ -760,12 +839,15 @@ RECENT_THUMB_TTL = 180
 _recent_thumbs: dict[int, dict] = {}   # row -> {"url", "src_url", "at"}
 
 
-def remember_recent_thumb(row: int, url: str, src_url: str) -> None:
+def remember_recent_thumb(row: int, url: str, src_url: str, item_id: str = "", cfg=None) -> None:
     with sheet_lock:
-        _recent_thumbs[row] = {"url": url, "src_url": src_url, "at": time.time()}
+        if item_id and cfg:
+            _recent_edits.append({"kind": "thumbnail", "id": item_id, "row": row, "url": url, "at": time.time(), "key": _board_key(cfg)})
+            return
+        _recent_thumbs[row] = {"url": url, "src_url": src_url, "at": time.time(), "key": _board_key(cfg) if cfg else None}
 
 
-def apply_recent_thumbs(items: list[dict]) -> list[dict]:
+def apply_recent_thumbs(items: list[dict], cfg=None) -> list[dict]:
     """시트(CSV)에 아직 반영되지 않은 최근 썸네일을 항목에 덧씌운다. 시트가 따라왔거나 오래된 기록은 지운다."""
     now = time.time()
     with sheet_lock:
@@ -773,7 +855,7 @@ def apply_recent_thumbs(items: list[dict]) -> list[dict]:
             del _recent_thumbs[row]
         if not _recent_thumbs:
             return items
-        pending = dict(_recent_thumbs)
+        pending = {r: op for r, op in _recent_thumbs.items() if op.get("key") is None or cfg and op["key"] == _board_key(cfg)}
     out = []
     for it in items:
         e = pending.get(it["row"])
@@ -1391,6 +1473,7 @@ def _sheet_public(cfg: dict | None, fetched_at: float | None = None, cached: boo
         "cache_ttl": SHEET_CACHE_TTL,
         # 썸네일 업로드(웹 앱) 연결 여부. 토큰은 절대 내보내지 않는다.
         "upload_configured": get_upload_setting() is not None,
+        "connection": upload_connection(),
         "upload_url": _s(load_settings().get("shorts_upload_url"), 500),
     }
 
@@ -1403,7 +1486,7 @@ def api_shorts_list():
     force = request.args.get("refresh") in ("1", "true")
     items, cached, error = sheet_items_cached(cfg, force=force)
     return jsonify({
-        "items": apply_recent_thumbs(items), "statuses": STATUSES, "platforms": PLATFORMS,
+        "items": apply_recent_edits(items, cfg), "statuses": STATUSES, "platforms": PLATFORMS,
         "sheet": _sheet_public(cfg, _sheet_cache["at"] or None, cached),
         "error": error,
     })
@@ -1418,6 +1501,11 @@ class SheetCallError(RuntimeError):
 
 
 _SHEET_ERRORS = {
+    "row_mismatch": (409, "항목 ID가 없거나 중복되었거나 항목이 삭제되었습니다. 초기 설정 후 새로고침해 주세요."),
+    "bad_row": (400, "데이터 행(3행 이상)만 편집할 수 있습니다."),
+    "bad_fields": (400, "편집 필드가 올바르지 않습니다."),
+    "bad_status": (400, "상태가 올바르지 않습니다."),
+    "locked_platform": (409, "업로드 완료 상태에서만 플랫폼 값을 입력할 수 있습니다."),
     "unauthorized": (401, "Apps Script 업로드 토큰이 맞지 않습니다."),
     "wrong_sheet": (409, "Apps Script가 연결된 구글 시트와 현황판 시트가 다릅니다."),
     "busy": (503, "시트가 다른 작업을 처리 중입니다. 잠시 후 다시 시도해 주세요."),
@@ -1425,8 +1513,8 @@ _SHEET_ERRORS = {
     "bad_video": (400, "유효한 유튜브 쇼츠 정보가 아닙니다."),
     "bad_channel": (400, "유효한 채널 정보가 아닙니다."),
     "no_sheet": (502, "구글 시트에 '현황판' 탭이 없습니다."),
-    "unknown_action": (409, "Apps Script를 최신 버전(후보·레퍼 동기화 기능 포함)으로 업데이트해 주세요."),
-    "upgrade_required": (409, "Apps Script를 최신 버전(후보·레퍼 동기화 기능 포함)으로 업데이트해 주세요."),
+    "unknown_action": (409, "Apps Script를 최신 버전(11, 업로드 프로세스 포함)으로 업데이트해 주세요."),
+    "upgrade_required": (409, "Apps Script를 최신 버전(11, 업로드 프로세스 포함)으로 업데이트해 주세요."),
 }
 
 
@@ -1466,6 +1554,7 @@ def api_shorts_candidates():
 
 
 @app.put("/api/shorts/candidates/<video_id>")
+@board_write_serialized
 def api_shorts_candidate_add(video_id: str):
     data = request.get_json(silent=True) or {}
     result, error = _sheet_call(
@@ -1481,6 +1570,7 @@ def api_shorts_candidate_add(video_id: str):
 
 
 @app.delete("/api/shorts/candidates/<video_id>")
+@board_write_serialized
 def api_shorts_candidate_remove(video_id: str):
     result, error = _sheet_call("candidate_remove", videoId=video_id)
     if error:
@@ -1489,12 +1579,166 @@ def api_shorts_candidate_remove(video_id: str):
     return jsonify(result)
 
 
+# Pending writes are scoped to a connection. Replay on copies, never on the CSV cache.
+RECENT_EDIT_TTL = 180
+_recent_edits = []
+
+
+def _board_key(cfg):
+    return (cfg["sheet_id"], cfg.get("gid"))
+
+
+def _edit_sig(item):
+    return {k: v for k, v in item.items() if k not in ("row", "video")} | {
+        "video": {k: v for k, v in item.get("video", {}).items() if k != "thumbnail"}}
+
+
+def _changed_leaves(before, after, path=()):
+    """Only replay fields changed by this write, preserving independent team edits."""
+    changes = []
+    for key, value in after.items():
+        subpath = path + (key,)
+        if subpath in (("row",), ("id",), ("item_id",), ("created_at",), ("updated_at",), ("video", "thumbnail")):
+            continue
+        previous = before.get(key)
+        if isinstance(value, dict) and isinstance(previous, dict):
+            changes.extend(_changed_leaves(previous, value, subpath))
+        elif previous != value:
+            changes.append((subpath, copy.deepcopy(value)))
+    return changes
+
+
+def _leaf_value(item, path):
+    for key in path:
+        if not isinstance(item, dict):
+            return None
+        item = item.get(key)
+    return item
+
+
+def remember_recent_edit(kind, item, cfg, before=None):
+    with sheet_lock:
+        _recent_edits.append({"kind": kind, "id": item["id"], "row": item["row"],
+                              "item": copy.deepcopy(item), "before": copy.deepcopy(before),
+                              "key": _board_key(cfg), "at": time.time(),
+                              "changes": _changed_leaves(before, item) if before is not None else None})
+
+
+def apply_recent_edits(items, cfg):
+    out = copy.deepcopy(apply_recent_thumbs(items, cfg))
+    raw = {it["id"]: it for it in items}
+    with sheet_lock:
+        now = time.time()
+        _recent_edits[:] = [op for op in _recent_edits if now - op["at"] <= RECENT_EDIT_TTL]
+        pending = [op for op in _recent_edits if op["key"] == _board_key(cfg)]
+        acknowledged = set()
+        # Absence before an insertion became visible is not proof of a later deletion.
+        unseen_inserts = {op["id"] for op in pending if op["kind"] == "insert" and op["id"] not in raw}
+        # A later observed snapshot also acknowledges earlier edits of that item.
+        for i, op in enumerate(pending):
+            current = raw.get(op["id"])
+            matched = (op["kind"] == "insert" and current is not None or
+                       op["kind"] == "delete" and current is None and op["id"] not in unseen_inserts or
+                       op["kind"] == "update" and current is not None and (
+                           all(_leaf_value(current, path) == value for path, value in op["changes"])
+                           if op.get("changes") is not None else _edit_sig(current) == _edit_sig(op["item"])) or
+                       op["kind"] == "thumbnail" and current is not None and current["video"].get("thumbnail") == op["url"])
+            if matched:
+                for j in range(i + 1):
+                    prev = pending[j]
+                    if prev["id"] == op["id"] and (op["kind"] == "delete" or
+                            (prev["kind"] == "thumbnail") == (op["kind"] == "thumbnail")):
+                        acknowledged.add(j)
+        for i, op in enumerate(pending):
+            if i in acknowledged:
+                continue
+            pos = next((j for j, it in enumerate(out) if it["id"] == op["id"]), None)
+            if op["kind"] == "insert" and pos is None:
+                for it in out:
+                    if it["row"] >= op["row"]:
+                        it["row"] += 1
+                out.append(copy.deepcopy(op["item"]))
+            elif op["kind"] == "delete" and pos is not None:
+                row = out.pop(pos)["row"]
+                for it in out:
+                    if it["row"] > row:
+                        it["row"] -= 1
+            elif op["kind"] == "update" and pos is not None:
+                old = out[pos]
+                if op.get("changes") is not None:
+                    for path, value in op["changes"]:
+                        target = old
+                        for key in path[:-1]:
+                            target = target[key]
+                        target[path[-1]] = copy.deepcopy(value)
+                    old["updated_at"] = op["item"]["updated_at"]
+                else:
+                    out[pos] = copy.deepcopy(op["item"])
+                    out[pos]["row"] = old["row"]
+                    out[pos]["video"]["thumbnail"] = old["video"].get("thumbnail", "")
+            elif op["kind"] == "thumbnail" and pos is not None:
+                out[pos]["video"]["thumbnail"] = op["url"]
+        remove = {id(pending[i]) for i in acknowledged}
+        _recent_edits[:] = [op for op in _recent_edits if id(op) not in remove]
+    return sorted(out, key=lambda it: it["row"])
+
+
+@app.route("/api/shorts/items", methods=["POST"])
+@app.route("/api/shorts/items/<int:row>", methods=["PUT", "DELETE"])
+@board_write_serialized
+def api_shorts_item(row=None):
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"error": "JSON 객체를 보내 주세요.", "code": "bad_fields"}), 400
+    if row is not None and row < SHEET_FIRST_DATA_ROW:
+        return jsonify({"error": "데이터 행(3행 이상)만 편집할 수 있습니다.", "code": "bad_row"}), 400
+    cfg = get_sheet_setting()
+    action = {"POST": "board_add", "PUT": "board_update", "DELETE": "board_delete"}[request.method]
+    values = {}
+    if request.method != "POST":
+        item_id = data.get("item_id")
+        if not isinstance(item_id, str) or not item_id.strip() or len(item_id) > 200:
+            return jsonify({"error": "항목 ID가 없습니다. 시트 초기 설정 후 새로고침해 주세요.", "code": "row_mismatch"}), 409
+        values.update(row=row, itemId=item_id.strip())
+    if request.method != "DELETE":
+        raw = data.get("fields", {})
+        if request.method == "POST" and raw == {}:
+            values["fields"] = {}
+        else:
+            fields, error = _board_patch(raw)
+            if error:
+                return jsonify({"error": error, "code": "bad_fields"}), 400
+            values["fields"] = fields
+    result, error = _sheet_call(action, **values)
+    if error:
+        return error
+    try:
+        if not isinstance(result.get("cells"), dict):
+            raise ValueError("invalid cells")
+        item = item_from_script(int(result["row"]), result["cells"])
+        if not item or not item["item_id"] or item["row"] < 3:
+            raise ValueError("missing item ID")
+        before = item_from_script(item["row"], result["before"]) if isinstance(result.get("before"), dict) else None
+    except (KeyError, TypeError, ValueError):
+        return jsonify({"error": "저장 결과를 확인할 수 없습니다. 새로고침 후 확인해 주세요."}), 502
+    remember_recent_edit({"POST": "insert", "PUT": "update", "DELETE": "delete"}[request.method],
+                         item, cfg, before)
+    _sheet_cache_invalidate()
+    body = {"ok": True, "warnings": result.get("warnings", [])}
+    if request.method == "DELETE":
+        body.update(row=item["row"], item_id=item["id"])
+    else:
+        body["item"] = item
+    return jsonify(body)
+
+
 @app.get("/api/shorts/sheet")
 def api_shorts_sheet_get():
     return jsonify({"sheet": _sheet_public(get_sheet_setting())})
 
 
 @app.post("/api/shorts/sheet")
+@board_write_serialized
 def api_shorts_sheet_set():
     """시트 링크 저장. 빈 값이면 연결 해제. 저장 전에 실제로 읽어 봐서 실패하면 저장하지 않는다."""
     data = request.get_json(silent=True) or {}
@@ -1503,6 +1747,7 @@ def api_shorts_sheet_set():
         with settings_lock:
             cfg = load_settings(); cfg.pop("shorts_sheet_url", None); save_settings(cfg)
         with sheet_lock:
+            _recent_edits.clear(); _recent_thumbs.clear()
             _sheet_cache.update({"key": None, "at": 0.0, "items": [], "gid": None})
         return jsonify({"ok": True, "sheet": _sheet_public(None), "count": 0})
     try:
@@ -1513,11 +1758,13 @@ def api_shorts_sheet_set():
     with settings_lock:
         cfg = load_settings(); cfg["shorts_sheet_url"] = url; save_settings(cfg)
     with sheet_lock:
+        _recent_edits.clear(); _recent_thumbs.clear()
         _sheet_cache.update({"key": (sheet_id, gid), "at": time.time(), "items": items, "gid": used_gid})
     return jsonify({"ok": True, "sheet": _sheet_public({"url": url, "sheet_id": sheet_id, "gid": gid}, time.time(), False), "count": len(items)})
 
 
 @app.post("/api/shorts/uploader")
+@board_write_serialized
 def api_shorts_uploader_set():
     """썸네일 업로드용 Apps Script 웹 앱 URL·토큰 저장. 빈 URL 이면 해제. 저장 전에 ping 으로 토큰까지 확인한다."""
     data = request.get_json(silent=True) or {}
@@ -1546,6 +1793,7 @@ def api_shorts_uploader_set():
 
 
 @app.post("/api/shorts/thumbnail")
+@board_write_serialized
 def api_shorts_thumbnail_upload():
     """재가공 쇼츠 썸네일을 시트의 특정 행에 등록한다. multipart: row, src_url, dish, file."""
     cfg, up = get_sheet_setting(), get_upload_setting()
@@ -1569,7 +1817,8 @@ def api_shorts_thumbnail_upload():
     if not mime:
         return jsonify({"error": "JPG·PNG·WebP 이미지만 올릴 수 있습니다."}), 400
     payload = {
-        "action": "thumbnail", "token": up["token"], "row": row,
+        "action": "thumbnail", "token": up["token"], "row": row, "sheetId": cfg["sheet_id"],
+        "itemId": _s(request.form.get("item_id"), 200),
         "srcUrl": _s(request.form.get("src_url"), 2000), "dish": _s(request.form.get("dish"), 200),
         "mime": mime, "data": base64.b64encode(data).decode("ascii"),
     }
@@ -1588,7 +1837,7 @@ def api_shorts_thumbnail_upload():
         status, msg = errors.get(code, (502, f"웹 앱 오류: {code}"))
         return jsonify({"error": msg}), status
     final_row, url = int(res.get("row", row)), _s(res.get("url"), 2000)
-    remember_recent_thumb(final_row, url, payload["srcUrl"])
+    remember_recent_thumb(final_row, url, payload["srcUrl"], payload["itemId"], cfg)
     _sheet_cache_invalidate()
     return jsonify({"ok": True, "row": final_row, "url": url})
 
@@ -1596,6 +1845,119 @@ def api_shorts_thumbnail_upload():
 @app.errorhandler(413)
 def too_large(_e):
     return jsonify({"error": f"파일이 너무 큽니다 (최대 {THUMB_MAX_BYTES // 1024 // 1024} MB)."}), 413
+
+
+# ---- 업로드 프로세스: 최종 승인 전에는 현황판을 쓰지 않는다 --------------------
+def upload_connection():
+    cfg, up = get_sheet_setting(), get_upload_setting()
+    if not cfg or not up:
+        return None
+    # A non-secret fingerprint also detects a changed writer/token while a draft is open.
+    raw = json.dumps([cfg['sheet_id'], cfg.get('gid'), up['url'], up['token']])
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+_UPLOAD_ERRORS = {
+    'read_failed': (502, '최신 항목을 읽지 못했습니다. Apps Script의 고급 Google Sheets 서비스와 권한을 확인해 주세요.'),
+    'conflict': (409, '작업 중 항목이 변경되었습니다. 최신 내용을 확인한 뒤 다시 시작해 주세요.'),
+    'already_uploaded': (409, '이미 업로드 완료된 항목입니다.'),
+    'request_mismatch': (409, '같은 제출 번호의 내용이 다릅니다. 저장 결과부터 확인해 주세요.'),
+    'sheets_service_required': (409, 'Apps Script에서 고급 Google Sheets 서비스를 활성화하고 버전 11 이상으로 배포해 주세요.'),
+    'commit_unknown': (503, '저장 결과를 아직 확인하지 못했습니다. 결과 확인 버튼으로 확인해 주세요.'),
+    'commit_failed': (502, '시트에 저장되지 않았습니다. 작성 내용은 유지됩니다. 다시 제출해 주세요.'),
+    'image_failed': (502, '썸네일 파일을 준비하지 못했습니다. 시트는 변경하지 않았습니다.'),
+}
+_SHEET_ERRORS.update(_UPLOAD_ERRORS)
+
+
+def upload_result(result, cfg, remember=False, expected_id=None):
+    try:
+        item = item_from_script(int(result['row']), result['cells'])
+        if not item or not item['item_id'] or item['row'] < 3 or (expected_id and item['item_id'] != expected_id):
+            raise ValueError('invalid item')
+    except (KeyError, TypeError, ValueError):
+        raise SheetCallError('저장 결과를 확인하지 못했습니다. 결과 확인을 눌러 주세요.', 502, 'commit_unknown')
+    if remember:
+        before = item_from_script(item['row'], result['before']) if isinstance(result.get('before'), dict) else None
+        remember_recent_edit('update', item, cfg, before)
+        if item['video'].get('thumbnail'):
+            remember_recent_thumb(item['row'], item['video']['thumbnail'], item['source']['url'], item['item_id'], cfg)
+        _sheet_cache_invalidate()
+    return {'ok': True, 'item': item, 'revision': result.get('revision'),
+            'connection': upload_connection(), 'warnings': result.get('warnings', []),
+            'submitted': bool(result.get('submitted')), 'request_id': result.get('requestId')}
+
+
+def upload_error(exc):
+    return jsonify(error=str(exc), code=exc.code or 'commit_unknown'), exc.status
+
+
+@app.get('/upload-process')
+def upload_process_page():
+    return render_template('upload_process.html', models=LLM_MODELS, backends=LLM_BACKENDS)
+
+
+@app.get('/api/upload-process/items/<item_id>')
+@board_write_serialized
+def api_upload_process_item(item_id):
+    request_id = request.args.get('request_id', '')
+    if not item_id.strip() or len(item_id) > 200 or (request_id and not re.fullmatch(r'[A-Za-z0-9_-]{16,80}', request_id)):
+        return jsonify(error='항목 또는 제출 번호가 올바르지 않습니다.', code='bad_fields'), 400
+    connection = request.args.get('connection')
+    if connection and connection != upload_connection():
+        return jsonify(error='연결된 시트가 변경되었습니다. 원래 연결에서 초안을 다시 여세요.', code='connection_changed'), 409
+    try:
+        result = sheet_call('upload_get', itemId=item_id, requestId=request_id)
+        return jsonify(upload_result(result, get_sheet_setting(), remember=bool(result.get('submitted')), expected_id=item_id))
+    except SheetCallError as exc:
+        return upload_error(exc)
+
+
+@app.post('/api/upload-process/submit')
+@board_write_serialized
+def api_upload_process_submit():
+    try:
+        body = json.loads(request.form.get('payload', ''))
+    except (ValueError, TypeError):
+        body = None
+    allowed = {'connection', 'item_id', 'revision', 'request_id', 'fields', 'thumbnail_mode'}
+    if not isinstance(body, dict) or set(body) != allowed:
+        return jsonify(error='제출 형식이 올바르지 않습니다.', code='bad_fields'), 400
+    if not upload_connection() or body['connection'] != upload_connection():
+        return jsonify(error='시트 연결이 변경되었거나 쓰기 연결이 없습니다.', code='connection_changed'), 409
+    if (not isinstance(body['item_id'], str) or not body['item_id'].strip() or len(body['item_id']) > 200
+            or not isinstance(body['request_id'], str) or not re.fullmatch(r'[A-Za-z0-9_-]{16,80}', body['request_id'])
+            or not isinstance(body['revision'], str) or not re.fullmatch(r'[a-f0-9]{64}', body['revision'])):
+        return jsonify(error='항목 또는 제출 번호가 올바르지 않습니다.', code='bad_fields'), 400
+    fields = body['fields']
+    if not isinstance(fields, dict) or set(fields) != {'title', 'src_url', 'ref_urls', 'memo', 'desc'}:
+        return jsonify(error='입력 필드가 올바르지 않습니다.', code='bad_fields'), 400
+    clean, error = _board_patch(fields)
+    if error or any(not clean.get(k) for k in ('title', 'srcUrl', 'refUrls', 'desc')):
+        return jsonify(error=error or '제목·원본 링크·참고 링크·유튜브 설명이 필요합니다.', code='bad_fields'), 400
+    mode = body['thumbnail_mode']
+    if mode not in ('existing', 'new'):
+        return jsonify(error='썸네일을 확정해 주세요.', code='bad_fields'), 400
+    image = {}
+    f = request.files.get('file')
+    if mode == 'new':
+        if f is None:
+            return jsonify(error='확정한 썸네일이 없습니다.', code='bad_fields'), 400
+        data = f.read(THUMB_MAX_BYTES + 1)
+        if len(data) > THUMB_MAX_BYTES:
+            return jsonify(error='썸네일은 8 MB 이하로 준비해 주세요.', code='bad_fields'), 413
+        mime = sniff_image(data)
+        if not mime:
+            return jsonify(error='JPG·PNG·WebP 이미지가 필요합니다.', code='bad_fields'), 400
+        image = {'mime': mime, 'data': base64.b64encode(data).decode('ascii')}
+    elif f is not None:
+        return jsonify(error='기존 썸네일 사용 시 새 파일을 보낼 수 없습니다.', code='bad_fields'), 400
+    try:
+        result = sheet_call('upload_submit', itemId=body['item_id'], requestId=body['request_id'],
+                            revision=body['revision'], fields=clean, thumbnailMode=mode, **image)
+        return jsonify(upload_result(result, get_sheet_setting(), remember=True, expected_id=body['item_id']))
+    except SheetCallError as exc:
+        return upload_error(exc)
 
 
 # ---- 유튜브 업로드 헬퍼 ------------------------------------------------------
@@ -1687,16 +2049,10 @@ def _llm_via_codex(system: str, user: str, schema: dict, model: str) -> dict:
             raise RuntimeError("Codex CLI 호출 실패: " + (proc.stderr or proc.stdout)[-800:].strip())
         try:
             payload = json.loads(output_path.read_text(encoding="utf-8"))
-            if (not isinstance(payload, dict)
-                    or payload.get("status") not in ("needs_input", "complete")
-                    or not isinstance(payload.get("questions"), list)
-                    or not isinstance(payload.get("instagram"), str)
-                    or not isinstance(payload.get("youtube"), str)
-                    or not isinstance(payload.get("tiktok"), str)
-                    or not isinstance(payload.get("notes"), list)):
+            if not isinstance(payload, dict) or any(key not in payload for key in schema.get("required", [])):
                 raise ValueError("invalid result")
         except (OSError, ValueError) as e:
-            raise RuntimeError("Codex에서 올바른 게시글 JSON을 받지 못했습니다.") from e
+            raise RuntimeError("Codex에서 올바른 결과 JSON을 받지 못했습니다.") from e
     payload["_usage"] = {"backend": "codex", "model": model, "duration_ms": round((time.monotonic() - started) * 1000)}
     return payload
 
@@ -1749,7 +2105,7 @@ def _llm_via_api(system: str, user: str, schema: dict, model: str) -> dict:
     try:
         resp = client.messages.create(
             model=model,
-            max_tokens=16000,
+            max_tokens=4096 if "candidates" in schema.get("properties", {}) else 16000,
             system=system,
             messages=[{"role": "user", "content": user}],
             output_config={"format": {"type": "json_schema", "schema": schema}},
@@ -1913,6 +2269,12 @@ def api_choose_folder():
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     return jsonify({"ok": True, "download_dir": str(p)})
+
+
+# Hook clips share the configured transport, with their own result validation.
+from hooks.routes import install as install_hooks
+install_hooks(app, lambda *args: llm_structured(*args),
+              lambda: {k: get_recipe_settings()[k] for k in ("backend", "model")})
 
 
 def _open_browser() -> None:
