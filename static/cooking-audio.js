@@ -42,6 +42,18 @@
     if(state.preview_kind&&!state.busy){const src='/api/cooking-audio'+path('/media')+'?kind='+state.preview_kind;if(mediaUrl!==src){mediaUrl=src;$('player').src=src;$('player').hidden=false;}else if(pending){play(pending);pending=null;}}
     clearTimeout(timer);if(state.busy)timer=setTimeout(()=>request(path()).then(apply).catch(error),1000);
   }
+  function formatTime(value){
+    const centiseconds=Math.round(Math.abs(value)*100),minutes=Math.floor(centiseconds/6000);
+    return (value<0?'-':'')+String(minutes).padStart(2,'0')+':'+String(Math.floor(centiseconds/100)%60).padStart(2,'0')+':'+String(centiseconds%100).padStart(2,'0');
+  }
+  function setTime(input,value){input.value=formatTime(value);input.dataset.originalTime=String(value);input.dataset.formattedTime=input.value;}
+  function readTime(input){
+    // Preserve millisecond precision when only the text or another field was edited.
+    if(input.value===input.dataset.formattedTime)return Number(input.dataset.originalTime);
+    const match=/^(\d+):([0-5]\d):(\d{2})$/.exec(input.value.trim());
+    if(!match)throw new Error('시간을 분:초:소수 두 자리 형식으로 입력해주세요. 예: 01:11:18');
+    return Number(match[1])*60+Number(match[2])+Number(match[3])/100;
+  }
   function button(text,fn,busy=false){const b=el('button',text,'secondary');b.disabled=busy;b.onclick=action(fn);return b;}
   function renderCandidates(busy){
     $('candidates').replaceChildren();
@@ -52,8 +64,8 @@
       if(c.text!==c.original_text)card.append(el('p','원문: '+c.original_text,'hint'));
       const text=el('textarea');text.value=c.text;text.rows=2;text.maxLength=2000;text.disabled=busy;text.setAttribute('aria-label','표시 문구');card.append(text);
       const controls=el('div',undefined,'candidate-controls'),inputs={};
-      for(const [k,label] of [['start','시작 (초)'],['end','종료 (초)']]){const wrap=el('label',label),input=el('input');input.type='number';input.step='.1';input.value=c[k].toFixed(3);input.disabled=busy;wrap.append(input);controls.append(wrap);inputs[k]=input;}
-      controls.append(button('문구·구간 저장',()=>mutate('/candidates/'+c.id,'PATCH',{text:text.value,start:Number(inputs.start.value),end:Number(inputs.end.value)}),busy),playbackButton(c,busy),button('현재 재생 위치에서 분할',()=>mutate('/candidates/'+c.id+'/split','POST',{time:$('player').currentTime}),busy||!state.preview_kind),button('삭제',()=>mutate('/candidates/'+c.id,'DELETE'),busy));
+      for(const [k,label] of [['start','시작 (분:초:소수)'],['end','종료 (분:초:소수)']]){const wrap=el('label',label),input=el('input');input.type='text';input.placeholder='00:00:00';setTime(input,c[k]);input.disabled=busy;wrap.append(input);controls.append(wrap);inputs[k]=input;}
+      controls.append(button('문구·구간 저장',()=>mutate('/candidates/'+c.id,'PATCH',{text:text.value,start:readTime(inputs.start),end:readTime(inputs.end)}),busy),playbackButton(c,busy),button('현재 재생 위치에서 분할',()=>mutate('/candidates/'+c.id+'/split','POST',{time:$('player').currentTime}),busy||!state.preview_kind),button('삭제',()=>mutate('/candidates/'+c.id,'DELETE'),busy));
       for(const [label,delta] of [['↑',-1],['↓',1]])controls.append(button(label,()=>{const ids=state.candidates.map(x=>x.id);[ids[index],ids[index+delta]]=[ids[index+delta],ids[index]];return mutate('','PATCH',{order:ids});},busy||index+delta<0||index+delta>=state.candidates.length));
       card.append(controls);$('candidates').append(card);
     });
@@ -116,9 +128,9 @@
   $('cancel').onclick=action(()=>mutate('/cancel'));$('offset-save').onclick=action(()=>mutate('','PATCH',{offset:Number($('offset').value)}));
   $('alignment').onchange=action(()=>mutate('','PATCH',{alignment_confirmed:$('alignment').checked}));
   $('reference-fetch').onclick=action(()=>mutate('/references'));$('reference-save').onclick=action(()=>mutate('','PATCH',{reference:$('reference').value,reference_enabled:$('reference-enabled').checked}));
-  const range=()=>({start:Number($('start').value),end:Number($('end').value)});
+  const range=()=>({start:readTime($('start')),end:readTime($('end'))});
   $('asr').onclick=action(()=>mutate('/asr','POST',range()));$('asr-full').onclick=action(()=>mutate('/asr'));
-  $('mark-start').onclick=()=>{$('start').value=$('player').currentTime.toFixed(1);};$('mark-end').onclick=()=>{$('end').value=$('player').currentTime.toFixed(1);};
+  $('mark-start').onclick=()=>{setTime($('start'),$('player').currentTime);};$('mark-end').onclick=()=>{setTime($('end'),$('player').currentTime);};
   $('add').onclick=action(()=>mutate('/candidates','POST',{...range(),text:$('manual').value}));
   const selected=()=>state.candidates.filter(c=>c.selected).map(c=>c.id);
   $('merge').onclick=action(()=>mutate('/merge','POST',{candidate_ids:selected()}));$('export').onclick=action(()=>mutate('/export','POST',{candidate_ids:selected()}));

@@ -96,6 +96,7 @@ class CookingTest(unittest.TestCase):
         state=self.analyze();ids=[c['id'] for c in state['candidates']]
         self.s.export(self.id,ids);batch=self.s.get(self.id)['exports'][0]
         self.assertTrue(batch['complete']);record=batch['clips'][0];self.assertEqual(record['status'],'finished')
+        self.assertTrue(record['filename'].endswith('00:00:00.900-00:00:03.300.mp3'))
         url=self.base+'/exports/'+batch['id']+'/'
         r=self.client.get(url+'dialogues.zip');self.assertEqual(r.status_code,200)
         payload=r.data;r.close()

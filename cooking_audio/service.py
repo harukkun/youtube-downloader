@@ -284,7 +284,7 @@ class Service(MediaService):
             record = dict(c, order=order, start=a, end=b, offset=state['offset'] if c['coordinate'] == 'subtitle' else 0,
                           video_source=state['video_name'] or state['url'], source_fingerprint=state['source_fingerprint'])
             label = re.sub(r'[\x00-\x1f<>:"/\\|?*]', '', unicodedata.normalize('NFC', c['text']))[:40].strip(' .') or '조리대사'
-            name = f'{label}_{stamp(a, True)}-{stamp(b, True)}.mp3'
+            name = f'{label}_{stamp(a)}-{stamp(b)}.mp3'
             if name in names:
                 name = f'{Path(name).stem}_{order}.mp3'
             names.add(name)
