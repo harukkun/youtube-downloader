@@ -198,6 +198,7 @@ RECIPE_OUTPUT_SCHEMA = {
 STATUSES = {
     "candidate": "촬영 후보",
     "making": "촬영 중",
+    "filmed": "촬영 완료",
     "editing": "편집 중",
     "ready": "업로드 대기",
     "uploaded": "업로드 완료",
@@ -571,19 +572,20 @@ def _s(v, limit: int = 20000) -> str:
 # 시트 헤더(이모지·'☑' 제거 후) → 내부 키. sheets/Code.gs 의 COLUMNS 와 맞춘다.
 SHEET_HEADER_KEYS = {
     "상태": "status", "요리 제목": "dish", "원본 링크": "src_url", "원본 제목": "src_title", "원본 채널": "src_channel",
+    "원본 설명": "src_desc", "원본 고정 댓글": "src_pinned",
     "썸네일": "thumb", "참고 쇼츠 링크": "ref_urls", "참고 채널": "ref_channels",
     "유튜브": "youtube_on", "유튜브 링크": "youtube_url",
     "인스타그램": "instagram_on", "인스타그램 링크": "instagram_url",
     "틱톡": "tiktok_on", "틱톡 링크": "tiktok_url",
     "네이버 클립": "naver_clip_on", "네이버 클립 링크": "naver_clip_url",
-    "영상 제목": "title", "제목 글자수": "title_len", "설명": "desc", "설명 글자수": "desc_len",
+    "영상 제목": "title", "설명": "desc", "설명 글자수": "desc_len",
     "고정 댓글": "pinned", "메모": "memo", "수정일": "updated", "등록일": "created",
     "항목 ID": "item_id",
     "썸네일 링크": "thumb_url",   # 숨김 열. 재가공 쇼츠 썸네일 이미지 URL (Code.gs doPost 가 기록)
 }
 # 시트 상태 라벨(이모지 제거 후) → 상태 키. 예전 라벨도 받아 준다.
 SHEET_STATUS_KEYS = {
-    "촬영 후보": "candidate", "촬영 중": "making", "편집 중": "editing",
+    "촬영 후보": "candidate", "촬영 중": "making", "촬영 완료": "filmed", "편집 중": "editing",
     "업로드 대기": "ready", "업로드 완료": "uploaded",
     # 예전 라벨 (setupSheets 를 다시 실행하기 전의 시트)
     "후보": "candidate", "제작 전": "candidate", "제작 중": "making", "제작 완료·업로드 대기": "ready",
@@ -686,7 +688,7 @@ def _item_from_cells(sheet_row, cell):
     dish, src_url, title = cell("dish", 200), cell("src_url", 2000), cell("title", 500)
     # Identity and modification timestamps can survive clearing a sheet row.
     # Keep explicitly registered blank items and any actual user content.
-    content_keys = ["status", "dish", "src_url", "src_title", "src_channel", "title",
+    content_keys = ["status", "dish", "src_url", "src_title", "src_channel", "src_desc", "src_pinned", "title",
                     "ref_urls", "ref_channels", "desc", "pinned", "memo", "thumb_url", "created",
                     *(f"{k}_url" for k in PLATFORMS)]
     if not (any(cell(k).strip() for k in content_keys) or
@@ -706,6 +708,7 @@ def _item_from_cells(sheet_row, cell):
         "row": sheet_row,
         "dish_title": dish,
         "source": {"url": src_url, "title": cell("src_title", 500), "channel": cell("src_channel", 200),
+                   "description": cell("src_desc"), "pinned_comment": cell("src_pinned"),
                    "thumbnail": youtube_thumbnail(src_url)},
         "reference_shorts": refs,
         "status": SHEET_STATUS_KEYS.get(_clean_header(cell("status", 50)), "candidate"),
@@ -721,7 +724,8 @@ def _item_from_cells(sheet_row, cell):
 SHEET_FIRST_DATA_ROW = 3
 SCRIPT_FIELDS = {
     "status": "status", "dish": "dish", "src_url": "srcUrl", "src_title": "srcTitle",
-    "src_channel": "srcChannel", "ref_urls": "refUrls", "ref_channels": "refChannels",
+    "src_channel": "srcChannel", "src_desc": "srcDesc", "src_pinned": "srcPinned",
+    "ref_urls": "refUrls", "ref_channels": "refChannels",
     "title": "title", "desc": "desc", "pinned": "pinned", "memo": "memo",
     "updated": "updatedAt", "created": "createdAt", "thumb_url": "thumbUrl", "item_id": "itemId",
     **{f"{k}_{suffix}": ("naverClip" if k == "naver_clip" else k) + suffix.title()
@@ -729,7 +733,7 @@ SCRIPT_FIELDS = {
 }
 BOARD_BOOL_FIELDS = {f"{k}_on" for k in PLATFORMS}
 BOARD_TEXT_LIMITS = {
-    "dish": 200, "src_url": 2000, "src_title": 500, "src_channel": 200,
+    "dish": 200, "src_url": 2000, "src_title": 500, "src_channel": 200, "src_desc": 20000, "src_pinned": 20000,
     "ref_urls": 5000, "ref_channels": 2000, "title": 500, "desc": 20000,
     "pinned": 20000, "memo": 5000, **{f"{k}_url": 2000 for k in PLATFORMS},
 }
@@ -1562,6 +1566,9 @@ def api_shorts_candidate_add(video_id: str):
         referenceUrl=_s(data.get("url"), 2000),
         dishTitle=_s(data.get("title"), 500),
         referenceChannel=_s(data.get("channel"), 200),
+        # 참고 영상의 설명·고정 댓글 본문 → 현황판 원본 영상 그룹의 📝 원본 설명 · 💬 원본 고정 댓글 (한도는 BOARD_TEXT_LIMITS 와 동일)
+        description=_s(data.get("description"), BOARD_TEXT_LIMITS["src_desc"]),
+        pinnedComment=_s(data.get("pinned_comment"), BOARD_TEXT_LIMITS["src_pinned"]),
     )
     if error:
         return error

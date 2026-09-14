@@ -25,7 +25,7 @@ vm.runInContext(template.match(/  const esc = .*;/)[0] + '\n' +
   template.slice(template.indexOf('  function fieldEl('),template.indexOf('  function updateForm(')),context);
 vm.runInContext(`
 const html = detailHtml({id:'stable',status:'candidate',dish_title:'<script>bad</script>',ref_channels:'\\nChannel\\n',platforms:{youtube:{checked:true,url:'https://x'}}});
-for (const name of ['status','dish','src_url','src_title','src_channel','ref_urls','ref_channels','youtube_on','youtube_url','title','memo','desc','pinned'])
+for (const name of ['status','dish','src_url','src_title','src_channel','src_desc','src_pinned','ref_urls','ref_channels','youtube_on','youtube_url','title','memo','desc','pinned'])
   assert.ok(html.includes('data-f="'+name+'"'),name);
 assert.ok(!html.includes('<script>bad'));
 assert.ok(html.includes('\\nChannel\\n</textarea>'));

@@ -61,6 +61,8 @@ assert.ok(emptyRows.rows[4][COL.itemId-1]);
 assert.ok(emptyRows.rows[5][COL.itemId-1]);
 const candidate = {status:STATUSES[0].label,youtubeOn:false,youtubeUrl:''};
 assert.equal(boardValidateFields({youtubeOn:true},candidate).error,'locked_platform');
+assert.equal(boardValidateFields({status:'촬영 완료',youtubeOn:true},candidate).error,'locked_platform');
+assert.equal(boardValidateFields({status:'촬영 완료'},candidate).writes[0].value,'🎥 촬영 완료');
 assert.equal(boardValidateFields({youtubeOn:'false'},candidate).error,'bad_fields');
 assert.equal(boardValidateFields({status:'wrong'},candidate).error,'bad_status');
 assert.equal(boardValidateFields({itemId:'x'},candidate).error,'bad_fields');
@@ -98,13 +100,14 @@ assert.equal(call('board_add',{fields:{youtubeOn:true}}).error,'locked_platform'
 assert.equal(sheet.rows.length,len);
 r=call('board_add');assert.equal(r.ok,true);assert.equal(r.row,3);assert.ok(r.cells.itemId);assert.ok(r.cells.createdAt);
 assert.equal(boardLocateId(sheet,'a'),4);
-assert.equal(sheet.formulas.get('3:'+COL.titleLen),'=ARRAYFORMULA(IF(Q3:Q="","",LEN(Q3:Q)))');
 const added=r.cells.itemId;
 r=call('board_delete',{itemId:added});assert.equal(r.ok,true);assert.equal(r.cells.itemId,added);
 assert.equal(boardLocateId(sheet,'a'),3);
-assert.ok(sheet.formulas.has('3:'+COL.titleLen));
-// Existing candidate path assigns IDs and restores the formula too.
-boardAddCandidate(sheet,'12345678901','Candidate','Channel');
-assert.ok(sheet.rows[2][COL.itemId-1]);assert.ok(sheet.formulas.has('3:'+COL.titleLen));
+// Existing candidate path assigns IDs and carries the reference description / pinned comment as drafts.
+boardAddCandidate(sheet,'12345678901','Candidate','Channel',{desc:'=참고 설명',pinned:'고정 댓글'});
+assert.ok(sheet.rows[2][COL.itemId-1]);assert.equal(sheet.rows[2][COL.srcDesc-1],'참고 설명');assert.equal(sheet.rows[2][COL.srcPinned-1],'고정 댓글');
+assert.equal(sheet.rows[2][COL.desc-1]||'','');assert.equal(sheet.rows[2][COL.pinned-1]||'','');
+boardAddCandidate(sheet,'12345678902','Plain','Channel');
+assert.equal(sheet.rows[2][COL.srcDesc-1]||'','');assert.equal(sheet.rows[2][COL.srcPinned-1]||'','');
 console.log('Board Apps Script ID, validation, CRUD, metadata and formula checks passed.');
 `,ctx);

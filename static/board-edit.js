@@ -4,6 +4,7 @@ const BoardEdit = (() => {
   function flatOf(it) {
     const flat = {status:it.status, dish:it.dish_title || '', src_url:it.source?.url || '',
       src_title:it.source?.title || '', src_channel:it.source?.channel || '',
+      src_desc:it.source?.description || '', src_pinned:it.source?.pinned_comment || '',
       ref_urls:it.ref_urls ?? (it.reference_shorts || []).map(r => r.url).join('\n'),
       ref_channels:it.ref_channels ?? (it.reference_shorts || []).map(r => r.channel).join('\n'),
       title:it.video?.title || '', desc:it.video?.description || '', pinned:it.video?.pinned_comment || '', memo:it.memo || ''};

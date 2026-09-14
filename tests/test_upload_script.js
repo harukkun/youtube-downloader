@@ -42,7 +42,6 @@ Sheets={Spreadsheets:{Values:{get:(_,range,options)=>{assert.equal(options.value
 }}};
 function reset(){sheet=new Sheet();locked=false;properties={};files=[];batchCount=0;mode='';receipts=[];syncFail=false;
  Object.entries({itemId:'item',status:STATUSES[2].label,dish:'Dish',title:'old',desc:'old desc',srcUrl:'https://youtu.be/abcdefghijk',refUrls:'https://youtu.be/lmnopqrstuv',memo:'',thumbUrl:'https://old/image',youtubeOn:true,youtubeUrl:'https://my/video',pinned:'keep pinned',createdAt:'keep date'}).forEach(([k,v])=>sheet.rows[2][COL[k]-1]=v);
- sheet.formulas['2:'+ (COL.titleLen-1)]='ARRAYFORMULA';
 }
 function body(){return {action:'upload_submit',sheetId:'sheet',itemId:'item',requestId:'12345678-1234-1234-1234-123456789abc',revision:uploadRevision(boardReadRow(sheet,3)),thumbnailMode:'existing',fields:{title:'new',desc:'new description',srcUrl:'https://youtu.be/abcdefghijk',refUrls:'https://youtu.be/lmnopqrstuv',memo:'note'}};}
 function imageBody(){return {...body(),thumbnailMode:'new',mime:'image/jpeg',data:'/9j/'};}
@@ -63,7 +62,7 @@ reset();b=body();assert.equal(uploadAction({...b,sheetId:'other'}).error,'wrong_
 assert.equal(uploadAction({...b,fields:{...b.fields,status:UPLOADED}}).error,'bad_fields');
 assert.equal(uploadAction({...b,fields:{...b.fields,title:''}}).error,'bad_fields');
 assert.equal(uploadAction({...b,fields:{...b.fields,title:'a'.repeat(501)}}).error,'bad_fields');
-reset();b=imageBody();r=uploadAction(b);assert.ok(r.ok);assert.equal(files.length,1);assert.equal(batchCount,1);assert.equal(r.cells.thumbUrl,thumbUrlFor('file0'));assert.ok(Object.values(sheet.formulas).some(v=>v==='ARRAYFORMULA'));
+reset();b=imageBody();r=uploadAction(b);assert.ok(r.ok);assert.equal(files.length,1);assert.equal(batchCount,1);assert.equal(r.cells.thumbUrl,thumbUrlFor('file0'));
 r=uploadAction(b);assert.ok(r.ok);assert.equal(files.length,1);assert.equal(batchCount,1);
 reset();b=imageBody();mode='sharing';r=uploadAction(b);assert.equal(r.error,'image_failed');assert.ok(files[0].trashed);assert.equal(batchCount,0);assert.equal(boardReadRow(sheet,3).title,'old');
 reset();b=imageBody();mode='invalid';r=uploadAction(b);assert.equal(r.error,'commit_failed');assert.equal(boardReadRow(sheet,3).title,'old');assert.ok(files[0].trashed);assert.equal(receipts.length,0);

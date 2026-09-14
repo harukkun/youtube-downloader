@@ -88,6 +88,7 @@
   td .muted { color: var(--muted); font-size: 12px; }
   .st-candidate{ color:#c084fc;border-color:rgba(168,85,247,.45)!important;background-color:rgba(168,85,247,.1)!important; }
   .st-making   { color: var(--info); border-color: rgba(143,166,255,.4) !important; background-color: rgba(143,166,255,.1) !important; }
+  .st-filmed   { color: #2dd4bf; border-color: rgba(45,212,191,.4) !important; background-color: rgba(45,212,191,.1) !important; }
   .st-editing  { color: #5ec8f2; border-color: rgba(94,200,242,.4) !important; background-color: rgba(94,200,242,.1) !important; }
   .st-ready    { color: var(--warn); border-color: rgba(255,176,32,.4) !important; background-color: rgba(255,176,32,.1) !important; }
   .st-uploaded { color: var(--ok); border-color: rgba(62,207,142,.4) !important; background-color: rgba(62,207,142,.1) !important; }
@@ -277,7 +278,7 @@
   const $ = (id) => document.getElementById(id);
   const STATUSES = {{ statuses | tojson }};
   const PLATFORMS = {{ platforms | tojson }};
-  const STATUS_ORDER = ['candidate', 'making', 'editing', 'ready', 'uploaded'].filter(k => k in STATUSES);
+  const STATUS_ORDER = ['candidate', 'making', 'filmed', 'editing', 'ready', 'uploaded'].filter(k => k in STATUSES);
   const PLAT_ORDER = ['youtube', 'instagram', 'tiktok', 'naver_clip'].filter(k => k in PLATFORMS);  // 시트 열 순서와 동일
   // 플랫폼 아이콘 (인라인 SVG, 단순화한 형태)
   const PLAT_ICON = {
@@ -401,7 +402,7 @@
   function renderChips() {
     const counts = Object.fromEntries(STATUS_ORDER.map(k => [k, 0]));
     items.forEach(it => { if (counts[it.status] !== undefined) counts[it.status]++; });
-    const colors = { candidate: '#a855f7', making: 'var(--info)', editing: '#5ec8f2', ready: 'var(--warn)', uploaded: 'var(--ok)' };
+    const colors = { candidate: '#a855f7', making: 'var(--info)', filmed: '#2dd4bf', editing: '#5ec8f2', ready: 'var(--warn)', uploaded: 'var(--ok)' };
     let html = `<button type="button" class="chip ${filters.status === '' ? 'active' : ''}" data-st="">전체 <b>${items.length}</b></button>`;
     for (const k of STATUS_ORDER) {
       html += `<button type="button" class="chip ${filters.status === k ? 'active' : ''}" data-st="${k}"><span class="dot" style="background:${colors[k]}"></span>${esc(STATUSES[k])} <b>${counts[k]}</b></button>`;
@@ -507,6 +508,8 @@
       ${fieldEl('원본 링크','src_url',f.src_url)}
       <div class="form-meta">원본 링크를 바꾸면 원본 제목·채널을 다시 가져옵니다. 직접 수정도 가능합니다.</div>
       ${fieldEl('원본 제목','src_title',f.src_title)}${fieldEl('원본 채널','src_channel',f.src_channel)}
+      ${fieldEl('원본 설명 (촬영 후보 등록 시 참고 영상에서 자동)','src_desc',f.src_desc,{kind:'textarea',full:true,copy:true})}
+      ${fieldEl('원본 고정 댓글','src_pinned',f.src_pinned,{kind:'textarea',full:true,mono:true,copy:true})}
       ${fieldEl('참고 쇼츠 링크 (한 줄에 하나)','ref_urls',f.ref_urls,{kind:'textarea'})}
       ${fieldEl('참고 채널 (링크 변경 시 자동 채움)','ref_channels',f.ref_channels,{kind:'textarea'})}
       <fieldset class="plat-fs full"><legend>업로드 플랫폼</legend><p class="lock-hint">업로드 완료 상태에서만 편집할 수 있습니다.</p>

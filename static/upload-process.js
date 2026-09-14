@@ -110,7 +110,7 @@ if (typeof document !== 'undefined') (async () => {
       const btn=document.createElement('button'), info=document.createElement('span'),title=document.createElement('strong'),desc=document.createElement('small'),badge=document.createElement('span');
       btn.type='button';btn.className='item-option';title.textContent=it.dish_title||it.video?.title||'(제목 없음)';desc.textContent=it.video?.title||'영상 제목은 다음 단계에서 입력합니다.';
       const valid=!!it.item_id && counts.get(it.item_id)===1;
-      badge.className='badge';badge.textContent=valid?({candidate:'촬영 후보',making:'촬영 중',editing:'편집 중',ready:'업로드 대기'}[it.status]||it.status):'항목 ID 확인 필요';
+      badge.className='badge';badge.textContent=valid?({candidate:'촬영 후보',making:'촬영 중',filmed:'촬영 완료',editing:'편집 중',ready:'업로드 대기'}[it.status]||it.status):'항목 ID 확인 필요';
       btn.disabled=!valid||busy||switching||!!state?.pending;info.append(title,desc);btn.append(info,badge);btn.onclick=()=>select(it.item_id);list.append(btn);
     });
   }

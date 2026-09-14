@@ -27,12 +27,12 @@ class ParseTest(unittest.TestCase):
         self.assertEqual(it["source"]["thumbnail"], "https://i.ytimg.com/vi/kRl5OlSq7Sw/hqdefault.jpg")
 
     def test_status_labels_new_and_legacy(self):
-        rows = {"⭐ 촬영 후보": "candidate", "⭐ 후보": "candidate", "⬜ 제작 전": "candidate", "🎬 촬영 중": "making", "🎬 제작 중": "making",
+        rows = {"⭐ 촬영 후보": "candidate", "⭐ 후보": "candidate", "⬜ 제작 전": "candidate", "🎬 촬영 중": "making", "🎬 제작 중": "making", "🎥 촬영 완료": "filmed",
                 "✂️ 편집 중": "editing", "⏳ 업로드 대기": "ready", "제작 완료·업로드 대기": "ready", "✅ 업로드 완료": "uploaded"}
         for label, key in rows.items():
             items = appmod.parse_sheet_items("\n".join([HEADER_GROUP, HEADER, label + "," + ROW.split(",", 1)[1]]))
             self.assertEqual(items[0]["status"], key, label)
-        self.assertEqual(list(appmod.STATUSES), ["candidate", "making", "editing", "ready", "uploaded"])
+        self.assertEqual(list(appmod.STATUSES), ["candidate", "making", "filmed", "editing", "ready", "uploaded"])
 
     def test_old_sheet_without_column(self):
         header = HEADER.rsplit(",", 1)[0]
@@ -139,7 +139,8 @@ class CandidateApiTest(unittest.TestCase):
              patch.object(appmod, "get_upload_setting", return_value=UPLOADER), \
              patch.object(appmod, "apps_script_post", return_value={"ok": True, "item": {"row": 3}}) as post:
             r = self.client.put("/api/shorts/candidates/kRl5OlSq7Sw", json={
-                "url": "https://youtube.com/shorts/kRl5OlSq7Sw", "title": "원본", "channel": "채널"})
+                "url": "https://youtube.com/shorts/kRl5OlSq7Sw", "title": "원본", "channel": "채널",
+                "description": " 참고 설명 ", "pinned_comment": "고정 댓글 본문"})
         self.assertEqual(r.status_code, 200)
         payload = post.call_args.args[1]
         self.assertEqual(payload["action"], "candidate_add")
@@ -148,7 +149,10 @@ class CandidateApiTest(unittest.TestCase):
         self.assertEqual(payload["dishTitle"], "원본")
         self.assertEqual(payload["referenceChannel"], "채널")
         self.assertEqual(payload["referenceUrl"], "https://youtube.com/shorts/kRl5OlSq7Sw")
+        self.assertEqual(payload["description"], "참고 설명")
+        self.assertEqual(payload["pinnedComment"], "고정 댓글 본문")
         self.assertNotIn("title", payload)
+        self.assertNotIn("pinned_comment", payload)
         self.assertNotIn("channel", payload)
         self.assertNotIn("url", payload)
         self.assertEqual(appmod._sheet_cache["at"], 0.0)
