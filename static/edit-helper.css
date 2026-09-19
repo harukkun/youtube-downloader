@@ -14,3 +14,5 @@
   .cooking-preview #ca-player{max-height:28vh}
   #ca-candidates .candidate{scroll-margin-top:calc(28vh + 150px)}
 }
+
+.video-drop-zone{border:1px dashed var(--border);border-radius:9px;padding:12px;min-width:0}.video-drop-zone .hint{margin:0 0 10px}.video-drop-zone.is-dragging{border-color:var(--accent);background:#ff967218}.video-drop-zone:focus-within{border-color:var(--accent)}.video-drop-message{font-size:12px;line-height:1.6;overflow-wrap:anywhere;margin:8px 0 0}.video-drop-message:empty{display:none}.video-drop-message.is-error{color:#ff8d8d}

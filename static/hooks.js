@@ -25,12 +25,17 @@
     $('statusBadge').textContent=statuses[state.status]||state.status;
     $('statusBadge').classList.toggle('is-loading',state.busy);
     $('results').setAttribute('aria-busy',String(state.busy&&state.status==='exporting'));
-    $('export').textContent=state.busy&&state.status==='exporting'?'영상 준비 중…':'선택한 클립 추출';
+    $('export').textContent=state.busy&&state.status==='exporting'?'파일 준비 중…':'선택한 클립 추출';
     $('status').textContent=state.message;
     $('sourceBadge').textContent=hasCues?`${state.cue_count}개 발언 · ${state.subtitle_source==='youtube_auto'?'한국어 자동자막':state.subtitle_source==='youtube_manual'?'한국어 수동자막':state.subtitle_source==='embedded'?'영상 내 자막':'업로드 SRT'}`:'';
+    const transcript=state.transcript||'';
+    if($('transcriptText').value!==transcript)$('transcriptText').value=transcript;
+    $('transcriptText').hidden=!transcript;
+    $('transcriptSource').textContent=transcript?`${$('sourceBadge').textContent} · 가져온 자막 전체를 원본 순서로 표시합니다.`:state.busy?'자막을 확인하고 있습니다.':state.status==='no_subtitles'?'사용 가능한 자막이 없습니다. SRT 파일을 추가해주세요.':'원본을 연결하고 자막을 확인하면 전체 텍스트가 표시됩니다.';
     $('analyze').disabled=busy||!hasCues;$('addManual').disabled=busy||!hasCues;
     $('prepare').disabled=busy;$('newJob').disabled=busy;$('history').disabled=busy;
     $('preview').disabled=busy;$('compat').disabled=busy||!state.preview_kind;
+    $('exportFormat').disabled=busy;
     $('export').disabled=busy||!state.candidates.some(c=>c.selected)||Boolean(state.needs_alignment&&!state.alignment_confirmed);
     $('useUrl').hidden=!state.asset_id||!state.url;$('useUrl').disabled=busy;
     $('syncPanel').hidden=!hasCues;$('alignmentLabel').hidden=!state.needs_alignment;
@@ -74,11 +79,15 @@
         const wrap=el('label',label),input=el('input');input.type='number';input.step='.1';input.value=c[key].toFixed(3);input.disabled=busy;input.setAttribute('aria-label',label+' '+c.text);wrap.append(input);controls.append(wrap);inputs[key]=input;
       }
       const save=el('button','구간 저장','secondary');save.disabled=busy;save.onclick=action(async()=>{await mutate('/candidates/'+c.id,'PATCH',{start:Number(inputs.start.value),end:Number(inputs.end.value)});activeSegment=null;});
-      const preview=el('button','구간 재생','secondary');preview.dataset.segmentId=c.id;preview.disabled=busy&&pendingSegment?.id!==c.id;preview.onclick=action(async()=>{if(pendingSegment?.id===c.id||(activeSegment?.id===c.id&&!$('player').paused)){pendingSegment=null;activeSegment=null;$('player').pause();syncPlaybackButtons();return;}pendingSegment=c;syncPlaybackButtons();if(state.preview_kind){pendingSegment=null;playSegment(c);}else {try{await mutate('/preview','POST',{});}catch(e){pendingSegment=null;syncPlaybackButtons();throw e;}}});
+      const preview=el('button','구간 재생','secondary');preview.dataset.segmentId=c.id;preview.disabled=busy&&pendingSegment?.id!==c.id;preview.onclick=action(async()=>{if(pendingSegment?.id===c.id||(activeSegment?.id===c.id&&!$('player').paused)){pendingSegment=null;activeSegment=null;$('player').pause();syncPlaybackButtons();return;}scrollToPreview();pendingSegment=c;syncPlaybackButtons();if(state.preview_kind){pendingSegment=null;playSegment(c);}else {try{await mutate('/preview','POST',{});}catch(e){pendingSegment=null;syncPlaybackButtons();throw e;}}});
       const remove=el('button','삭제','ghost');remove.disabled=busy;remove.onclick=action(()=>mutate('/candidates/'+c.id,'DELETE'));
       controls.append(save,preview,remove);card.append(controls);target.append(card);
     }
     syncPlaybackButtons();
+  }
+  function scrollToPreview(){
+    const target=$('player').hidden?$('emptyVideo'):$('player');
+    target.scrollIntoView({behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth',block:'center'});
   }
   function syncPlaybackButtons(){
     for(const button of $('candidates').querySelectorAll('[data-segment-id]')){
@@ -92,9 +101,9 @@
   $('player').addEventListener('timeupdate',()=>{if(activeSegment&&$('player').currentTime>=activeSegment.end){if($('loop').checked){$('player').currentTime=Math.max(0,activeSegment.start);}else{$('player').pause();activeSegment=null;}}});
   $('player').addEventListener('error',()=>{if(mediaUrl)showError(new Error('원본을 재생하지 못했습니다. “재생이 안 되나요?”를 눌러 호환 미리보기를 만들어주세요.'));});
   function renderResults(){
-    const target=$('results');target.replaceChildren();if(!state.exports.length){target.textContent='추출한 MP4와 문구·시간 정보를 여기서 다운로드합니다.';return;}
+    const target=$('results');target.replaceChildren();if(!state.exports.length){target.textContent='추출한 영상·오디오와 문구·시간 정보를 여기서 다운로드합니다.';return;}
     for(const batch of [...state.exports].reverse()){
-      const box=el('div',undefined,'result-batch');box.append(el('strong',new Date(batch.created*1000).toLocaleString('ko-KR')));
+      const box=el('div',undefined,'result-batch');box.append(el('strong',new Date(batch.created*1000).toLocaleString('ko-KR')+' · '+(batch.format==='audio'?'오디오 (MP3)':'영상 (MP4)')));
       const href=name=>'/api/hooks'+jobPath('/exports/'+batch.id+'/'+encodeURIComponent(name));
       const complete=batch.complete===true;
       const failedCount=batch.clips.filter(c=>c.status==='error').length;
@@ -102,16 +111,16 @@
         const processing=state.busy&&state.status==='exporting'&&batch.id===state.exports[state.exports.length-1].id;
         const progress=el('div',undefined,'batch-progress');progress.setAttribute('role','status');progress.setAttribute('aria-live','polite');
         if(processing){const spinner=el('span',undefined,'hook-spinner');spinner.setAttribute('aria-hidden','true');progress.append(spinner);}
-        progress.append(el('span',processing?`영상 준비 중 · ${batch.clips.length} / ${batch.total||'?'}개 처리 완료`:'준비가 중단되었습니다. 클립을 다시 선택해 추출해주세요.'));
+        progress.append(el('span',processing?`파일 준비 중 · ${batch.clips.length} / ${batch.total||'?'}개 처리 완료`:'준비가 중단되었습니다. 클립을 다시 선택해 추출해주세요.'));
         box.append(progress);
         if(processing&&batch.total){const bar=el('progress');bar.max=batch.total;bar.value=batch.clips.length;bar.setAttribute('aria-label','클립 준비 진행률');box.append(bar);}
         const waiting=el('button','전체 ZIP · 준비 중','secondary');waiting.disabled=true;box.append(waiting);
       }
       if(complete&&batch.clips.length){const links=el('div',undefined,'result-links');for(const [name,label] of [['clips.zip',failedCount?'성공한 클립 ZIP':'전체 ZIP'],['clips.txt','문구 TXT'],['clips.json','상세 JSON']]){const a=el('a',label);a.href=href(name);links.append(a);}box.append(links);}
 
-      for(const c of batch.clips){const row=el('div',undefined,'result-clip');if(c.status==='finished'){const a=el('a',c.text+' · MP4 ↓');a.href=href(c.filename);row.append(a);}else{row.append(el('span',c.text+' · '+c.error,'result-error'));}box.append(row);}
+      for(const c of batch.clips){const row=el('div',undefined,'result-clip');if(c.status==='finished'){const a=el('a',c.text+(batch.format==='audio'?' · MP3 ↓':' · MP4 ↓'));a.href=href(c.filename);row.append(a);}else{row.append(el('span',c.text+' · '+c.error,'result-error'));}box.append(row);}
       const failed=batch.clips.filter(c=>c.status==='error');
-      if(failed.length){const retry=el('button','실패한 '+failed.length+'개 재시도','secondary');retry.disabled=state.busy;retry.onclick=action(()=>mutate('/export','POST',{candidate_ids:failed.map(c=>c.id)}));box.append(retry);}
+      if(failed.length){const retry=el('button','실패한 '+failed.length+'개 재시도','secondary');retry.disabled=state.busy;retry.onclick=action(()=>mutate('/export','POST',{candidate_ids:failed.map(c=>c.id),format:batch.format||'mp4'}));box.append(retry);}
       target.append(box);
     }
   }
@@ -157,7 +166,7 @@
   $('markStart').onclick=()=>{$('manualStart').value=$('player').currentTime.toFixed(1);};
   $('markEnd').onclick=()=>{$('manualEnd').value=$('player').currentTime.toFixed(1);};
   $('addManual').onclick=action(async()=>{await mutate('/candidates','POST',{text:$('manualText').value,start:Number($('manualStart').value),end:Number($('manualEnd').value)});$('manualText').value='';});
-  $('export').onclick=action(()=>mutate('/export','POST',{candidate_ids:state.candidates.filter(c=>c.selected).map(c=>c.id)}));
+  $('export').onclick=action(()=>mutate('/export','POST',{candidate_ids:state.candidates.filter(c=>c.selected).map(c=>c.id),format:$('exportFormat').value}));
   $('useUrl').onclick=action(async()=>{await mutate('/source','POST',{asset_id:null});mediaUrl='';activeSegment=null;await mutate('/preview','POST',{});});
   async function loadHistory(){const data=await api('/jobs');$('history').replaceChildren(new Option('작업 선택',''));for(const job of data.jobs)$('history').append(new Option(job.video_name||job.youtube_title||job.url,job.id));if(state)$('history').value=state.id;}
   $('history').onchange=action(async()=>{if(!$('history').value)return;activeSegment=null;pendingSegment=null;apply(await api('/jobs/'+$('history').value));$('sourceUrl').value=state.url;});

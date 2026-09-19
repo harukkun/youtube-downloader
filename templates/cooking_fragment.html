@@ -3,7 +3,7 @@
 <div class="hook-layout"><aside>
 <section class="card"><h2>01 · 원본 가져오기</h2>
 <label for="ca-hook">후킹 클립의 원본 재사용</label><select id="ca-hook"><option value="">작업 선택</option></select><button id="ca-import" class="secondary wide">선택한 원본·자막 가져오기</button>
-<label for="ca-file">원본 영상 · MP4 / MOV</label><input id="ca-file" type="file" accept=".mp4,.mov">
+<label for="ca-file">원본 영상 · MP4 / MOV</label><div class="video-drop-zone" data-video-drop><p class="hint" id="ca-file-drop-hint">영상을 여기에 끌어다 놓거나 파일을 선택하세요.</p><input id="ca-file" type="file" accept=".mp4,.mov" aria-describedby="ca-file-drop-hint"><p class="video-drop-message" role="status" aria-live="polite"></p></div>
 <label for="ca-url">YouTube URL</label><input id="ca-url" type="url" placeholder="https://www.youtube.com/watch?v=…">
 <label for="ca-srt">자막 · SRT (선택)</label><input id="ca-srt" type="file" accept=".srt">
 <p class="hint">SRT → 영상 자막 → 한국어 YouTube 자막 순서로 확인합니다. 자막이 없으면 로컬 음성 인식을 실행합니다.</p>

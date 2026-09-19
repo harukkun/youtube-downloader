@@ -146,7 +146,9 @@ class Service:
 
     def public(self, state):
         state = json.loads(json.dumps(state))
-        state['cue_count'] = len(state.pop('cues'))
+        cues = state.pop('cues')
+        state['cue_count'] = len(cues)
+        state['transcript'] = '\n'.join(c.get('original_text', c['text']) for c in cues)
         for c in state['candidates']:
             c['start'], c['end'] = self.timing(state, c)
         state['candidates'].sort(key=lambda c: c['start'])
@@ -196,7 +198,9 @@ class Service:
             raise FileNotFoundError('미리보기를 다시 준비해주세요.')
         return path
 
-    def export(self, ident, requested):
+    def export(self, ident, requested, export_format='mp4'):
+        if export_format not in ('mp4', 'audio'):
+            raise ValueError('추출 형식은 mp4 또는 audio를 선택해주세요.')
         source = self.source(ident)
         state = self.store.read('jobs', ident)
         info = media.probe(source)
@@ -208,11 +212,14 @@ class Service:
         candidates = [c for c in state['candidates'] if c['id'] in requested]
         if len(candidates) != len(set(requested)) or not candidates:
             raise ValueError('추출할 후보를 선택해주세요.')
+        if export_format == 'audio' and not info['audio_codec']:
+            raise ValueError('원본 영상에 오디오 트랙이 없습니다.')
+        extension = 'mp3' if export_format == 'audio' else 'mp4'
         bid = uid()
         directory = self.store.directory('jobs', ident) / 'exports' / bid
         directory.mkdir(parents=True)
         records = []
-        batch = {'id': bid, 'created': time.time(), 'clips': records, 'total': len(candidates), 'complete': False}
+        batch = {'id': bid, 'created': time.time(), 'clips': records, 'total': len(candidates), 'complete': False, 'format': export_format}
         self.store.update(ident, exports=state['exports'] + [batch])
         for i, c in enumerate(candidates):
             start, end = self.timing(state, c)
@@ -221,16 +228,17 @@ class Service:
                       'video_asset_id': state['asset_id'], 'video_sha256': asset.get('sha256'),
                       'subtitle_source': state['subtitle_source'], 'subtitle_url': state['url'] if state['subtitle_source'].startswith('youtube') else None,
                       'subtitle_start': c.get('subtitle_start'), 'subtitle_end': c.get('subtitle_end'),
-                      'offset': state['offset'] if c['origin'] == 'auto' else 0, 'start': start, 'end': end}
+                      'offset': state['offset'] if c['origin'] == 'auto' else 0, 'start': start, 'end': end, 'format': export_format}
             label = re.sub(r'[\x00-\x1f<>:"/\\|?*]', '', unicodedata.normalize('NFC', c['text']))[:40].strip(' .') or '후킹'
-            name = f'{label}_{stamp(start, True)}-{stamp(end, True)}.mp4'
+            name = f'{label}_{stamp(start, True)}-{stamp(end, True)}.{extension}'
             if (directory / name).exists():
-                name = f'{Path(name).stem}_{i + 1}.mp4'
+                name = f'{Path(name).stem}_{i + 1}.{extension}'
             self.store.update(ident, message=f'클립 추출 {i + 1}/{len(candidates)} · {label}')
             try:
                 if not 0 <= start < end <= info['duration']:
                     raise ValueError('구간이 원본 영상 범위를 벗어납니다. 시간을 조정해주세요.')
-                media.encode(source, directory / name, start, end)
+                encoder = media.encode_audio if export_format == 'audio' else media.encode
+                encoder(source, directory / name, start, end)
                 record.update(filename=name, status='finished')
             except Exception as e:
                 record.update(status='error', error=str(e))

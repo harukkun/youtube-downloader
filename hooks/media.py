@@ -142,3 +142,19 @@ def encode(source, output, start=None, end=None, preview=False):
         except Exception:
             output.unlink(missing_ok=True)
             raise
+
+
+def encode_audio(source, output, start, end):
+    args = ['ffmpeg', '-v', 'error', '-y', '-ss', str(start), '-i', str(source),
+            '-t', str(end - start), '-map', '0:a:0', '-vn', '-sn', '-dn',
+            '-map_metadata', '-1', '-c:a', 'libmp3lame', '-b:a', '192k', str(output)]
+    with ENCODING:
+        try:
+            run(args, 3600)
+            data = json.loads(run(['ffprobe', '-v', 'error', '-show_format', '-show_streams',
+                                   '-of', 'json', str(output)], 60))
+            if not any(s['codec_type'] == 'audio' for s in data['streams']) or float(data['format'].get('duration', 0)) <= 0:
+                raise ValueError('추출한 오디오 파일을 확인할 수 없습니다.')
+        except Exception:
+            output.unlink(missing_ok=True)
+            raise

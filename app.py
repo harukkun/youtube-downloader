@@ -2025,18 +2025,47 @@ def get_recipe_settings() -> dict:
         return recipe_defaults()
 
 
+def find_codex_cli() -> str | None:
+    """PATH가 없는 서버에서도 설치된 Codex 실행 파일을 찾는다."""
+    configured = os.environ.get("CODEX_CLI_PATH")
+    if configured:
+        path = Path(configured).expanduser()
+        return str(path) if path.is_file() and os.access(path, os.X_OK) else None
+
+    executable = shutil.which("codex")
+    if executable:
+        return executable
+
+    candidates = (
+        "/opt/homebrew/bin/codex",
+        "/usr/local/bin/codex",
+        "/Applications/Codex.app/Contents/Resources/codex",
+        "/Applications/ChatGPT.app/Contents/Resources/codex",
+        str(Path.home() / "Applications/Codex.app/Contents/Resources/codex"),
+        str(Path.home() / "Applications/ChatGPT.app/Contents/Resources/codex"),
+    )
+    for candidate in candidates:
+        path = Path(candidate)
+        if path.is_file() and os.access(path, os.X_OK):
+            return str(path)
+    return None
+
+
 def llm_environment() -> dict:
     return {
         "cli_available": shutil.which("claude") is not None,
-        "codex_available": shutil.which("codex") is not None,
+        "codex_available": find_codex_cli() is not None,
         "api_key_set": bool(os.environ.get("ANTHROPIC_API_KEY")),
     }
 
 
 def _llm_via_codex(system: str, user: str, schema: dict, model: str) -> dict:
-    exe = shutil.which("codex")
+    exe = find_codex_cli()
     if not exe:
-        raise RuntimeError("Codex CLI를 찾을 수 없습니다. 설치 후 codex login을 실행해 주세요.")
+        raise RuntimeError(
+            "서버에서 Codex CLI를 찾을 수 없습니다. "
+            "CODEX_CLI_PATH에 실행 파일의 절대 경로를 지정한 뒤 서버를 재시작해 주세요."
+        )
     started = time.monotonic()
     with tempfile.TemporaryDirectory(prefix="recipe-codex-") as directory:
         schema_path = Path(directory) / "schema.json"

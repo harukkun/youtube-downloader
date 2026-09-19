@@ -361,7 +361,10 @@ def install(app, llm, settings):
         ids = data.get('candidate_ids')
         if not isinstance(ids, list) or not ids or not all(isinstance(i, str) for i in ids):
             raise ValueError('추출할 후보를 선택해주세요.')
-        return jsonify(s.public(s.start(ident, 'exporting', lambda: s.export(ident, ids))))
+        export_format = data.get('format', 'mp4')
+        if export_format not in ('mp4', 'audio'):
+            raise ValueError('추출 형식은 mp4 또는 audio를 선택해주세요.')
+        return jsonify(s.public(s.start(ident, 'exporting', lambda: s.export(ident, ids, export_format))))
 
     @bp.get('/api/hooks/jobs/<ident>/exports/<bid>/<name>')
     @guarded

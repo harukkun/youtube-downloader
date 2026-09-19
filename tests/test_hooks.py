@@ -97,6 +97,19 @@ class HooksTest(unittest.TestCase):
             time.sleep(.05)
         self.fail('job timeout')
 
+    def test_full_transcript_available_before_analysis_and_after_reload(self):
+        ident = self.create(srt=False, url='https://youtu.be/ylPj5BQw5cs')
+        endpoint = f'/api/hooks/jobs/{ident}'
+        self.assertEqual(self.client.get(endpoint).get_json()['transcript'], '')
+        with patch('hooks.media.remote_info', return_value={'duration':8,'title':'test'}), patch('hooks.media.remote_subtitle', return_value=(SRT.encode(), 'srt', 'youtube_auto')):
+            self.client.post(endpoint + '/prepare')
+            state = self.wait(ident)
+        self.assertEqual(state['transcript'], '진짜 맛있어요\n꼭 만들어 보세요\n설탕을 넣으세요')
+        self.assertEqual(state['candidates'], [])
+        self.assertEqual(self.client.get(endpoint).get_json()['transcript'], state['transcript'])
+        changed = self.client.post(endpoint + '/source', json={'url':'https://youtu.be/abcdefghijk'}).get_json()
+        self.assertEqual(changed['transcript'], '')
+
     def test_hook_endpoints_inherit_login_and_origin_protection(self):
         import os
         from flask import Flask
@@ -194,6 +207,38 @@ class HooksTest(unittest.TestCase):
         self.assertEqual(self.client.get(uri+'/anything').status_code,404)
         with self.client.get(uri+'/clips.json') as response:saved=response.get_json(force=True)
         self.assertEqual(saved[0]['origin'],'manual');self.assertIsNone(saved[0]['subtitle_start'])
+
+    def test_audio_export_download_and_zip(self):
+        import io
+        import zipfile
+        ident = self.create()
+        endpoint = f'/api/hooks/jobs/{ident}'
+        state = self.client.post(endpoint + '/candidates', json={'text':'오디오 테스트','start':1.4,'end':3.1}).get_json()
+        ids = [state['candidates'][0]['id']]
+        for invalid in ('wav', '', None, []):
+            self.assertEqual(self.client.post(endpoint + '/export', json={'candidate_ids':ids,'format':invalid}).status_code, 400)
+        self.assertEqual(self.client.post(endpoint + '/export', json={'candidate_ids':ids,'format':'audio'}).status_code, 200)
+        state = self.wait(ident)
+        batch = state['exports'][-1]
+        self.assertTrue(batch['complete'])
+        self.assertEqual(batch['format'], 'audio')
+        record = batch['clips'][0]
+        self.assertEqual(record['status'], 'finished', record)
+        self.assertTrue(record['filename'].endswith('.mp3'))
+        path = Path(self.tmp.name)/'jobs'/ident/'exports'/batch['id']/record['filename']
+        info = json.loads(media.run(['ffprobe','-v','error','-show_format','-show_streams','-of','json',str(path)]))
+        self.assertEqual([s['codec_type'] for s in info['streams']], ['audio'])
+        self.assertEqual(info['streams'][0]['codec_name'], 'mp3')
+        self.assertAlmostEqual(float(info['format']['duration']), 1.7, delta=.15)
+        uri = endpoint + '/exports/' + batch['id']
+        with self.client.get(uri + '/' + record['filename']) as response:
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.mimetype, 'audio/mpeg')
+            self.assertEqual(response.data, path.read_bytes())
+        with self.client.get(uri + '/clips.zip') as response:
+            with zipfile.ZipFile(io.BytesIO(response.data)) as archive:
+                self.assertEqual(set(archive.namelist()), {record['filename'], 'clips.json', 'clips.txt'})
+                self.assertEqual(json.loads(archive.read('clips.json'))[0]['format'], 'audio')
 
     def test_alignment_requires_preview_and_range_rejection(self):
         ident=self.create(url='https://youtu.be/ylPj5BQw5cs')

@@ -83,6 +83,23 @@ class RecipeHelperTest(unittest.TestCase):
         self.assertTrue(any("유튜브" in note and "초과" in note for note in notes))
         self.assertTrue(any("틱톡" in note and "초과" in note for note in notes))
 
+    def test_finds_chatgpt_bundled_codex_when_path_is_missing(self):
+        bundled = "/Applications/ChatGPT.app/Contents/Resources/codex"
+        with patch.dict(appmod.os.environ, {}, clear=True), \
+                patch.object(appmod.shutil, "which", return_value=None), \
+                patch.object(appmod.Path, "is_file", lambda path: str(path) == bundled), \
+                patch.object(appmod.os, "access", return_value=True):
+            self.assertEqual(appmod.find_codex_cli(), bundled)
+            self.assertTrue(appmod.llm_environment()["codex_available"])
+
+    def test_explicit_codex_path_requires_an_executable_file(self):
+        with patch.dict(appmod.os.environ, {"CODEX_CLI_PATH": "/custom/codex"}), \
+                patch.object(appmod.Path, "is_file", return_value=True), \
+                patch.object(appmod.os, "access", return_value=True):
+            self.assertEqual(appmod.find_codex_cli(), "/custom/codex")
+            with patch.object(appmod.os, "access", return_value=False):
+                self.assertIsNone(appmod.find_codex_cli())
+
     def test_rejects_invalid_additional_information(self):
         response = self.post(additional_info=[{}] * 13)
         self.assertEqual(response.status_code, 400)
