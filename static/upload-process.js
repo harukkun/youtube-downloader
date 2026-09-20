@@ -94,13 +94,33 @@ if (typeof document !== 'undefined') (async () => {
     $('existingThumbInfo').textContent=existing?'현황판에 등록된 썸네일':'기존 썸네일이 없습니다.';
   }
   function review() {
+    $('reviewCopyStatus').textContent='';
     const dl=$('reviewFields');dl.replaceChildren();
     for(const [key,label] of Object.entries({title:'영상 제목',src_url:'원본 링크',ref_urls:'참고 쇼츠 링크',memo:'메모'})){
       const dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=label;dd.textContent=fields()[key]||'—';dl.append(dt,dd);
+      if(key==='title'){
+        const button=document.createElement('button');button.type='button';button.className='secondary review-copy';button.textContent='복사';button.setAttribute('aria-label','영상 제목 복사');
+        dt.classList.add('review-heading');dt.append(button);button.onclick=()=>copyReview(dd.textContent,label,button);
+      }
     }
     $('reviewDescription').textContent=recipe.snapshot().results.youtube;
     if(previewURL)$('reviewThumbnail').src=previewURL;
   }
+  async function copyReview(text,label,button) {
+    const status=$('reviewCopyStatus');status.textContent='';button.disabled=true;
+    try{
+      try{await navigator.clipboard.writeText(text);}
+      catch{
+        const field=document.createElement('textarea'),previous=document.activeElement;
+        field.value=text;field.readOnly=true;field.style.cssText='position:fixed;left:-9999px;top:0';document.body.append(field);
+        try{field.select();if(!document.execCommand('copy'))throw new Error('Copy failed');}
+        finally{field.remove();previous?.focus({preventScroll:true});}
+      }
+      status.textContent=label+'을 복사했습니다.';
+    }catch{status.textContent='복사하지 못했습니다. 텍스트를 직접 선택해 복사해 주세요.';}
+    finally{button.disabled=false;}
+  }
+  $('copyReviewDescription').onclick=()=>copyReview($('reviewDescription').textContent,'유튜브 설명글',$('copyReviewDescription'));
   function renderItems() {
     const query=$('itemSearch').value.trim().toLowerCase(), list=$('itemList');list.replaceChildren();
     const counts=new Map();items.forEach(it=>counts.set(it.item_id,(counts.get(it.item_id)||0)+1));
