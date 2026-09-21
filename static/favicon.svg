@@ -1,4 +1,26 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect x="4" y="12" width="56" height="40" rx="12" fill="#ff3d3d"/>
-  <path d="M26 22 L44 32 L26 42 Z" fill="#fff"/>
+  <defs>
+    <linearGradient id="body" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6d28d9"/>
+      <stop offset="1" stop-color="#3730a3"/>
+    </linearGradient>
+    <clipPath id="clapClip"><rect x="7" y="9" width="50" height="12" rx="4"/></clipPath>
+  </defs>
+  <!-- 슬레이트 본체 -->
+  <rect x="7" y="24" width="50" height="34" rx="7" fill="url(#body)"/>
+  <!-- 본체 위 컷 라인 -->
+  <path d="M15 35 H49" stroke="#c4b5fd" stroke-width="4" stroke-linecap="round"/>
+  <path d="M15 45 H36" stroke="#c4b5fd" stroke-width="4" stroke-linecap="round" opacity=".7"/>
+  <!-- 열린 클래퍼(윗판): 왼쪽 힌지를 축으로 살짝 들림 -->
+  <g transform="rotate(-10 9 24)">
+    <rect x="7" y="9" width="50" height="12" rx="4" fill="#312e81"/>
+    <g clip-path="url(#clapClip)" fill="#fbbf24">
+      <path d="M11 9 L19 9 L12 21 L4 21 Z"/>
+      <path d="M27 9 L35 9 L28 21 L20 21 Z"/>
+      <path d="M43 9 L51 9 L44 21 L36 21 Z"/>
+      <path d="M59 9 L67 9 L60 21 L52 21 Z"/>
+    </g>
+  </g>
+  <!-- 힌지 -->
+  <circle cx="11" cy="24" r="3.2" fill="#fbbf24"/>
 </svg>
