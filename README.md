@@ -375,9 +375,10 @@ node tests/test_board_edit.js
 설치한 뒤 `NODE_PATH` 로 연결합니다. 로컬에서 같은 검사를 하려면 Playwright 를 설치한
 Node 환경에서 fixture 를 먼저 띄운 뒤 해당 테스트를 실행하세요.
 
-조리 대사 추출 브라우저 검사(`tests/test_cooking_browser.js`)는 현재 실패해서 결과만
-남기고 전체 검사를 막지는 않습니다. 고친 뒤 워크플로에서 `continue-on-error` 를 지우면
-다시 강제됩니다.
+조리 대사 추출 브라우저 검사(`tests/test_cooking_browser.js`)는 새로 띄운 fixture 에서
+실패합니다. `main` 에서도 같은 지점에서 실패하지만 시간에 좌우돼 CI 에서는 통과하기도
+합니다. 원인을 밝히기 전까지는 결과만 남기고 전체 검사를 막지 않습니다. 고친 뒤
+워크플로에서 `continue-on-error` 를 지우면 다시 강제됩니다.
 
 
 ## 업로드 프로세스

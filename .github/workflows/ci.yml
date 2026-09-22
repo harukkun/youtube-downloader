@@ -121,9 +121,10 @@ jobs:
           }
           run_suite tests/upload_browser_fixture.py 8877 tests/test_upload_browser.js
           run_suite tests/hooks_browser_fixture.py 8878 tests/test_hooks_browser.js
-      # 아래 검사는 현재 main 에서도 실패한다(탭 전환 뒤 조리 패널이 그대로 보임).
-      # 고친 뒤 continue-on-error 를 지워 검사를 강제로 되돌리세요.
-      - name: 브라우저 테스트 (조리 대사 추출, 알려진 실패)
+      # 아래 검사는 새로 띄운 fixture 에서 탭을 바꿔도 조리 패널이 그대로 보여 실패한다.
+      # main 에서도 같은 지점에서 실패하므로 이 브랜치가 만든 문제가 아니다. 다만 시간에
+      # 좌우돼 CI 에서는 통과하기도 한다. 원인을 밝히기 전까지 결과만 남기고 막지 않는다.
+      - name: 브라우저 테스트 (조리 대사 추출, 불안정)
         continue-on-error: true
         env:
           NODE_PATH: ${{ runner.temp }}/pw/node_modules
