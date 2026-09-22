@@ -267,6 +267,7 @@ youtube-downloader/
 │   ├── thumbnail.js      쇼츠 썸네일 만들기 (Canvas 편집·저장)
 │   └── thumb-upload.js   썸네일을 현황판(시트)에 등록하는 공용 스크립트 (/shorts, /helper)
 ├── tests/                unittest (접근 제어, 현황판 파싱·썸네일 등록 API, 레퍼 체크·시트 동기화)
+├── .github/workflows/    깃허브 액션 CI (파이썬·노드·브라우저 검사)
 ├── requirements.txt      flask, yt-dlp, anthropic(선택)
 ├── run.sh                가상환경 생성 + 서버 실행 스크립트
 └── .venv/                가상환경 (자동 생성, git 제외 대상)
@@ -358,6 +359,25 @@ node tests/test_reference_layout.js
 node tests/test_board_script.js
 node tests/test_board_edit.js
 ```
+
+### 자동 검사 (CI)
+
+`main` 에 푸시하거나 풀 리퀘스트를 열면 깃허브 액션이 검사를 대신 돌립니다
+(`.github/workflows/ci.yml`). 세 갈래로 나뉩니다.
+
+| 작업 | 내용 |
+| --- | --- |
+| 파이썬 테스트 | `python -m unittest discover` 를 3.10 과 3.14 에서 각각 실행 |
+| 노드 테스트 | 브라우저 없이 도는 Apps Script·프런트 스크립트 검사 5종 |
+| 브라우저 테스트 | fixture 서버를 띄우고 Playwright 로 업로드 프로세스·후킹 클립 흐름 확인 |
+
+브라우저 작업은 저장소에 `package.json` 을 두지 않으려고 체크아웃 밖에 Playwright 를
+설치한 뒤 `NODE_PATH` 로 연결합니다. 로컬에서 같은 검사를 하려면 Playwright 를 설치한
+Node 환경에서 fixture 를 먼저 띄운 뒤 해당 테스트를 실행하세요.
+
+조리 대사 추출 브라우저 검사(`tests/test_cooking_browser.js`)는 현재 실패해서 결과만
+남기고 전체 검사를 막지는 않습니다. 고친 뒤 워크플로에서 `continue-on-error` 를 지우면
+다시 강제됩니다.
 
 
 ## 업로드 프로세스
