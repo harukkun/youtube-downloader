@@ -110,6 +110,34 @@ class UploadProcessTest(unittest.TestCase):
             self.assertEqual(self.post().json['code'], 'commit_unknown')
             self.assertEqual(m._recent_edits, [])
 
+    def test_youtube_link_is_derived_from_a_finished_job(self):
+        job = {'video_id': 'abcdefghijk', 'status': 'done'}
+        payload = self.payload(); payload['youtube_job_id'] = '0' * 32
+        with patch.object(m, 'youtube_job_for_submit', return_value=job) as lookup, \
+             patch.object(m, 'apps_script_post', return_value={**self.result, 'cells': {**self.cells, 'youtubeUrl': 'https://youtu.be/abcdefghijk'}}) as post:
+            r = self.post(payload)
+            self.assertEqual(r.status_code, 200, r.json)
+            self.assertEqual(lookup.call_args.args, ('0' * 32, 'item', m.upload_connection()))
+            body = post.call_args.args[1]
+            self.assertEqual(body['youtubeUrl'], 'https://youtu.be/abcdefghijk')
+            self.assertNotIn('youtubeUrl', body['fields'])
+            self.assertEqual(r.json['warnings'], [])
+        # Apps Script older than v15 ignores the key: the link is reported back instead of silently lost.
+        with patch.object(m, 'youtube_job_for_submit', return_value=job), patch.object(m, 'apps_script_post', return_value=self.result):
+            r = self.post(payload)
+            self.assertEqual(r.status_code, 200)
+            self.assertTrue(any('https://youtu.be/abcdefghijk' in w and '15' in w for w in r.json['warnings']))
+        # No finished job for this item: refuse before touching the sheet.
+        with patch.object(m, 'youtube_job_for_submit', return_value=None), patch.object(m, 'apps_script_post') as post:
+            r = self.post(payload)
+            self.assertEqual((r.status_code, r.json['code']), (409, 'youtube_job_invalid'))
+            post.assert_not_called()
+        # A browser-supplied URL is not accepted at all.
+        payload = self.payload(); payload['youtube_url'] = 'https://youtu.be/abcdefghijk'
+        with patch.object(m, 'apps_script_post') as post:
+            self.assertEqual(self.post(payload).status_code, 400)
+            post.assert_not_called()
+
     def test_connection_detects_writer_or_tab_change(self):
         original = m.upload_connection()
         with patch.object(m,'get_upload_setting',return_value={**WRITER,'token':'rotated'}):

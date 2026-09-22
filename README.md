@@ -357,7 +357,13 @@ node tests/test_board_edit.js
 
 `/upload-process`에서 미완료 항목 선택 → 영상 기본 정보 → SNS 설명글 확정 → 썸네일 확정 → 최종 승인 순서로 진행합니다. 유튜브용 결과가 현황판의 설명 열에 저장되며, 최종 승인 전에는 시트를 쓰지 않습니다. 초안과 확정한 이미지는 이 브라우저에 보관됩니다. 기존 업로드 헬퍼도 계속 사용할 수 있습니다.
 
-Apps Script 버전 11과 고급 Google Sheets 서비스가 필요합니다. 실제 시트 설정과 배포는 사용자가 직접 진행하세요: [순서별 설정 TODO](docs/upload-process-setup.md).
+Apps Script 버전 15와 고급 Google Sheets 서비스가 필요합니다. 실제 시트 설정과 배포는 사용자가 직접 진행하세요: [순서별 설정 TODO](docs/upload-process-setup.md).
+
+### 유튜브 업로드 (YouTube Data API)
+
+최종 확인 단계에서 영상 파일(MP4·MOV)을 선택하면 편집 헬퍼의 청크 업로드로 서버에 올린 뒤 YouTube Data API 로 **비공개** 업로드하고, 성공하면 현황판 제출에 ▶️ 유튜브 체크와 게시 링크를 함께 기록합니다. 상단 **유튜브 채널 연결**에서 Google Cloud OAuth 클라이언트(웹 애플리케이션) JSON 을 저장하고 Google 계정을 연결합니다. 연결은 로컬(127.0.0.1)에서만 할 수 있고, 갱신 토큰은 `~/.youtube-downloader/youtube_credentials.json`(권한 600)에 저장되어 공개 모드에서도 사용됩니다.
+
+YouTube API 규정 준수 감사(compliance audit)를 통과하지 않은 프로젝트로 올린 영상은 비공개로 잠기고 공개로 바꿀 수 없습니다. 그래서 **감사 승인 완료** 토글을 켜기 전에는 테스트 업로드만 하고 현황판에는 제출하지 않습니다. 쇼츠 썸네일은 API 로 설정을 시도하며, 반영 여부는 YouTube Studio 에서 확인합니다. 설정 절차와 문제 해결은 [순서별 설정 TODO](docs/upload-process-setup.md)의 v15 절, 설계는 [유튜브 업로드 계획](docs/youtube-upload-plan.md)을 참고하세요.
 
 ## 후킹 클립 (`/edit-helper`)
 

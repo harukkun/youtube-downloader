@@ -81,6 +81,59 @@ const base='http://127.0.0.1:8877';
  await p.addInitScript(()=>Object.defineProperty(indexedDB,'open',{value:()=>{throw new Error('quota');}}));
  await choose();await p.waitForFunction(()=>document.getElementById('draftStatus').textContent.includes('보관하지 못했습니다'));
  assert.equal(await p.locator('#videoTitle').inputValue(),'완성한 김치볶음밥');await c.close();
+ // YouTube upload → sheet submit records the link; the video travels through the hooks upload transport.
+ ({c,p}=await context());await control({reset:true});
+ const mp4=await (await p.request.get(base+'/_test/video')).body();
+ async function toReview(){await choose(1);await generate();await p.locator('#useExisting').click();await p.locator('#nextStep').click();await p.locator('#reviewDescription').waitFor({state:'visible'});}
+ await toReview();
+ assert.equal(await p.locator('#uploadAndSubmit').isHidden(),true);
+ assert.ok((await p.locator('#titleYoutubeHint').innerText()).includes('/100자'));
+ await p.locator('#videoFile').setInputFiles({name:'clip.mp4',mimeType:'video/mp4',buffer:mp4});
+ await p.locator('#uploadAndSubmit').waitFor({state:'visible'});
+ assert.equal(await p.locator('#submitProcess').innerText(),'영상 없이 현황판에만 제출');
+ await p.screenshot({path:'/tmp/upload-process-youtube.png',fullPage:true});
+ p.once('dialog',d=>d.accept());await p.locator('#uploadAndSubmit').click();
+ await p.locator('#completed').waitFor({state:'visible',timeout:30000});
+ let st=await status();
+ assert.equal(st.inserts,1);assert.equal(st.thumbnails,0); // existing-thumbnail mode never pushes a thumbnail
+ assert.equal(st.records['item-1'].youtubeUrl,'https://youtu.be/fixture0001');assert.equal(st.records['item-1'].youtubeOn,true);
+ assert.ok((await p.locator('#completedInfo').innerText()).includes('https://youtu.be/fixture0001'));
+ await c.close();
+ // Lost sheet response after a successful YouTube upload: recovery must not upload the video twice.
+ ({c,p}=await context());await control({reset:true});await toReview();
+ await p.locator('#videoFile').setInputFiles({name:'clip.mp4',mimeType:'video/mp4',buffer:mp4});
+ await control({mode:'lost'});p.once('dialog',d=>d.accept());await p.locator('#uploadAndSubmit').click();
+ await p.locator('#recovery').waitFor({state:'visible',timeout:30000});
+ await p.reload();await p.locator('#completed').waitFor({state:'visible'});
+ st=await status();assert.equal(st.inserts,1);assert.equal(st.posts,1);assert.equal(st.records['item-1'].youtubeUrl,'https://youtu.be/fixture0001');
+ await c.close();
+ // API failure keeps the draft, offers a retry, and the retried job records the link.
+ ({c,p}=await context());await control({reset:true,yt_fail:true});await toReview();
+ await p.locator('#videoFile').setInputFiles({name:'clip.mp4',mimeType:'video/mp4',buffer:mp4});
+ p.once('dialog',d=>d.accept());await p.locator('#uploadAndSubmit').click();
+ await p.locator('#youtubeRetry').waitFor({state:'visible',timeout:30000});
+ assert.ok((await p.locator('#youtubeMetaHint').innerText()).includes('한도'));
+ assert.equal(await p.locator('#videoTitle').inputValue(),'완성한 김치볶음밥');assert.equal((await status()).posts,0);
+ await control({yt_fail:false});await p.locator('#youtubeRetry').click();
+ await p.locator('#completed').waitFor({state:'visible',timeout:30000});
+ st=await status();assert.equal(st.inserts,2);assert.equal(st.records['item-1'].youtubeOn,true); // a retry opens a new upload session
+ await c.close();
+ // Test mode (audit not passed): upload only, no sheet submit, banner shown.
+ ({c,p}=await context());await control({reset:true,youtube:'connected',audit:false});await toReview();
+ assert.equal(await p.locator('#youtubeTestBanner').isVisible(),true);
+ await p.locator('#videoFile').setInputFiles({name:'clip.mp4',mimeType:'video/mp4',buffer:mp4});
+ assert.equal(await p.locator('#uploadAndSubmit').innerText(),'테스트 업로드 (현황판 제출 없음)');
+ p.once('dialog',d=>d.accept());await p.locator('#uploadAndSubmit').click();
+ await p.locator('#youtubeDone').waitFor({state:'visible',timeout:30000});
+ st=await status();assert.equal(st.inserts,1);assert.equal(st.posts,0);assert.equal(st.records['item-1'].status,'✂️ 편집 중');
+ assert.equal(await p.locator('#completed').isVisible(),false);
+ await p.reload();await p.locator('#youtubeDone').waitFor({state:'visible'}); // adopted from the server, no client storage
+ await c.close();
+ // Not connected: the classic sheet-only submit is the only action and keeps its wording.
+ ({c,p}=await context());await control({reset:true,youtube:'disconnected'});await toReview();
+ assert.equal(await p.locator('#uploadAndSubmit').isHidden(),true);assert.equal(await p.locator('#youtubePick').isHidden(),true);
+ assert.equal(await p.locator('#submitProcess').innerText(),'현황판에 제출');assert.equal(await p.locator('#submitProcess').isDisabled(),false);
+ await c.close();
  // Existing helper still initializes, generates and switches tools.
  ({c,p}=await context());await control({reset:true});await p.goto(base+'/helper');await p.locator('#srcText').fill('김치 100g 밥 1공기 식용유 1T를 3분 볶는다.');
  await p.locator('#genBtn').click();await p.waitForFunction(()=>RecipeEditor.valid());
@@ -88,5 +141,5 @@ const base='http://127.0.0.1:8877';
  await p.waitForFunction(()=>!document.getElementById('export').disabled);
  await Promise.all([p.waitForEvent('download'),p.locator('#export').click()]);
  assert.deepEqual(errors,[]);await c.close();await browser.close();
- console.log('Browser desktop/mobile funnel, drafts, confirmation, lost responses, retry, conflict and helper regression passed.');
+ console.log('Browser desktop/mobile funnel, drafts, confirmation, lost responses, retry, conflict, YouTube upload flows and helper regression passed.');
 })().catch(e=>{console.error(e);process.exit(1)});

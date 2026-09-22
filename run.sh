@@ -18,7 +18,7 @@ fi
 STAMP=.venv/.requirements.stamp
 if [ ! -f "$STAMP" ] || [ requirements.txt -nt "$STAMP" ]; then
   echo "▶ 의존성 설치 중..."
-  .venv/bin/pip install -q -r requirements.txt && touch "$STAMP"
+  if .venv/bin/pip install -q -r requirements.txt; then touch "$STAMP"; else echo "⚠️  의존성 설치에 실패했습니다. 네트워크를 확인한 뒤 run.sh 를 다시 실행하세요. (유튜브 업로드 기능은 비활성화됩니다)"; fi
 fi
 
 exec .venv/bin/python app.py "$@"

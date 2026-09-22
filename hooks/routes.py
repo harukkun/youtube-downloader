@@ -201,7 +201,7 @@ def install(app, llm, settings):
         with s.store.lock:
             for p in (s.store.root / 'jobs').glob('*/state.json'):
                 state = s.store.read('jobs', p.parent.name)
-                if state.get('feature') == 'cooking-audio':
+                if state.get('feature'):
                     continue
                 states.append({k: state.get(k) for k in ('id', 'video_name', 'youtube_title', 'url', 'status', 'updated')})
         return jsonify(jobs=sorted(states, key=lambda x: x['updated'], reverse=True)[:100])
