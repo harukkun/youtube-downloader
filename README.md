@@ -22,9 +22,10 @@
 - macOS (Windows/Linux에서도 동작하지만 폴더 선택 창·폴더 열기는 macOS 기준으로 검증됨)
 - Python 3.10 이상
 - ffmpeg — 영상/오디오 병합과 mp3 변환에 사용
+- deno (또는 node·bun) — 유튜브가 요구하는 JS 챌린지 해결에 사용. 없으면 일부 영상 조회가 실패합니다
 
 ```bash
-brew install ffmpeg
+brew install ffmpeg deno
 ```
 
 ## 설치 및 실행
@@ -242,11 +243,17 @@ VLC·IINA로 재생하거나 `ffmpeg -i in.mp4 -c:v libx264 -crf 18 -c:a copy ou
 **연령 제한 / 비공개 / 멤버십 영상**
 로그인이 필요한 영상은 지원하지 않습니다.
 
+**공개 영상인데 "This video is not available" 로 실패한다**
+유튜브가 일부 영상(아동용으로 표시된 영상 등)에서 기본 플레이어 클라이언트 응답을 막습니다.
+이때 남는 web 클라이언트는 JS 챌린지 해결을 요구하므로, `deno -V` 나 `node -v` 가 실행되는지
+확인하세요. 해결 스크립트는 처음 한 번만 자동으로 받아 `~/.cache/yt-dlp` 에 캐시합니다.
+
 ## 프로젝트 구조
 
 ```
 youtube-downloader/
 ├── app.py                Flask 서버, yt-dlp 다운로드 로직, 설정/내역 저장
+├── ydl_common.py         yt-dlp 공통 옵션 (JS 챌린지 해결 스크립트 허용)
 ├── templates/
 │   ├── index.html        다운로더 페이지 (인라인 CSS/JS, 프레임워크 없음)
 │   ├── shorts.html       쇼츠 현황판 페이지 (구글 시트 조회·편집)

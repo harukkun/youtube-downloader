@@ -28,6 +28,7 @@ import webbrowser
 from pathlib import Path
 
 import yt_dlp
+from ydl_common import ydl_opts
 from flask import Flask, jsonify, redirect, render_template, request, send_from_directory
 from access_control import install_access_control
 
@@ -327,7 +328,7 @@ def _reference_channel_url(value: str) -> str:
 
 
 def extract_reference_channel(url: str) -> dict:
-    opts = {"quiet": True, "no_warnings": True, "extract_flat": True, "playlistend": 1}
+    opts = ydl_opts({"quiet": True, "no_warnings": True, "extract_flat": True, "playlistend": 1})
     with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(url, download=False)
     channel_id = info.get("channel_id") or info.get("uploader_id") or info.get("id")
@@ -489,8 +490,8 @@ def _analyze_reference_shorts(channel, publish):
     previous_complete = cache.get("complete", False)
     cache["complete"] = False
     save()
-    opts = {"quiet": True, "no_warnings": True, "extract_flat": True,
-            "lazy_playlist": True, "socket_timeout": 20}
+    opts = ydl_opts({"quiet": True, "no_warnings": True, "extract_flat": True,
+                     "lazy_playlist": True, "socket_timeout": 20})
     found = 0
     with yt_dlp.YoutubeDL(opts) as ydl:
         playlist = ydl.extract_info(channel["url"].rstrip("/") + "/shorts", download=False)
@@ -513,9 +514,9 @@ def _analyze_reference_shorts(channel, publish):
     save()
     push()
     candidates = [v for v in items.values() if v.get("detail_status") in ("pending", "error")]
-    detail_opts = {"quiet": True, "no_warnings": True, "skip_download": True,
-                   "getcomments": True, "socket_timeout": 20,
-                   "extractor_args": {"youtube": {"max_comments": ["50,0,50,0"]}}}
+    detail_opts = ydl_opts({"quiet": True, "no_warnings": True, "skip_download": True,
+                            "getcomments": True, "socket_timeout": 20,
+                            "extractor_args": {"youtube": {"max_comments": ["50,0,50,0"]}}})
     with yt_dlp.YoutubeDL(detail_opts) as ydl:
         for i, entry in enumerate(candidates):
             report("details", f"설명·통계·고정 댓글 수집 중 ({i + 1}/{len(candidates)}) · {entry['title']}", i, len(candidates))
@@ -1084,14 +1085,14 @@ def build_quality_options(info: dict) -> list[dict]:
 
 
 def build_ydl_opts(quality: str, download_dir: Path, job: dict | None = None) -> dict:
-    opts: dict = {
+    opts: dict = ydl_opts({
         "quiet": True,
         "no_warnings": True,
         "noplaylist": True,
         "outtmpl": str(download_dir / "%(title)s.%(ext)s"),
         "windowsfilenames": False,
         "overwrites": True,
-    }
+    })
     if quality == "audio":
         opts["format"] = "bestaudio/best"
         opts["postprocessors"] = [{
@@ -1243,7 +1244,7 @@ def api_info():
     if not url:
         return jsonify({"error": "URL을 입력해 주세요."}), 400
     try:
-        with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "noplaylist": True}) as ydl:
+        with yt_dlp.YoutubeDL(ydl_opts({"quiet": True, "no_warnings": True, "noplaylist": True})) as ydl:
             info = ydl.extract_info(url, download=False)
     except Exception as e:  # noqa: BLE001
         return jsonify({"error": _clean_error(e)}), 400

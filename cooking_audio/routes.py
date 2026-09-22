@@ -3,6 +3,7 @@ import time
 from functools import wraps
 from flask import Blueprint, current_app, jsonify, request, send_file
 import yt_dlp
+from ydl_common import ydl_opts
 from hooks import media, subtitles
 from hooks.service import seconds
 from hooks.store import valid_id
@@ -151,9 +152,9 @@ def install(app):
                     info = media.remote_info(state['url'])
                     sources['description'] = (info.get('description') or '')[:12000]
                     # Only an explicitly pinned comment qualifies; never substitute the first result.
-                    with yt_dlp.YoutubeDL({'quiet': True, 'skip_download': True, 'getcomments': True,
+                    with yt_dlp.YoutubeDL(ydl_opts({'quiet': True, 'skip_download': True, 'getcomments': True,
                         'socket_timeout': 20, 'retries': 1, 'extractor_retries': 1,
-                        'extractor_args': {'youtube': {'max_comments': ['20'], 'comment_sort': ['top']}}}) as y:
+                        'extractor_args': {'youtube': {'max_comments': ['20'], 'comment_sort': ['top']}}})) as y:
                         details = y.extract_info(state['url'], download=False)
                     pinned = next((c for c in details.get('comments', []) if c.get('is_pinned')), None)
                     sources['pinned_comment'] = pinned.get('text', '')[:8000] if pinned else ''
