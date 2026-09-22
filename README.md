@@ -22,9 +22,10 @@
 - macOS (Windows/Linux에서도 동작하지만 폴더 선택 창·폴더 열기는 macOS 기준으로 검증됨)
 - Python 3.10 이상
 - ffmpeg — 영상/오디오 병합과 mp3 변환에 사용
+- deno (또는 node·bun) — 유튜브가 요구하는 JS 챌린지 해결에 사용. 없으면 일부 영상 조회가 실패합니다
 
 ```bash
-brew install ffmpeg
+brew install ffmpeg deno
 ```
 
 ## 설치 및 실행
@@ -242,11 +243,17 @@ VLC·IINA로 재생하거나 `ffmpeg -i in.mp4 -c:v libx264 -crf 18 -c:a copy ou
 **연령 제한 / 비공개 / 멤버십 영상**
 로그인이 필요한 영상은 지원하지 않습니다.
 
+**공개 영상인데 "This video is not available" 로 실패한다**
+유튜브가 일부 영상(아동용으로 표시된 영상 등)에서 기본 플레이어 클라이언트 응답을 막습니다.
+이때 남는 web 클라이언트는 JS 챌린지 해결을 요구하므로, `deno -V` 나 `node -v` 가 실행되는지
+확인하세요. 해결 스크립트는 처음 한 번만 자동으로 받아 `~/.cache/yt-dlp` 에 캐시합니다.
+
 ## 프로젝트 구조
 
 ```
 youtube-downloader/
 ├── app.py                Flask 서버, yt-dlp 다운로드 로직, 설정/내역 저장
+├── ydl_common.py         yt-dlp 공통 옵션 (JS 챌린지 해결 스크립트 허용)
 ├── templates/
 │   ├── index.html        다운로더 페이지 (인라인 CSS/JS, 프레임워크 없음)
 │   ├── shorts.html       쇼츠 현황판 페이지 (구글 시트 조회·편집)
@@ -260,6 +267,7 @@ youtube-downloader/
 │   ├── thumbnail.js      쇼츠 썸네일 만들기 (Canvas 편집·저장)
 │   └── thumb-upload.js   썸네일을 현황판(시트)에 등록하는 공용 스크립트 (/shorts, /helper)
 ├── tests/                unittest (접근 제어, 현황판 파싱·썸네일 등록 API, 레퍼 체크·시트 동기화)
+├── .github/workflows/    깃허브 액션 CI (파이썬·노드·브라우저 검사)
 ├── requirements.txt      flask, yt-dlp, anthropic(선택)
 ├── run.sh                가상환경 생성 + 서버 실행 스크립트
 └── .venv/                가상환경 (자동 생성, git 제외 대상)
@@ -352,12 +360,38 @@ node tests/test_board_script.js
 node tests/test_board_edit.js
 ```
 
+### 자동 검사 (CI)
+
+`main` 에 푸시하거나 풀 리퀘스트를 열면 깃허브 액션이 검사를 대신 돌립니다
+(`.github/workflows/ci.yml`). 세 갈래로 나뉩니다.
+
+| 작업 | 내용 |
+| --- | --- |
+| 파이썬 테스트 | `python -m unittest discover` 를 3.10 과 3.14 에서 각각 실행 |
+| 노드 테스트 | 브라우저 없이 도는 Apps Script·프런트 스크립트 검사 5종 |
+| 브라우저 테스트 | fixture 서버를 띄우고 Playwright 로 업로드 프로세스·후킹 클립 흐름 확인 |
+
+브라우저 작업은 저장소에 `package.json` 을 두지 않으려고 체크아웃 밖에 Playwright 를
+설치한 뒤 `NODE_PATH` 로 연결합니다. 로컬에서 같은 검사를 하려면 Playwright 를 설치한
+Node 환경에서 fixture 를 먼저 띄운 뒤 해당 테스트를 실행하세요.
+
+조리 대사 추출 브라우저 검사(`tests/test_cooking_browser.js`)는 새로 띄운 fixture 에서
+실패합니다. `main` 에서도 같은 지점에서 실패하지만 시간에 좌우돼 CI 에서는 통과하기도
+합니다. 원인을 밝히기 전까지는 결과만 남기고 전체 검사를 막지 않습니다. 고친 뒤
+워크플로에서 `continue-on-error` 를 지우면 다시 강제됩니다.
+
 
 ## 업로드 프로세스
 
 `/upload-process`에서 미완료 항목 선택 → 영상 기본 정보 → SNS 설명글 확정 → 썸네일 확정 → 최종 승인 순서로 진행합니다. 유튜브용 결과가 현황판의 설명 열에 저장되며, 최종 승인 전에는 시트를 쓰지 않습니다. 초안과 확정한 이미지는 이 브라우저에 보관됩니다. 기존 업로드 헬퍼도 계속 사용할 수 있습니다.
 
-Apps Script 버전 11과 고급 Google Sheets 서비스가 필요합니다. 실제 시트 설정과 배포는 사용자가 직접 진행하세요: [순서별 설정 TODO](docs/upload-process-setup.md).
+Apps Script 버전 15와 고급 Google Sheets 서비스가 필요합니다. 실제 시트 설정과 배포는 사용자가 직접 진행하세요: [순서별 설정 TODO](docs/upload-process-setup.md).
+
+### 유튜브 업로드 (YouTube Data API)
+
+최종 확인 단계에서 영상 파일(MP4·MOV)을 선택하면 편집 헬퍼의 청크 업로드로 서버에 올린 뒤 YouTube Data API 로 **비공개** 업로드하고, 성공하면 현황판 제출에 ▶️ 유튜브 체크와 게시 링크를 함께 기록합니다. 상단 **유튜브 채널 연결**에서 Google Cloud OAuth 클라이언트(웹 애플리케이션) JSON 을 저장하고 Google 계정을 연결합니다. 연결은 로컬(127.0.0.1)에서만 할 수 있고, 갱신 토큰은 `~/.youtube-downloader/youtube_credentials.json`(권한 600)에 저장되어 공개 모드에서도 사용됩니다.
+
+YouTube API 규정 준수 감사(compliance audit)를 통과하지 않은 프로젝트로 올린 영상은 비공개로 잠기고 공개로 바꿀 수 없습니다. 그래서 **감사 승인 완료** 토글을 켜기 전에는 테스트 업로드만 하고 현황판에는 제출하지 않습니다. 쇼츠 썸네일은 API 로 설정을 시도하며, 반영 여부는 YouTube Studio 에서 확인합니다. 설정 절차와 문제 해결은 [순서별 설정 TODO](docs/upload-process-setup.md)의 v15 절, 설계는 [유튜브 업로드 계획](docs/youtube-upload-plan.md)을 참고하세요.
 
 ## 후킹 클립 (`/edit-helper`)
 

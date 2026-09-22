@@ -18,6 +18,24 @@ class AccessTest(unittest.TestCase):
         c = self.make_client(False)
         self.assertEqual(c.post("/api/check").status_code, 200)
 
+    def test_local_mode_pins_host_and_guards_youtube_writes(self):
+        c = self.make_client(False)
+        self.assertEqual(c.get("/", headers={"Host": "evil.test"}).status_code, 400)
+        self.assertEqual(c.get("/", headers={"Host": "127.0.0.1:8765"}).status_code, 200)
+        self.assertEqual(c.get("/", headers={"Host": "localhost:8765"}).status_code, 200)
+        app = Flask(__name__)
+        with patch.dict(os.environ, {"APP_PASSWORD": "", "APP_PUBLIC_ORIGIN": ""}):
+            install_access_control(app)
+        app.add_url_rule("/api/youtube/x", "yt", lambda: {"ok": True}, methods=["GET", "POST"])
+        y = app.test_client()
+        self.assertEqual(y.get("/api/youtube/x").status_code, 200)
+        self.assertEqual(y.post("/api/youtube/x").status_code, 403)
+        self.assertEqual(y.post("/api/youtube/x", headers={"Origin": "https://evil.test"}).status_code, 403)
+        self.assertEqual(y.post("/api/youtube/x", headers={"Origin": "http://localhost"}).status_code, 200)
+        with patch.dict(os.environ, {"APP_PASSWORD": "", "APP_PUBLIC_ORIGIN": "", "HOST": "0.0.0.0"}):
+            lan = Flask(__name__); install_access_control(lan); lan.add_url_rule("/", "i", lambda: "ok")
+        self.assertEqual(lan.test_client().get("/", headers={"Host": "192.168.0.5:8765"}).status_code, 200)
+
     def test_auth_and_csrf(self):
         c = self.make_client()
         self.assertEqual(c.get("/").status_code, 302)

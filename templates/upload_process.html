@@ -16,6 +16,16 @@
 <div id="draftStatus" class="hint" role="status" aria-live="polite"></div>
 <div id="recovery" class="card hidden"><p id="recoveryText"></p><button type="button" id="checkSubmission">저장 결과 확인</button> <button type="button" id="retrySubmission" class="secondary" hidden>같은 내용 다시 제출</button></div>
 <div id="conflictBox" class="card hidden"><p>시트의 최신 내용과 이 초안이 다릅니다. 초안을 복사해 보관하거나, 최신 내용으로 다시 시작할 수 있습니다.</p><button type="button" id="restartDraft" class="secondary">최신 내용으로 다시 시작</button></div>
+<details id="youtubeBox" class="card youtube-box"><summary>유튜브 채널 연결 <span id="youtubeState" class="youtube-state"></span></summary>
+<div class="youtube-settings">
+<p class="hint">Google Cloud 에서 만든 <b>웹 애플리케이션</b> OAuth 클라이언트 JSON 을 붙여 넣고 Google 계정을 연결하세요. 리디렉션 URI: <code id="youtubeRedirect"></code> <button type="button" id="copyRedirect" class="secondary review-copy">복사</button></p>
+<textarea id="youtubeClientJson" rows="3" spellcheck="false" placeholder='{"web":{"client_id":"…apps.googleusercontent.com","client_secret":"…"}}'></textarea>
+<div class="youtube-actions"><button type="button" id="youtubeSaveClient" class="secondary">JSON 저장</button><button type="button" id="youtubeConnect">Google 계정 연결</button><button type="button" id="youtubeDisconnect" class="secondary">연결 해제</button></div>
+<label class="youtube-toggle"><input type="checkbox" id="youtubeAudit"> <span>YouTube API 감사 승인 완료 — 승인 전에는 <b>테스트 업로드</b>만 하며 현황판에 제출하지 않습니다.</span></label>
+<p class="hint">감사 전에 API 로 올린 영상은 비공개로 잠기고 공개로 바꿀 수 없습니다. 감사 신청: Google Cloud › YouTube Data API › 할당량 페이지. <span id="youtubeQuota"></span></p>
+<p id="youtubeSettingsMessage" class="hint" role="status" aria-live="polite"></p>
+<h3>유튜브 업로드 기록</h3><div id="youtubeJobs" class="youtube-jobs"><p class="hint">기록이 없습니다.</p></div>
+</div></details>
 <nav class="process-steps" aria-label="업로드 진행 단계">
 {% for name in ['항목 선택','기본 정보','SNS 설명글','썸네일','최종 확인'] %}<button type="button" data-goto="{{ loop.index0 }}"><span>{{ loop.index }}</span>{{ name }}</button>{% endfor %}
 </nav>
@@ -29,7 +39,7 @@
 <section data-step="1" class="card" hidden>
 <div class="panel-head"><h2>영상 기본 정보</h2><span class="selected-label"></span></div>
 <div class="basic-grid">
-<div class="wide"><label for="videoTitle" class="f">영상 제목 <span>필수</span></label><input id="videoTitle" type="text" maxlength="500" required></div>
+<div class="wide"><label for="videoTitle" class="f">영상 제목 <span>필수</span></label><input id="videoTitle" type="text" maxlength="500" required><p id="titleYoutubeHint" class="hint counter" aria-live="polite"></p></div>
 <div><label for="sourceUrl" class="f">원본 링크 <span>필수</span></label><input id="sourceUrl" type="url" maxlength="2000" required></div>
 <div><label for="referenceUrls" class="f">참고 쇼츠 링크 <span>필수</span></label><textarea id="referenceUrls" rows="3" maxlength="5000" required placeholder="여러 링크는 한 줄에 하나씩 입력하세요."></textarea></div>
 <div class="wide"><label for="videoMemo" class="f">메모 · 선택</label><textarea id="videoMemo" rows="3" maxlength="5000"></textarea></div>
@@ -37,7 +47,7 @@
 </section>
 <section data-step="2" hidden>
 {% include 'recipe_fragment.html' %}
-<div class="confirm-row card"><p>수정한 <strong>유튜브 게시글</strong>이 현황판의 설명에 저장됩니다.</p><button type="button" id="confirmRecipe">유튜브 설명글 확정</button><span id="recipeState" role="status"></span></div>
+<div class="confirm-row card"><p>수정한 <strong>유튜브 게시글</strong>이 현황판의 설명에 저장됩니다. <span id="descYoutubeHint" class="counter"></span></p><button type="button" id="confirmRecipe">유튜브 설명글 확정</button><span id="recipeState" role="status"></span></div>
 </section>
 <section data-step="3" hidden>
 <div class="panel-head"><h2>쇼츠 썸네일 만들기</h2><span class="selected-label"></span></div>
@@ -47,8 +57,17 @@
 <section data-step="4" class="card" hidden>
 <div class="panel-head"><h2>제출 내용을 확인하세요</h2><span class="selected-label"></span></div>
 <div class="review-grid"><div><dl id="reviewFields"></dl><div class="review-heading"><h3>유튜브 설명글</h3><button type="button" id="copyReviewDescription" class="secondary review-copy" aria-label="유튜브 설명글 복사">복사</button></div><pre id="reviewDescription"></pre><p id="reviewCopyStatus" class="hint" role="status" aria-live="polite"></p></div><img id="reviewThumbnail" alt="제출할 썸네일"></div>
-<p class="hint">승인하면 현황판에 저장하고 상태를 ✅ 업로드 완료로 변경합니다. 실제 유튜브 게시 기능은 포함하지 않습니다.</p>
-<button type="button" id="submitProcess" class="big">현황판에 제출</button>
+<div id="youtubePanel" class="youtube-panel">
+<div class="panel-head"><h3>유튜브 업로드</h3><span id="youtubeConnState" class="hint"></span></div>
+<p id="youtubeTestBanner" class="msg err" hidden>감사 승인 전 테스트 업로드입니다. 이 영상은 공개할 수 없고 현황판에는 제출하지 않습니다.</p>
+<div id="youtubePick"><label for="videoFile" class="f">영상 파일 (MP4·MOV)</label><input id="videoFile" type="file" accept="video/mp4,video/quicktime,.mp4,.mov"><p id="videoFileInfo" class="hint" aria-live="polite"></p><video id="videoPreview" controls muted playsinline hidden></video></div>
+<p id="youtubeMetaHint" class="hint"></p>
+<div id="youtubeProgressBox" class="youtube-progress" hidden><progress id="youtubeProgress" max="100" value="0"></progress><span id="youtubeStatus" role="status" aria-live="polite"></span><button type="button" id="youtubeCancel" class="secondary">업로드 취소</button></div>
+<p id="youtubeDone" class="msg ok" hidden></p>
+<button type="button" id="youtubeRetry" class="secondary" hidden>유튜브 업로드 다시 시도</button>
+</div>
+<p class="hint" id="submitHint">승인하면 현황판에 저장하고 상태를 ✅ 업로드 완료로 변경합니다.</p>
+<div class="submit-row"><button type="button" id="uploadAndSubmit" class="big" hidden>유튜브에 비공개 업로드 후 현황판에 제출</button><button type="button" id="submitProcess" class="big">현황판에 제출</button></div>
 </section>
 <div id="stepActions" class="step-actions" hidden><button type="button" id="previousStep" class="secondary">← 이전</button><button type="button" id="nextStep">다음 →</button></div>
 </fieldset>

@@ -28,6 +28,7 @@ import webbrowser
 from pathlib import Path
 
 import yt_dlp
+from ydl_common import ydl_opts
 from flask import Flask, jsonify, redirect, render_template, request, send_from_directory
 from access_control import install_access_control
 
@@ -327,7 +328,7 @@ def _reference_channel_url(value: str) -> str:
 
 
 def extract_reference_channel(url: str) -> dict:
-    opts = {"quiet": True, "no_warnings": True, "extract_flat": True, "playlistend": 1}
+    opts = ydl_opts({"quiet": True, "no_warnings": True, "extract_flat": True, "playlistend": 1})
     with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(url, download=False)
     channel_id = info.get("channel_id") or info.get("uploader_id") or info.get("id")
@@ -489,8 +490,8 @@ def _analyze_reference_shorts(channel, publish):
     previous_complete = cache.get("complete", False)
     cache["complete"] = False
     save()
-    opts = {"quiet": True, "no_warnings": True, "extract_flat": True,
-            "lazy_playlist": True, "socket_timeout": 20}
+    opts = ydl_opts({"quiet": True, "no_warnings": True, "extract_flat": True,
+                     "lazy_playlist": True, "socket_timeout": 20})
     found = 0
     with yt_dlp.YoutubeDL(opts) as ydl:
         playlist = ydl.extract_info(channel["url"].rstrip("/") + "/shorts", download=False)
@@ -513,9 +514,9 @@ def _analyze_reference_shorts(channel, publish):
     save()
     push()
     candidates = [v for v in items.values() if v.get("detail_status") in ("pending", "error")]
-    detail_opts = {"quiet": True, "no_warnings": True, "skip_download": True,
-                   "getcomments": True, "socket_timeout": 20,
-                   "extractor_args": {"youtube": {"max_comments": ["50,0,50,0"]}}}
+    detail_opts = ydl_opts({"quiet": True, "no_warnings": True, "skip_download": True,
+                            "getcomments": True, "socket_timeout": 20,
+                            "extractor_args": {"youtube": {"max_comments": ["50,0,50,0"]}}})
     with yt_dlp.YoutubeDL(detail_opts) as ydl:
         for i, entry in enumerate(candidates):
             report("details", f"설명·통계·고정 댓글 수집 중 ({i + 1}/{len(candidates)}) · {entry['title']}", i, len(candidates))
@@ -1084,14 +1085,14 @@ def build_quality_options(info: dict) -> list[dict]:
 
 
 def build_ydl_opts(quality: str, download_dir: Path, job: dict | None = None) -> dict:
-    opts: dict = {
+    opts: dict = ydl_opts({
         "quiet": True,
         "no_warnings": True,
         "noplaylist": True,
         "outtmpl": str(download_dir / "%(title)s.%(ext)s"),
         "windowsfilenames": False,
         "overwrites": True,
-    }
+    })
     if quality == "audio":
         opts["format"] = "bestaudio/best"
         opts["postprocessors"] = [{
@@ -1243,7 +1244,7 @@ def api_info():
     if not url:
         return jsonify({"error": "URL을 입력해 주세요."}), 400
     try:
-        with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "noplaylist": True}) as ydl:
+        with yt_dlp.YoutubeDL(ydl_opts({"quiet": True, "no_warnings": True, "noplaylist": True})) as ydl:
             info = ydl.extract_info(url, download=False)
     except Exception as e:  # noqa: BLE001
         return jsonify({"error": _clean_error(e)}), 400
@@ -1517,8 +1518,8 @@ _SHEET_ERRORS = {
     "bad_video": (400, "유효한 유튜브 쇼츠 정보가 아닙니다."),
     "bad_channel": (400, "유효한 채널 정보가 아닙니다."),
     "no_sheet": (502, "구글 시트에 '현황판' 탭이 없습니다."),
-    "unknown_action": (409, "Apps Script를 최신 버전(11, 업로드 프로세스 포함)으로 업데이트해 주세요."),
-    "upgrade_required": (409, "Apps Script를 최신 버전(11, 업로드 프로세스 포함)으로 업데이트해 주세요."),
+    "unknown_action": (409, "Apps Script를 최신 버전(15, 유튜브 업로드 연동 포함)으로 업데이트해 주세요."),
+    "upgrade_required": (409, "Apps Script를 최신 버전(15, 유튜브 업로드 연동 포함)으로 업데이트해 주세요."),
 }
 
 
@@ -1869,7 +1870,7 @@ _UPLOAD_ERRORS = {
     'conflict': (409, '작업 중 항목이 변경되었습니다. 최신 내용을 확인한 뒤 다시 시작해 주세요.'),
     'already_uploaded': (409, '이미 업로드 완료된 항목입니다.'),
     'request_mismatch': (409, '같은 제출 번호의 내용이 다릅니다. 저장 결과부터 확인해 주세요.'),
-    'sheets_service_required': (409, 'Apps Script에서 고급 Google Sheets 서비스를 활성화하고 버전 11 이상으로 배포해 주세요.'),
+    'sheets_service_required': (409, 'Apps Script에서 고급 Google Sheets 서비스를 활성화하고 버전 15 이상으로 배포해 주세요.'),
     'commit_unknown': (503, '저장 결과를 아직 확인하지 못했습니다. 결과 확인 버튼으로 확인해 주세요.'),
     'commit_failed': (502, '시트에 저장되지 않았습니다. 작성 내용은 유지됩니다. 다시 제출해 주세요.'),
     'image_failed': (502, '썸네일 파일을 준비하지 못했습니다. 시트는 변경하지 않았습니다.'),
@@ -1928,7 +1929,7 @@ def api_upload_process_submit():
     except (ValueError, TypeError):
         body = None
     allowed = {'connection', 'item_id', 'revision', 'request_id', 'fields', 'thumbnail_mode'}
-    if not isinstance(body, dict) or set(body) != allowed:
+    if not isinstance(body, dict) or not allowed <= set(body) <= allowed | {'youtube_job_id'}:
         return jsonify(error='제출 형식이 올바르지 않습니다.', code='bad_fields'), 400
     if not upload_connection() or body['connection'] != upload_connection():
         return jsonify(error='시트 연결이 변경되었거나 쓰기 연결이 없습니다.', code='connection_changed'), 409
@@ -1959,12 +1960,52 @@ def api_upload_process_submit():
         image = {'mime': mime, 'data': base64.b64encode(data).decode('ascii')}
     elif f is not None:
         return jsonify(error='기존 썸네일 사용 시 새 파일을 보낼 수 없습니다.', code='bad_fields'), 400
+    # The YouTube link is derived server-side from a finished upload job, never taken from the browser.
+    extra = {}
+    if 'youtube_job_id' in body:
+        job = youtube_job_for_submit(body['youtube_job_id'], body['item_id'], body['connection'])
+        if not job:
+            return jsonify(error='완료된 유튜브 업로드를 찾지 못했습니다. 업로드 결과를 확인한 뒤 다시 제출해 주세요.', code='youtube_job_invalid'), 409
+        extra['youtubeUrl'] = f"https://youtu.be/{job['video_id']}"
     try:
         result = sheet_call('upload_submit', itemId=body['item_id'], requestId=body['request_id'],
-                            revision=body['revision'], fields=clean, thumbnailMode=mode, **image)
-        return jsonify(upload_result(result, get_sheet_setting(), remember=True, expected_id=body['item_id']))
+                            revision=body['revision'], fields=clean, thumbnailMode=mode, **image, **extra)
+        out = upload_result(result, get_sheet_setting(), remember=True, expected_id=body['item_id'])
+        if extra and _s(result.get('cells', {}).get('youtubeUrl'), 2000) != extra['youtubeUrl']:
+            out['warnings'] = list(out.get('warnings', [])) + [
+                f"Apps Script 가 15 미만 버전이라 유튜브 링크({extra['youtubeUrl']})가 시트에 기록되지 않았습니다. 현황판에서 직접 입력해 주세요."]
+        return jsonify(out)
     except SheetCallError as exc:
         return upload_error(exc)
+
+
+def youtube_job_for_submit(job_id, item_id, connection):
+    if not isinstance(job_id, str):
+        return None
+    try:
+        from youtube_upload.service import Service as YouTubeService
+        shared = app.extensions['hooks_service']()
+        return YouTubeService(shared, app.extensions['youtube_upload_config']).job_for_submit(job_id, item_id, connection)
+    except (KeyError, ValueError, FileNotFoundError):
+        return None
+
+
+_script_version_cache = {'at': 0.0, 'version': None}
+
+
+def apps_script_version() -> int | None:
+    """배포된 Apps Script 의 UPLOAD_VERSION. 5분 캐시. 연결이 없거나 실패하면 None."""
+    with sheet_lock:
+        if time.time() - _script_version_cache['at'] < 300:
+            return _script_version_cache['version']
+    version = None
+    try:
+        version = int(sheet_call('ping').get('version') or 0) or None
+    except (SheetCallError, TypeError, ValueError):
+        version = None
+    with sheet_lock:
+        _script_version_cache.update(at=time.time(), version=version)
+    return version
 
 
 # ---- 유튜브 업로드 헬퍼 ------------------------------------------------------
@@ -2315,6 +2356,11 @@ install_hooks(app, lambda *args: llm_structured(*args),
 
 from cooking_audio.routes import install as install_cooking_audio
 install_cooking_audio(app)
+
+# YouTube uploads reuse the hooks upload transport and store; credentials live in their own 0600 file.
+from youtube_upload.routes import install as install_youtube
+install_youtube(app, load_settings, save_settings, settings_lock, sniff_image, apps_script_version,
+                PORT, os.environ.get("APP_PUBLIC_ORIGIN", ""), THUMB_MAX_BYTES)
 
 def _open_browser() -> None:
     browser_host = "127.0.0.1" if HOST in ("0.0.0.0", "::") else HOST

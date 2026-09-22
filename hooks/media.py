@@ -7,6 +7,7 @@ from pathlib import Path
 from urllib.parse import urlsplit, parse_qs
 import yt_dlp
 from yt_dlp.networking import Request
+from ydl_common import ydl_opts
 
 ENCODING = threading.Semaphore(1)
 
@@ -65,8 +66,8 @@ def embedded(path, index):
 
 
 def remote_info(url):
-    opts = {'quiet': True, 'no_warnings': True, 'noplaylist': True, 'skip_download': True,
-            'socket_timeout': 25, 'retries': 1, 'extractor_retries': 1}
+    opts = ydl_opts({'quiet': True, 'no_warnings': True, 'noplaylist': True, 'skip_download': True,
+                     'socket_timeout': 25, 'retries': 1, 'extractor_retries': 1})
     with yt_dlp.YoutubeDL(opts) as y:
         info = y.extract_info(youtube_url(url), download=False)
         if info.get('is_live'):
@@ -110,11 +111,11 @@ def download(url, directory, progress):
                 return path
             except ValueError:
                 pass
-    opts = {'quiet': True, 'no_warnings': True, 'noplaylist': True,
-            'format': 'bestvideo[height<=1080][vcodec^=avc1]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]',
-            'merge_output_format': 'mp4', 'outtmpl': str(directory / 'source.%(ext)s'),
-            'socket_timeout': 30, 'retries': 2,
-            'progress_hooks': [lambda d: progress(d.get('_percent_str', '').strip())]}
+    opts = ydl_opts({'quiet': True, 'no_warnings': True, 'noplaylist': True,
+                     'format': 'bestvideo[height<=1080][vcodec^=avc1]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]',
+                     'merge_output_format': 'mp4', 'outtmpl': str(directory / 'source.%(ext)s'),
+                     'socket_timeout': 30, 'retries': 2,
+                     'progress_hooks': [lambda d: progress(d.get('_percent_str', '').strip())]})
     with yt_dlp.YoutubeDL(opts) as y:
         y.extract_info(youtube_url(url), download=True)
     for path in directory.glob('source.*'):

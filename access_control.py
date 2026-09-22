@@ -32,9 +32,18 @@ def install_access_control(app):
             return "/"
         return target
 
+    local_host = os.environ.get("HOST", "127.0.0.1")
+    local_names = None if local_host in ("0.0.0.0", "::") else {local_host, "127.0.0.1", "localhost", "[::1]"}
+
     @app.before_request
     def gate():
         if not password:
+            # Local mode: pin the Host name (DNS rebinding) and require a same-origin fetch for YouTube writes.
+            if local_names is not None and request.host.rsplit(":", 1)[0] not in local_names:
+                return jsonify(error="허용되지 않은 주소입니다."), 400
+            if request.path.startswith("/api/youtube/") and request.method not in ("GET", "HEAD", "OPTIONS") \
+                    and request.headers.get("Origin") != request.host_url.rstrip("/"):
+                return jsonify(error="페이지를 새로고침한 뒤 다시 시도해 주세요."), 403
             return
         if public_origin and request.host != urlsplit(public_origin).netloc:
             return jsonify(error="허용되지 않은 주소입니다."), 400
