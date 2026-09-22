@@ -71,7 +71,11 @@ const base='http://127.0.0.1:8877';
  release();await p.waitForTimeout(200);
  assert.equal(await p.locator('#youtubeOut').inputValue(),'');assert.equal(await p.locator('#srcText').inputValue(),'');
  // Restore an orphaned draft after the source row is deleted without silently discarding it.
- await p.locator('[data-goto="0"]').click();await p.locator('.item-option').nth(0).click();
+ await p.locator('[data-goto="0"]').click();
+ // Clear the previous item's saved notice first; otherwise the wait below passes on stale text
+ // and the row is deleted before this item's draft reaches IndexedDB.
+ await p.locator('#draftStatus').evaluate(el=>{el.textContent='';});
+ await p.locator('.item-option').nth(0).click();
  await p.waitForFunction(()=>document.getElementById('draftStatus').textContent.includes('저장했습니다'));
  await control({delete:true});await p.reload();await p.locator('#conflictBox').waitFor({state:'visible'});
  assert.equal(await p.locator('#videoTitle').inputValue(),'완성한 김치볶음밥');
