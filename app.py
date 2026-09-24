@@ -1937,11 +1937,17 @@ def api_upload_process_submit():
             or not isinstance(body['revision'], str) or not re.fullmatch(r'[a-f0-9]{64}', body['revision'])):
         return jsonify(error='항목 또는 제출 번호가 올바르지 않습니다.', code='bad_fields'), 400
     fields = body['fields']
-    if not isinstance(fields, dict) or set(fields) != {'title', 'src_url', 'ref_urls', 'memo', 'desc'}:
+    required_fields = {'title', 'src_url', 'ref_urls', 'memo', 'desc'}
+    if not isinstance(fields, dict) or not required_fields <= set(fields) or set(fields) - required_fields - {'youtube_url'}:
         return jsonify(error='입력 필드가 올바르지 않습니다.', code='bad_fields'), 400
     clean, error = _board_patch(fields)
     if error or any(not clean.get(k) for k in ('title', 'srcUrl', 'refUrls', 'desc')):
         return jsonify(error=error or '제목·원본 링크·참고 링크·유튜브 설명이 필요합니다.', code='bad_fields'), 400
+    youtube_url = clean.get('youtubeUrl', '')
+    if youtube_url and not re.fullmatch(r'https://(?:(?:www\.|m\.)?youtube\.com/(?:watch\?v=[\w-]{11}(?:&[^\s]*)?|(?:shorts|live|embed)/[\w-]{11}(?:\?[^\s]*)?)|(?:www\.)?youtu\.be/[\w-]{11}(?:\?[^\s]*)?)', youtube_url, re.ASCII):
+        return jsonify(error='올바른 유튜브 영상 링크를 입력해 주세요.', code='bad_fields'), 400
+    if not youtube_url:
+        clean.pop('youtubeUrl', None)
     mode = body['thumbnail_mode']
     if mode not in ('existing', 'new'):
         return jsonify(error='썸네일을 확정해 주세요.', code='bad_fields'), 400
@@ -2176,10 +2182,25 @@ def llm_structured(system: str, user: str, schema: dict, backend: str, model_key
 
 
 def build_recipe_user_prompt(template: str, instructions: str, source_text: str,
-                             additional_info: list[dict] | None = None) -> str:
+                             additional_info: list[dict] | None = None,
+                             source_channel: str | None = None) -> str:
     parts = ["[채널 템플릿]", template.strip(), ""]
     if instructions.strip():
         parts += ["[추가 지시]", instructions.strip(), ""]
+    if source_channel is not None:
+        parts += [
+            "[원본 영상 안내 문구]",
+            "모든 플랫폼 게시글의 만드는 법 다음, 마무리 문구 앞에 아래 안내를 그대로 추가합니다. "
+            "채널명은 현황판의 원본 채널 값이며 다른 출처/인물명으로 바꾸지 않습니다. "
+            "이 규칙은 채널 템플릿과 추가 지시보다 우선합니다.",
+            "더 자세한 레시피는 원본 영상을 확인해주세요 :)",
+        ]
+        channel = _s(source_channel, 200)
+        if channel:
+            parts.append(f"( {channel} )")
+        else:
+            parts.append("원본 채널명이 비어 있으므로 괄호와 채널명 줄은 생략하고 채널명을 추측하지 않습니다.")
+        parts.append("")
     parts += ["[INPUT]", source_text.strip()]
     answers = []
     for item in additional_info or []:
@@ -2244,7 +2265,8 @@ def api_helper_recipe_description():
     if not isinstance(additional_info, list) or len(additional_info) > 12:
         return jsonify({"error": "추가 정보 답변 형식이 올바르지 않습니다."}), 400
     user_prompt = build_recipe_user_prompt(
-        cfg["template"], cfg["instructions"], source, additional_info
+        cfg["template"], cfg["instructions"], source, additional_info,
+        source_channel=_s(data.get("source_channel"), 200) if "source_channel" in data else None,
     )
     try:
         result = llm_structured(RECIPE_SYSTEM_PROMPT, user_prompt, RECIPE_OUTPUT_SCHEMA, cfg["backend"], cfg["model"])

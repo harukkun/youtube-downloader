@@ -3,6 +3,7 @@ window.RecipeEditor = (() => {
   const $ = id => document.getElementById(id);
   const MODELS = JSON.parse(document.getElementById('helperModels').textContent);
   const processMode = document.body.dataset.uploadProcess === 'true';
+  let sourceChannel = '';
   let saved = null, defaults = null, generation = 0, completed = false, restoring = false, notes = [];
   function toast(text) { const el = $('toast'); el.textContent = text; el.className = 'show'; setTimeout(() => el.className = '', 2500); }
   function showMsg(el, text, kind) { el.textContent = text; el.className = 'msg ' + kind; el.classList.toggle('hidden', !text); }
@@ -170,7 +171,8 @@ window.RecipeEditor = (() => {
     const started = Date.now();
     try {
       const d = await api('POST', '/api/helper/recipe-description', {
-        source_text: src, additional_info: additionalInfo, ...currentRecipeSettings()
+        source_text: src, additional_info: additionalInfo, ...currentRecipeSettings(),
+        ...(processMode ? {source_channel: sourceChannel} : {})
       });
       if (token !== generation) return;
       if (d.status === 'needs_input') {
@@ -232,5 +234,5 @@ window.RecipeEditor = (() => {
     if (state.pendingQuestions?.length) { renderQuestions(state.pendingQuestions); (state.answers || []).forEach((v,i) => { if ($('answer-'+i)) $('answer-'+i).value=v; }); }
     completed = !!state.completed; selectPlatform(processMode ? 'youtube' : 'instagram'); restoring = false;
   }
-  return {ready, snapshot, restore, cancel:invalidate, valid:() => completed && !generating && !pendingQuestions.length && !!$('youtubeOut').value.trim()};
+  return {ready, snapshot, restore, setSourceChannel:value => { sourceChannel = value || ''; }, cancel:invalidate, valid:() => completed && !generating && !pendingQuestions.length && !!$('youtubeOut').value.trim()};
 })();

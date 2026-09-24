@@ -34,6 +34,20 @@ class UploadProcessTest(unittest.TestCase):
         response.request.close()
         return response
 
+    def test_optional_youtube_link(self):
+        for link in ['', 'https://youtu.be/abcdefghijk', 'https://www.youtube.com/shorts/abcdefghijk?si=test']:
+            payload = self.payload()
+            payload['fields']['youtube_url'] = link
+            with patch.object(m, 'apps_script_post', return_value=self.result) as post:
+                self.assertEqual(self.post(payload).status_code, 200)
+                self.assertEqual(post.call_args.args[1]['fields'].get('youtubeUrl'), link or None)
+        for link in ['https://example.com/watch?v=abcdefghijk', 'not a url', True]:
+            payload = self.payload()
+            payload['fields']['youtube_url'] = link
+            with patch.object(m, 'apps_script_post') as post:
+                self.assertEqual(self.post(payload).status_code, 400)
+                post.assert_not_called()
+
     def test_page_and_shared_helper(self):
         for path in ['/upload-process', '/helper', '/', '/shorts', '/references']:
             r = self.client.get(path)

@@ -35,7 +35,7 @@ Sheets={Spreadsheets:{Values:{get:(_,range,options)=>{assert.equal(options.value
  for(const r of body.requests)if(r.updateCells){const u=r.updateCells,v=u.rows[0].values[0].userEnteredValue;
    const row=u.range.startRowIndex,col=u.range.startColumnIndex;
    if(v.formulaValue)sheet.formulas[row+':'+col]=v.formulaValue;
-   else sheet.rows[row][col]=v.stringValue===undefined?v.numberValue:v.stringValue;
+   else sheet.rows[row][col]=v.boolValue!==undefined?v.boolValue:v.stringValue===undefined?v.numberValue:v.stringValue;
  }
  receipts.push(metadata);
  if(mode==='timeoutAfter')throw Error('network timeout after commit');
@@ -53,6 +53,12 @@ assert.equal(r.cells.youtubeUrl,'changed by teammate');assert.equal(r.cells.pinn
 r=uploadAction(b);assert.ok(r.submitted);assert.equal(batchCount,1);
 r=uploadAction({...b,fields:{...b.fields,title:'different'}});assert.equal(r.error,'request_mismatch');
 r=uploadAction({...b,action:'upload_get'});assert.ok(r.submitted);assert.equal(batchCount,1);
+reset();b=body();sheet.rows[2][COL.youtubeOn-1]=false;b.fields.youtubeUrl='https://youtu.be/abcdefghijk';
+r=uploadAction(b);assert.ok(r.submitted);assert.equal(r.cells.youtubeOn,true);assert.equal(r.cells.youtubeUrl,b.fields.youtubeUrl);assert.equal(batchCount,1);
+r=uploadAction(b);assert.ok(r.submitted);assert.equal(batchCount,1);
+assert.equal(uploadAction({...b,fields:{...b.fields,youtubeUrl:'https://youtu.be/lmnopqrstuv'}}).error,'request_mismatch');
+reset();b=body();b.fields.youtubeUrl='';r=uploadAction(b);assert.ok(r.submitted);assert.equal(r.cells.youtubeUrl,'https://my/video');
+reset();b=body();b.fields.youtubeUrl='https://example.com/video';assert.equal(uploadAction(b).error,'bad_fields');assert.equal(batchCount,0);
 reset();b=body();sheet.rows[2][COL.desc-1]='teammate';assert.equal(uploadAction(b).error,'conflict');assert.equal(batchCount,0);
 reset();b=body();sheet.rows[2][COL.status-1]=UPLOADED;assert.equal(uploadAction(b).error,'already_uploaded');
 reset();b=body();sheet.rows[2][COL.itemId-1]='deleted';assert.equal(uploadAction(b).error,'row_mismatch');

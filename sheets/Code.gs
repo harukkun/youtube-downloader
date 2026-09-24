@@ -1447,7 +1447,7 @@ function uploadReply(sheet, row, extra) {
 }
 function uploadCell(sheetId, row, key, value, formula=false) {
   return {updateCells:{range:{sheetId,startRowIndex:row-1,endRowIndex:row,startColumnIndex:COL[key]-1,endColumnIndex:COL[key]},
-    rows:[{values:[{userEnteredValue:formula ? {formulaValue:value} : typeof value === 'number' ? {numberValue:value} : {stringValue:String(value)}}]}],fields:'userEnteredValue'}};
+    rows:[{values:[{userEnteredValue:formula ? {formulaValue:value} : typeof value === 'boolean' ? {boolValue:value} : typeof value === 'number' ? {numberValue:value} : {stringValue:String(value)}}]}],fields:'userEnteredValue'}};
 }
 function uploadPendingKey(requestId) { return 'UPLOAD_PENDING_' + requestId; }
 function uploadForget(requestId) { PropertiesService.getScriptProperties().deleteProperty(uploadPendingKey(requestId)); }
@@ -1479,10 +1479,13 @@ function uploadAction(body) {
       return jsonOut(uploadReply(sheet,row,{submitted:!!receipt,requestId:receipt ? body.requestId : null}));
     }
     const fields = body.fields;
-    if (!fields || Array.isArray(fields) || Object.keys(fields).length !== UPLOAD_FIELDS.length ||
+    if (!fields || Array.isArray(fields) || Object.keys(fields).some(k => !UPLOAD_FIELDS.includes(k) && k !== 'youtubeUrl') ||
         UPLOAD_FIELDS.some(k => typeof fields[k] !== 'string') || !['existing','new'].includes(body.thumbnailMode) ||
         !/^[a-f0-9]{64}$/.test(body.revision || '')) return jsonOut({ok:false,error:'bad_fields'});
-    const valid = boardValidateFields(fields,before);
+    if ('youtubeUrl' in fields && (typeof fields.youtubeUrl !== 'string' || fields.youtubeUrl.length > 2000)) return jsonOut({ok:false,error:'bad_fields'});
+    const youtubeUrl = (fields.youtubeUrl || '').trim();
+    if (youtubeUrl && !/^https:\/\/(?:(?:www\.|m\.)?youtube\.com\/(?:watch\?v=[\w-]{11}(?:&[^\s]*)?|(?:shorts|live|embed)\/[\w-]{11}(?:[?][^\s]*)?)|(?:www\.)?youtu\.be\/[\w-]{11}(?:[?][^\s]*)?)$/.test(youtubeUrl)) return jsonOut({ok:false,error:'bad_fields'});
+    const valid = boardValidateFields(Object.fromEntries(UPLOAD_FIELDS.map(k => [k, fields[k]])),before);
     if (valid.error || ['title','srcUrl','refUrls','desc'].some(k => !fields[k].trim().replace(/^=+/,'')))
       return jsonOut({ok:false,error:valid.error || 'bad_fields'});
     let bytes = null;
@@ -1497,7 +1500,7 @@ function uploadAction(body) {
         b.slice(0,4).join(',')==='82,73,70,70' && b.slice(8,12).join(',')==='87,69,66,80' ? 'image/webp' : '';
       if (mime !== body.mime) return jsonOut({ok:false,error:'bad_fields'});
     } else if (body.data || body.mime) return jsonOut({ok:false,error:'bad_fields'});
-    const digest = uploadHash([body.itemId,body.revision,UPLOAD_FIELDS.map(k => fields[k]),body.thumbnailMode,body.mime || '',body.data || '']);
+    const digest = uploadHash([body.itemId,body.revision,UPLOAD_FIELDS.map(k => fields[k]),body.thumbnailMode,body.mime || '',body.data || '',...(youtubeUrl ? [youtubeUrl] : [])]);
     if (receipt) {
       if (receipt.itemId !== body.itemId || receipt.digest !== digest) return jsonOut({ok:false,error:'request_mismatch'});
       uploadForget(body.requestId);
@@ -1541,6 +1544,7 @@ function uploadAction(body) {
     }
     props.setProperty(uploadPendingKey(body.requestId),JSON.stringify({digest,fileId:file ? file.getId():null}));
     writes.push({key:'status',value:UPLOADED});
+    if (youtubeUrl) writes.push({key:'youtubeOn',value:true},{key:'youtubeUrl',value:youtubeUrl});
     const requests = writes.map(w=>uploadCell(sheet.getSheetId(),row,w.key,w.value));
     // Sheets date serial, expressed in the spreadsheet's time zone. Existing date format remains.
     const localDate = Utilities.formatDate(new Date(),ss.getSpreadsheetTimeZone(),"yyyy-MM-dd'T'HH:mm:ss");

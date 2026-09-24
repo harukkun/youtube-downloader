@@ -48,6 +48,9 @@
 <div class="panel-head"><h2>제출 내용을 확인하세요</h2><span class="selected-label"></span></div>
 <div class="review-grid"><div><dl id="reviewFields"></dl><div class="review-heading"><h3>유튜브 설명글</h3><button type="button" id="copyReviewDescription" class="secondary review-copy" aria-label="유튜브 설명글 복사">복사</button></div><pre id="reviewDescription"></pre><p id="reviewCopyStatus" class="hint" role="status" aria-live="polite"></p></div><img id="reviewThumbnail" alt="제출할 썸네일"></div>
 <p class="hint">승인하면 현황판에 저장하고 상태를 ✅ 업로드 완료로 변경합니다. 실제 유튜브 게시 기능은 포함하지 않습니다.</p>
+<label for="uploadedYoutubeUrl">유튜브 링크 (선택)</label>
+<input type="url" id="uploadedYoutubeUrl" maxlength="2000" placeholder="https://www.youtube.com/watch?v=..." aria-describedby="uploadedYoutubeHint">
+<p id="uploadedYoutubeHint" class="hint">입력하면 현황판의 업로드 플랫폼에서 유튜브를 체크하고 유튜브 링크를 저장합니다. 비워두면 기존 값을 유지합니다.</p>
 <button type="button" id="submitProcess" class="big">현황판에 제출</button>
 </section>
 <div id="stepActions" class="step-actions" hidden><button type="button" id="previousStep" class="secondary">← 이전</button><button type="button" id="nextStep">다음 →</button></div>

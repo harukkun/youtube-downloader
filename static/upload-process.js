@@ -48,8 +48,8 @@ if (typeof document !== 'undefined') (async () => {
   }
   let saveQueue=Promise.resolve(), unsaved=false, persistFailed=false, selectedGeneration=0, previewURL=null;
   function message(text, error=false) { $('processMessage').textContent=text; $('processMessage').className='msg '+(error?'err':'ok')+(text?'':' hidden'); }
-  function fields() { return {title:$('videoTitle').value,src_url:$('sourceUrl').value,ref_urls:$('referenceUrls').value,memo:$('videoMemo').value}; }
-  function fillFields(f) { for(const [id,key] of Object.entries({videoTitle:'title',sourceUrl:'src_url',referenceUrls:'ref_urls',videoMemo:'memo'})) $(id).value=f[key] || ''; }
+  function fields() { return {title:$('videoTitle').value,src_url:$('sourceUrl').value,ref_urls:$('referenceUrls').value,memo:$('videoMemo').value,youtube_url:$('uploadedYoutubeUrl').value}; }
+  function fillFields(f) { for(const [id,key] of Object.entries({videoTitle:'title',sourceUrl:'src_url',referenceUrls:'ref_urls',videoMemo:'memo',uploadedYoutubeUrl:'youtube_url'})) $(id).value=f[key] || ''; }
   async function json(url, options) {
     let response;
     try { response=await fetch(url,options); }
@@ -170,6 +170,7 @@ if (typeof document !== 'undefined') (async () => {
       if(error && ['row_mismatch','connection_changed','request_mismatch'].includes(error.code))state.pending=null;
       if(!draft&&item.status==='uploaded')throw new Error('이미 업로드 완료된 항목입니다. 다른 항목을 선택하세요.');
       if(!blocked)state.item=item;
+      recipe.setSourceChannel(state.item.source?.channel);
       $('conflictBox').classList.toggle('hidden',!blocked);
       message(error?.message || (blocked?'시트 내용이 변경되었습니다. 초안을 확인한 뒤 최신 내용으로 다시 시작해 주세요.':draft?'저장된 초안을 복원했습니다.':''),blocked);
       document.querySelectorAll('.selected-label').forEach(el=>el.textContent=state.item.dish_title||'선택한 영상');
@@ -228,6 +229,7 @@ if (typeof document !== 'undefined') (async () => {
   }
   $('submitProcess').onclick=async()=>{
     if(busy||blocked||state?.pending||!reachable(4)||!recipe.valid())return;
+    if(!$('uploadedYoutubeUrl').reportValidity())return;
     if(!confirm('이 내용과 썸네일을 현황판에 저장하고 상태를 ✅ 업로드 완료로 변경할까요?'))return;
     const payload={connection,item_id:state.item.item_id,revision:state.revision,request_id:crypto.randomUUID(),fields:{...fields(),desc:recipe.snapshot().results.youtube},thumbnail_mode:state.thumb.mode};
     state.pending={payload,blob:state.thumb.blob || null};setLoading('submit');showRecovery();
@@ -241,6 +243,7 @@ if (typeof document !== 'undefined') (async () => {
   $('confirmRecipe').onclick=()=>{if(recipe.valid()){state.recipeConfirmed=true;updateNav();persist();}};
   document.addEventListener('recipe:changed',()=>{if(!state||restoring||state.pending)return;state.recipeConfirmed=false;updateNav();persist();});
   document.querySelector('[data-step="1"]').addEventListener('input',()=>{if(state&&!restoring){updateNav();persist();}});
+  $('uploadedYoutubeUrl').addEventListener('input',()=>{if(state&&!restoring&&!state.pending)persist();});
   document.addEventListener('thumbnail:changed',()=>{if(!state||restoring||state.pending)return;state.thumb=null;updateThumbnail();updateNav();persist();});
   $('confirmThumbnail').onclick=async()=>{
     if(busy)return;
