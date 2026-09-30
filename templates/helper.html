@@ -9,10 +9,12 @@
 <script src="/static/thumb-upload.js" defer></script>
 <script src="/static/thumbnail.js" defer></script>
 <link rel="stylesheet" href="/static/helper.css">
+<link rel="stylesheet" href="/static/article-builder.css">
+<script src="/static/article-builder.js" defer></script>
 </head>
 <body>
 <main>
-  <nav class="global-nav" aria-label="주요 메뉴"><a class="brand" href="/"><span class="logo"></span>콘텐츠 작업실</a><div class="links"><a href="/">다운로드</a><a href="/edit-helper">편집 헬퍼</a><a href="/helper" aria-current="page">업로드 헬퍼</a><a href="/upload-process">업로드 프로세스</a><a href="/shorts">쇼츠 현황판</a><a href="/references">레퍼 체크</a></div></nav>
+  <nav class="global-nav" aria-label="주요 메뉴"><a class="brand" href="/"><span class="logo"></span>콘텐츠 작업실</a><div class="links"><a href="/">다운로드</a><a href="/edit-helper">편집 헬퍼</a><a href="/auto-edit">자동 편집</a><a href="/helper" aria-current="page">업로드 헬퍼</a><a href="/upload-process">업로드 프로세스</a><a href="/shorts">쇼츠 현황판</a><a href="/references">레퍼 체크</a></div></nav>
   <div class="head"><h1><span class="logo"></span>유튜브 업로드 헬퍼</h1></div>
 
   <div class="layout">
@@ -21,12 +23,14 @@
       <h2>기능</h2>
       <button type="button" class="tool active" data-tool="recipe">📝 SNS 레시피 게시글<small>원본 레시피 → 인스타그램·유튜브·틱톡 게시글</small></button>
       <button type="button" class="tool" data-tool="thumbnail">🖼️ 쇼츠 썸네일 만들기<small>영상 장면 선택 → 세로형 커버 저장</small></button>
+      <button type="button" class="tool" data-tool="article">📖 아티클 빌더<small>레시피와 영상 장면으로 블로그 글 완성</small></button>
       <div class="tool soon">＋ 더 많은 기능 준비 중<small>제목·태그·고정 댓글 등</small></div>
     </aside>
 
     <div>
       <!-- 기능 1: SNS 레시피 게시글 제작 -->
       {% include "recipe_fragment.html" %}
+      {% include "article_fragment.html" %}
       <section class="panel hidden" data-tool="thumbnail">
         <div class="panel-head">
           <h2>쇼츠 썸네일 만들기</h2>
@@ -67,12 +71,17 @@
   // ---- 기능 전환 (왼쪽 목록) -------------------------------------------------
   document.querySelectorAll('.tool[data-tool]').forEach(b => b.addEventListener('click', () => selectTool(b.dataset.tool)));
   function selectTool(key) {
+    if (!['recipe','thumbnail','article'].includes(key)) key = 'recipe';
     document.querySelectorAll('.tool[data-tool]').forEach(b => b.classList.toggle('active', b.dataset.tool === key));
     document.querySelectorAll('.panel[data-tool]').forEach(p => p.classList.toggle('hidden', p.dataset.tool !== key));
     try { localStorage.setItem('helper.tool', key); } catch {}
+    if (location.hash !== '#' + key) history.replaceState(null, '', location.pathname + location.search + '#' + key);
+    document.dispatchEvent(new CustomEvent('helper:tool', {detail: key}));
   }
   const params = new URLSearchParams(location.search);   // 현황판에서 넘어올 때: ?row=N&src=…&dish=…#thumbnail
-  selectTool(location.hash === '#thumbnail' || params.has('row') ? 'thumbnail' : (() => { try { return localStorage.getItem('helper.tool'); } catch { return null; } })() || 'recipe');
+  selectTool(location.hash === '#article' ? 'article' : location.hash === '#thumbnail' || params.has('row') ? 'thumbnail' : (() => { try { return localStorage.getItem('helper.tool'); } catch { return null; } })() || 'recipe');
+
+  window.addEventListener('hashchange', () => selectTool(location.hash.slice(1)));
 
   // ---- 썸네일 만들기 → 현황판 등록 -------------------------------------------------
   // 대상 행은 현황판에서 넘어온 값으로 미리 고르거나, 아래 검색·드롭다운으로 직접 고른다.

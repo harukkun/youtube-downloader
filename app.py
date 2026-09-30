@@ -1080,6 +1080,22 @@ def build_quality_options(info: dict) -> list[dict]:
         + (f" · 약 {_human_size(best_audio_size)}" if best_audio_size else ""),
         "kind": "audio",
     })
+    options.extend(build_subtitle_options(info))
+    return options
+
+
+def build_subtitle_options(info: dict) -> list[dict]:
+    options = []
+    for source, key in (("manual", "subtitles"), ("auto", "automatic_captions")):
+        for lang, formats in sorted((info.get(key) or {}).items()):
+            if not any(f.get("ext") in {"srt", "vtt", "ttml", "srv1", "srv2", "srv3"} for f in formats):
+                continue
+            name = next((f.get("name") for f in formats if f.get("name")), lang)
+            options.append({
+                "id": f"subtitle:{source}:{lang}",
+                "label": f"자막만 (SRT) · {name} [{lang}]" + (" · 자동 생성" if source == "auto" else ""),
+                "kind": "subtitle",
+            })
     return options
 
 
@@ -1092,7 +1108,17 @@ def build_ydl_opts(quality: str, download_dir: Path, job: dict | None = None) ->
         "windowsfilenames": False,
         "overwrites": True,
     }
-    if quality == "audio":
+    if quality.startswith("subtitle:"):
+        _, source, lang = quality.split(":", 2)
+        opts.update({
+            "skip_download": True,
+            "writesubtitles": source == "manual",
+            "writeautomaticsub": source == "auto",
+            "subtitleslangs": [re.escape(lang)],
+            "subtitlesformat": "srt/vtt/ttml/srv3/srv2/srv1",
+            "postprocessors": [{"key": "FFmpegSubtitlesConvertor", "format": "srt", "when": "before_dl"}],
+        })
+    elif quality == "audio":
         opts["format"] = "bestaudio/best"
         opts["postprocessors"] = [{
             "key": "FFmpegExtractAudio",
@@ -1194,10 +1220,18 @@ def run_download(job_id: str, url: str, quality: str) -> None:
                            duration=info.get("duration"), uploader=info.get("uploader") or info.get("channel"))
 
             # 2) 실제 다운로드
-            ydl.process_ie_result(info, download=True)
+            if quality.startswith("subtitle:") and quality not in {o["id"] for o in build_subtitle_options(info)}:
+                raise ValueError("선택한 자막이 더 이상 제공되지 않습니다. 영상을 다시 조회해 주세요.")
+            result = ydl.process_ie_result(info, download=True)
 
             final = job.get("filepath")
-            if not final:
+            if quality.startswith("subtitle:"):
+                lang = quality.split(":", 2)[2]
+                subtitle = (result.get("requested_subtitles") or {}).get(lang) or {}
+                final = subtitle.get("filepath")
+                if not final or not final.endswith(".srt") or not os.path.isfile(final):
+                    raise ValueError("SRT 자막 파일을 저장하지 못했습니다. 자막 제공 여부를 확인해 주세요.")
+            elif not final:
                 # 후처리가 없었으면(단일 파일) 준비된 파일명 사용
                 final = info.get("filepath") or ydl.prepare_filename(info)
         with jobs_lock:
@@ -1265,7 +1299,8 @@ def api_download():
     quality = str(data.get("quality") or "").strip()
     if not url:
         return jsonify({"error": "URL을 입력해 주세요."}), 400
-    if quality != "audio" and not quality.isdigit():
+    is_subtitle = re.fullmatch(r"subtitle:(manual|auto):[^\s:/\\]+", quality) is not None
+    if quality != "audio" and not quality.isdigit() and not is_subtitle:
         return jsonify({"error": "화질 선택이 올바르지 않습니다."}), 400
 
     job_id = uuid.uuid4().hex[:12]
@@ -1283,7 +1318,7 @@ def api_download():
         "title": data.get("title"),
         "thumbnail": data.get("thumbnail"),
         "quality": quality,
-        "quality_label": data.get("quality_label") or ("오디오만 (mp3)" if quality == "audio" else f"{quality}p"),
+        "quality_label": data.get("quality_label") or (f"자막만 (SRT) · {quality.split(':', 2)[2]}" if is_subtitle else "오디오만 (mp3)" if quality == "audio" else f"{quality}p"),
         "status": "downloading",
         "started_at": _now(),
         "download_dir": str(get_download_dir()),
@@ -2220,11 +2255,28 @@ def helper_page():
     return render_template("helper.html", models=LLM_MODELS, backends=LLM_BACKENDS)
 
 
+from article_builder import document as article_document
+
+
+def get_article_settings():
+    base = {"template": article_document.DEFAULT_TEMPLATE,
+            "instructions": article_document.DEFAULT_INSTRUCTIONS,
+            **{k: get_recipe_settings()[k] for k in ("backend", "model")}}
+    try:
+        cfg = article_document.settings(load_helper().get("article") or {}, base)
+        normalize_recipe_settings({k: cfg[k] for k in ("backend", "model")})
+        return cfg
+    except ValueError:
+        return base
+
+
 @app.get("/api/helper/settings")
 def api_helper_settings():
     return jsonify({
         "recipe": get_recipe_settings(),
         "recipe_defaults": recipe_defaults(),
+        "article": get_article_settings(),
+        "article_defaults": {"template": article_document.DEFAULT_TEMPLATE, "instructions": article_document.DEFAULT_INSTRUCTIONS},
         "models": LLM_MODELS,
         "backends": LLM_BACKENDS,
         "env": llm_environment(),
@@ -2241,8 +2293,15 @@ def api_helper_settings_save():
                 store["recipe"] = normalize_recipe_settings(data.get("recipe") or {}, get_recipe_settings())
             except ValueError as e:
                 return jsonify({"error": str(e)}), 400
+        if "article" in data:
+            try:
+                cfg = article_document.settings(data["article"], get_article_settings())
+                normalize_recipe_settings({k: cfg[k] for k in ("backend", "model")})
+                store["article"] = cfg
+            except ValueError as e:
+                return jsonify(error=str(e)), 400
         _write_json_atomic(HELPER_FILE, store)
-    return jsonify({"ok": True, "recipe": get_recipe_settings()})
+    return jsonify({"ok": True, "recipe": get_recipe_settings(), "article": get_article_settings()})
 
 
 @app.post("/api/helper/recipe-description")
@@ -2337,6 +2396,18 @@ install_hooks(app, lambda *args: llm_structured(*args),
 
 from cooking_audio.routes import install as install_cooking_audio
 install_cooking_audio(app)
+
+from auto_edit.routes import install as install_auto_edit
+install_auto_edit(app)
+
+from article_builder.routes import install as install_articles
+_SHEET_ERRORS.update({
+    'article_not_uploaded': (409, '업로드 완료 상태가 변경되었습니다. 현황판을 다시 확인해주세요.'),
+    'article_not_missing': (409, '다른 곳에서 이미 입력한 필드입니다. 최신 내용을 확인해주세요.'),
+    'article_upgrade_required': (409, '아티클 빌더를 사용하려면 Apps Script를 버전 15 이상으로 새 배포해주세요.'),
+})
+install_articles(app, globals())
+
 
 def _open_browser() -> None:
     browser_host = "127.0.0.1" if HOST in ("0.0.0.0", "::") else HOST

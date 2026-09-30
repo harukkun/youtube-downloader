@@ -1,0 +1,12 @@
+const assert=require('node:assert/strict');
+const {apply,presets}=require('../static/thumbnail.js');
+const pixel=(values,source=[70,110,160,255])=>Array.from(apply(new Uint8ClampedArray(source),values));
+assert.deepEqual(pixel(presets.original),[70,110,160,255]);
+assert.ok(pixel([30,0,0,0])[0]>70);
+assert.ok(pixel([-30,0,0,0])[0]<70);
+const contrasted=pixel([0,50,0,0]);assert.ok(contrasted[0]<70 && contrasted[2]>160);
+const gray=pixel([0,0,-100,0]);assert.equal(gray[0],gray[1]);assert.equal(gray[1],gray[2]);
+const warm=pixel([0,0,0,50]);assert.ok(warm[0]>70 && warm[2]<160);assert.equal(warm[1],110);
+assert.deepEqual(pixel([0,0,0,0],[0,255,45,77]),[0,255,45,77]);
+for(const values of Object.values(presets))assert.equal(pixel(values)[3],255);
+console.log('Tone identity, brightness, contrast, grayscale, temperature and alpha passed.');

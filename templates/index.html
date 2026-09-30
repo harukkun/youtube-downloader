@@ -43,6 +43,8 @@
   .video .title { font-weight: 600; font-size: 16px; line-height: 1.4; margin-bottom: 6px; }
   .video .meta { color: var(--muted); font-size: 13px; }
   label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+  .subtitle-toggle { display: flex; align-items: center; gap: 8px; margin: 12px 0 0; cursor: pointer; }
+  .subtitle-toggle input { margin: 0; accent-color: var(--accent); }
   .progress-wrap { margin-top: 18px; }
   .bar { height: 10px; background: #0f1115; border: 1px solid var(--border); border-radius: 999px; overflow: hidden; }
   .bar > div { height: 100%; width: 0%; background: var(--bar); transition: width .3s; }
@@ -101,7 +103,7 @@
 </head>
 <body>
 <main>
-  <nav class="global-nav" aria-label="주요 메뉴"><a class="brand" href="/"><span class="logo"></span>콘텐츠 작업실</a><div class="links"><a href="/" aria-current="page">다운로드</a><a href="/edit-helper">편집 헬퍼</a><a href="/helper">업로드 헬퍼</a><a href="/upload-process">업로드 프로세스</a><a href="/shorts">쇼츠 현황판</a><a href="/references">레퍼 체크</a></div></nav>
+  <nav class="global-nav" aria-label="주요 메뉴"><a class="brand" href="/"><span class="logo"></span>콘텐츠 작업실</a><div class="links"><a href="/" aria-current="page">다운로드</a><a href="/edit-helper">편집 헬퍼</a><a href="/auto-edit">자동 편집</a><a href="/helper">업로드 헬퍼</a><a href="/upload-process">업로드 프로세스</a><a href="/shorts">쇼츠 현황판</a><a href="/references">레퍼 체크</a></div></nav>
   <p class="sub" style="margin-top:6px">링크를 붙여넣고 화질을 선택하면 아래 저장 위치에 다운로드됩니다.</p>
 
   <section class="card">
@@ -131,11 +133,15 @@
       </div>
     </div>
 
-    <label for="quality">화질 선택</label>
+    <label for="quality">다운로드 형식 선택</label>
     <div class="row">
       <select id="quality"></select>
       <button id="downloadBtn">다운로드</button>
     </div>
+    <label class="subtitle-toggle" for="showOtherSubtitles">
+      <input type="checkbox" id="showOtherSubtitles">
+      다른 언어 자막 표시
+    </label>
 
     <div class="progress-wrap hidden" id="progress">
       <div class="bar" id="bar"><div id="barFill"></div></div>
@@ -168,6 +174,24 @@
   let currentUrl = null;
   let currentJobId = null;
   let pollTimer = null;
+  let currentQualities = [];
+
+  function renderQualityOptions() {
+    const sel = $('quality');
+    const previous = sel.value;
+    const showOthers = $('showOtherSubtitles').checked;
+    sel.innerHTML = '';
+    for (const q of currentQualities) {
+      const language = q.id.split(':')[2] || '';
+      if (q.kind === 'subtitle' && !showOthers && !/^ko(?:[-_]|$)/i.test(language)) continue;
+      const option = document.createElement('option');
+      option.value = q.id; option.textContent = q.label;
+      sel.appendChild(option);
+    }
+    if (Array.from(sel.options).some(option => option.value === previous)) sel.value = previous;
+  }
+
+  $('showOtherSubtitles').addEventListener('change', renderQualityOptions);
 
   function show(el, on = true) { el.classList.toggle('hidden', !on); }
   function fmtDuration(sec) {
@@ -248,12 +272,9 @@
       $('thumb').src = info.thumbnail || '';
       $('title').textContent = info.title || '(제목 없음)';
       $('meta').textContent = [info.uploader, fmtDuration(info.duration)].filter(Boolean).join(' · ');
-      const sel = $('quality');
-      sel.innerHTML = '';
-      for (const q of info.qualities) {
-        const o = document.createElement('option');
-        o.value = q.id; o.textContent = q.label; sel.appendChild(o);
-      }
+      currentQualities = info.qualities || [];
+      $('quality').innerHTML = '';
+      renderQualityOptions();
       show($('resultCard'));
     } catch (err) {
       $('fetchError').textContent = '조회 실패: ' + err.message;
@@ -273,6 +294,7 @@
     $('downloadBtn').disabled = false;
     $('downloadBtn').textContent = '다운로드';
     $('quality').disabled = false;
+    $('showOtherSubtitles').disabled = false;
   }
 
   $('downloadBtn').addEventListener('click', async () => {
@@ -280,6 +302,7 @@
     resetDownloadUI();
     $('downloadBtn').disabled = true;
     $('quality').disabled = true;
+    $('showOtherSubtitles').disabled = true;
     $('downloadBtn').innerHTML = '<span class="spinner"></span>다운로드 중';
     show($('progress'));
     $('statusText').textContent = '준비 중…'; $('statusRight').textContent = '';
@@ -288,7 +311,7 @@
       const sel = $('quality');
       const { job_id } = await postJSON('/api/download', {
         url: currentUrl, quality: sel.value,
-        quality_label: sel.options[sel.selectedIndex]?.textContent.split(' · ')[0],
+        quality_label: sel.value.startsWith('subtitle:') ? sel.options[sel.selectedIndex]?.textContent : sel.options[sel.selectedIndex]?.textContent.split(' · ')[0],
         title: $('title').textContent, thumbnail: $('thumb').src,
       });
       currentJobId = job_id;
@@ -319,7 +342,7 @@
       $('statusRight').textContent = parts.join(' · ');
     } else if (job.status === 'processing') {
       bar.classList.add('indeterminate');
-      $('statusText').textContent = job.quality === 'audio' ? 'mp3로 변환 중…' : '영상과 오디오 병합 중…';
+      $('statusText').textContent = job.quality?.startsWith('subtitle:') ? 'SRT 자막 저장 중…' : job.quality === 'audio' ? 'mp3로 변환 중…' : '영상과 오디오 병합 중…';
       $('statusRight').textContent = '';
     } else if (job.status === 'finished') {
       clearInterval(pollTimer); pollTimer = null;
@@ -329,6 +352,7 @@
       show($('doneRow'));
       $('downloadBtn').disabled = false; $('downloadBtn').textContent = '다시 다운로드';
       $('quality').disabled = false;
+      $('showOtherSubtitles').disabled = false;
       loadHistory();
     } else if (job.status === 'error') {
       fail(job.message || '알 수 없는 오류');
@@ -355,6 +379,7 @@
     show($('errMsg'));
     $('downloadBtn').disabled = false; $('downloadBtn').textContent = '다운로드';
     $('quality').disabled = false;
+    $('showOtherSubtitles').disabled = false;
   }
 
   // ---- 다운로드 내역 -----------------------------------------------------

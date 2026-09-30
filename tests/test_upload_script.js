@@ -81,3 +81,6 @@ reset();b=body();b.fields.srcUrl='https://bad';r=uploadAction(b);assert.ok(r.sub
 reset();const service=Sheets;Sheets=undefined;assert.equal(uploadAction(body()).error,'sheets_service_required');Sheets=service;
 console.log('Upload Apps Script atomicity, ID/revision, retry receipts, files and preservation passed.');
 `,context);
+
+// Share the offline Sheets harness with article supplement tests.
+module.exports=context;

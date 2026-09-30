@@ -240,6 +240,26 @@ class HooksTest(unittest.TestCase):
                 self.assertEqual(set(archive.namelist()), {record['filename'], 'clips.json', 'clips.txt'})
                 self.assertEqual(json.loads(archive.read('clips.json'))[0]['format'], 'audio')
 
+    def test_export_without_alignment_confirmation(self):
+        ident = self.create(url='https://youtu.be/ylPj5BQw5cs')
+        endpoint = f'/api/hooks/jobs/{ident}'
+        state = self.client.post(endpoint + '/candidates', json={'text':'확인 없이 추출','start':1.4,'end':3.1}).get_json()
+        self.assertTrue(state['needs_alignment'])
+        self.assertFalse(state['alignment_confirmed'])
+        for export_format in ('mp4', 'audio'):
+            with self.subTest(format=export_format):
+                response = self.client.post(endpoint + '/export', json={
+                    'candidate_ids':[state['candidates'][0]['id']], 'format':export_format})
+                self.assertEqual(response.status_code, 200)
+                state = self.wait(ident)
+                batch = state['exports'][-1]
+                self.assertTrue(batch['complete'])
+                self.assertEqual(batch['clips'][0]['status'], 'finished', state)
+                self.assertFalse(state['alignment_confirmed'])
+                uri = endpoint + '/exports/' + batch['id'] + '/' + batch['clips'][0]['filename']
+                with self.client.get(uri) as download:
+                    self.assertEqual(download.status_code, 200)
+
     def test_alignment_requires_preview_and_range_rejection(self):
         ident=self.create(url='https://youtu.be/ylPj5BQw5cs')
         self.assertEqual(self.client.patch(f'/api/hooks/jobs/{ident}',json={'alignment_confirmed':True}).status_code,400)

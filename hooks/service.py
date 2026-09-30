@@ -207,8 +207,6 @@ class Service:
         if not state['cues']:
             raise ValueError('먼저 자막을 확보해주세요.')
         asset = self.store.read('assets', state['asset_id']) if state['asset_id'] else {}
-        if state['asset_id'] and state['url'] and not state['alignment_confirmed']:
-            raise ValueError('미리보기에서 영상과 자막 시간의 일치를 확인해주세요.')
         candidates = [c for c in state['candidates'] if c['id'] in requested]
         if len(candidates) != len(set(requested)) or not candidates:
             raise ValueError('추출할 후보를 선택해주세요.')

@@ -247,3 +247,7 @@ Apps Script 편집기 왼쪽 **트리거(시계 아이콘)** 에서 `handleEdit`
 새 `/upload-process` 페이지는 `upload_get`으로 최신 항목과 변경 감지 값을 읽고, 최종 승인 시 `upload_submit`으로 입력·썸네일·상태와 제출 기록을 한 번에 저장합니다. Sheets API v4 고급 서비스(식별자 `Sheets`)를 활성화해야 합니다. 새 시트 열을 추가하지 않으며, 제출 기록은 developer metadata에 보관합니다. 기존 현황판 편집·헬퍼는 그대로 사용할 수 있습니다.
 
 사용자가 진행할 백업·코드 교체·서비스 활성화·권한 승인·배포·검증 순서는 [업로드 프로세스 설정 TODO](../docs/upload-process-setup.md)를 참고하세요.
+
+## 아티클 빌더 (버전 15)
+
+`/helper#article`의 필수 정보 보완 저장에는 최신 `Code.gs`를 반영한 뒤 기존 웹 앱을 **새 버전으로 배포**해야 합니다. 고급 Google Sheets 서비스와 기존 토큰을 사용합니다. 시트 열 구조는 바꾸지 않습니다. `article_get` / `article_fill_missing` 액션은 업로드 완료 항목의 누락된 제목·설명·게시 유튜브 링크만 처리하고, 버전 비교와 원자적 제출 기록으로 충돌·중복 요청을 확인합니다. [전체 사용법](../docs/article-builder.md)을 참고하세요.

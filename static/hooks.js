@@ -2,6 +2,7 @@
 (() => {
   const $ = id => document.getElementById(id);
   let state = null, config, timer, uploadId, controller, uploading = false, activeSegment = null, pendingSegment = null;
+  const timeDrafts = new Map();
   let candidateSignature = '', exportSignature = '', mediaUrl = '';
   const kinds = {taste:'맛 평가', recommendation:'추천', confidence:'자신감·예고', manual:'직접 입력'};
   const statuses = {created:'원본 연결',preparing:'자막 확인 중',needs_input:'입력 필요',no_subtitles:'자막 없음',subtitles_ready:'자막 준비 완료',analyzing:'후보 분석 중',previewing:'영상 준비 중',exporting:'클립 추출 중',ready:'준비 완료',error:'확인 필요',interrupted:'재시도 필요'};
@@ -20,6 +21,7 @@
   function time(t) {const n=Math.max(0,t);return `${Math.floor(n/60).toString().padStart(2,'0')}:${(n%60).toFixed(1).padStart(4,'0')}`;}
   function action(fn) {return async()=>{clearError();try{await fn();}catch(e){showError(e);}};}
   function apply(next) {
+    if(state?.id!==next.id)timeDrafts.clear();
     state=next;localStorage.setItem('hooks.job',state.id);if(location.hash!=='#cooking-audio'){const u=new URL(location.href);u.searchParams.set('job',state.id);u.hash='hooks';window.history.replaceState(null,'',u);}
     const busy=state.busy||uploading, hasCues=state.cue_count>0;
     $('statusBadge').textContent=statuses[state.status]||state.status;
@@ -36,7 +38,7 @@
     $('prepare').disabled=busy;$('newJob').disabled=busy;$('history').disabled=busy;
     $('preview').disabled=busy;$('compat').disabled=busy||!state.preview_kind;
     $('exportFormat').disabled=busy;
-    $('export').disabled=busy||!state.candidates.some(c=>c.selected)||Boolean(state.needs_alignment&&!state.alignment_confirmed);
+    $('export').disabled=busy||!state.candidates.some(c=>c.selected);
     $('useUrl').hidden=!state.asset_id||!state.url;$('useUrl').disabled=busy;
     $('syncPanel').hidden=!hasCues;$('alignmentLabel').hidden=!state.needs_alignment;
     $('durationWarning').hidden=!state.duration_warning&&!state.metadata_warning;
@@ -63,6 +65,35 @@
   }
   async function refresh(){apply(await api(jobPath()));}
   async function mutate(suffix, method, data){apply(await api(jobPath(suffix),method,data));}
+  function formatTime(value){
+    const centiseconds=Math.round(Math.abs(value)*100),minutes=Math.floor(centiseconds/6000);
+    return (value<0?'-':'')+String(minutes).padStart(2,'0')+':'+String(Math.floor(centiseconds/100)%60).padStart(2,'0')+':'+String(centiseconds%100).padStart(2,'0');
+  }
+  function setTime(input,value){input.value=formatTime(value);input.dataset.originalTime=String(value);input.dataset.formattedTime=input.value;}
+  function readTime(input){
+    // Preserve millisecond precision when only the text or another field was edited.
+    if(input.value===input.dataset.formattedTime)return Number(input.dataset.originalTime);
+    const match=/^(\d+):([0-5]\d):(\d{2})$/.exec(input.value.trim());
+    if(!match)throw new Error('시간을 분:초:소수 두 자리 형식으로 입력해주세요. 예: 01:11:18');
+    return Number(match[1])*60+Number(match[2])+Number(match[3])/100;
+  }
+  async function saveCandidateTimes(ids){
+    const updates=ids.map(id=>{
+      const draft=timeDrafts.get(id);
+      if(!draft)return null;
+      const c=state.candidates.find(c=>c.id===id);
+      const read=key=>readTime({value:draft[key],dataset:{formattedTime:formatTime(c[key]),originalTime:String(c[key])}});
+      const start=read('start'),end=read('end');
+      if(!(start>=0&&end>start)||(state.info&&end>state.info.duration))throw new Error('구간이 원본 영상 범위를 벗어납니다. 시작·종료 시간을 확인해주세요.');
+      return {id,draft,start,end};
+    }).filter(Boolean);
+    for(const update of updates){
+      const next=await api(jobPath('/candidates/'+update.id),'PATCH',{start:update.start,end:update.end});
+      if(timeDrafts.get(update.id)===update.draft)timeDrafts.delete(update.id);
+      candidateSignature='';
+      apply(next);
+    }
+  }
   function renderCandidates(busy){
     const target=$('candidates');target.replaceChildren();
     if(!state.candidates.length){target.append(el('div',state.cue_count?'후보를 분석하거나 발언을 직접 추가해주세요.':'자막을 확인하면 후보를 찾을 수 있습니다.','empty'));return;}
@@ -75,19 +106,15 @@
       card.append(el('div',`${kinds[c.kind]} · ${time(c.start)} – ${time(c.end)} · ${duration.toFixed(1)}초${duration<3||duration>5?' · 권장 3–5초 밖':''}${c.origin==='auto'?` · 자막 ${time(c.subtitle_start)}–${time(c.subtitle_end)}`:''}`,'candidate-meta'));
       const controls=el('div',undefined,'candidate-controls');
       const inputs={};
-      for(const [key,label] of [['start','시작 (초)'],['end','종료 (초)']]){
-        const wrap=el('label',label),input=el('input');input.type='number';input.step='.1';input.value=c[key].toFixed(3);input.disabled=busy;input.setAttribute('aria-label',label+' '+c.text);wrap.append(input);controls.append(wrap);inputs[key]=input;
+      for(const [key,label] of [['start','시작 (분:초:소수)'],['end','종료 (분:초:소수)']]){
+        const wrap=el('label',label),input=el('input');input.type='text';input.placeholder='05:30:40';setTime(input,c[key]);if(timeDrafts.has(c.id))input.value=timeDrafts.get(c.id)[key];input.oninput=()=>{timeDrafts.set(c.id,{start:inputs.start.value,end:inputs.end.value});};input.disabled=busy;input.setAttribute('aria-label',label+' '+c.text);wrap.append(input);controls.append(wrap);inputs[key]=input;
       }
-      const save=el('button','구간 저장','secondary');save.disabled=busy;save.onclick=action(async()=>{await mutate('/candidates/'+c.id,'PATCH',{start:Number(inputs.start.value),end:Number(inputs.end.value)});activeSegment=null;});
-      const preview=el('button','구간 재생','secondary');preview.dataset.segmentId=c.id;preview.disabled=busy&&pendingSegment?.id!==c.id;preview.onclick=action(async()=>{if(pendingSegment?.id===c.id||(activeSegment?.id===c.id&&!$('player').paused)){pendingSegment=null;activeSegment=null;$('player').pause();syncPlaybackButtons();return;}scrollToPreview();pendingSegment=c;syncPlaybackButtons();if(state.preview_kind){pendingSegment=null;playSegment(c);}else {try{await mutate('/preview','POST',{});}catch(e){pendingSegment=null;syncPlaybackButtons();throw e;}}});
+      const save=el('button','구간 저장','secondary');save.disabled=busy;save.onclick=action(async()=>{await saveCandidateTimes([c.id]);activeSegment=null;});
+      const preview=el('button','구간 재생','secondary');preview.dataset.segmentId=c.id;preview.disabled=busy&&pendingSegment?.id!==c.id;preview.onclick=action(async()=>{if(!timeDrafts.has(c.id)&&(pendingSegment?.id===c.id||(activeSegment?.id===c.id&&!$('player').paused))){pendingSegment=null;activeSegment=null;$('player').pause();syncPlaybackButtons();return;}await saveCandidateTimes([c.id]);const current=state.candidates.find(candidate=>candidate.id===c.id);pendingSegment=current;syncPlaybackButtons();if(state.preview_kind){pendingSegment=null;playSegment(current);}else {try{await mutate('/preview','POST',{});}catch(e){pendingSegment=null;syncPlaybackButtons();throw e;}}});
       const remove=el('button','삭제','ghost');remove.disabled=busy;remove.onclick=action(()=>mutate('/candidates/'+c.id,'DELETE'));
       controls.append(save,preview,remove);card.append(controls);target.append(card);
     }
     syncPlaybackButtons();
-  }
-  function scrollToPreview(){
-    const target=$('player').hidden?$('emptyVideo'):$('player');
-    target.scrollIntoView({behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth',block:'center'});
   }
   function syncPlaybackButtons(){
     for(const button of $('candidates').querySelectorAll('[data-segment-id]')){
@@ -163,10 +190,32 @@
   $('compat').onclick=action(()=>{mediaUrl='';return mutate('/preview','POST',{force:true});});
   $('saveOffset').onclick=action(async()=>{activeSegment=null;await mutate('','PATCH',{offset:Number($('offset').value)});});
   $('alignment').onchange=action(()=>mutate('','PATCH',{alignment_confirmed:$('alignment').checked}));
+  function syncCopyTimeButton(){
+    const player=$('player');
+    $('copyPlayerTime').disabled=player.readyState<1||!player.getAttribute('src')||Boolean(player.error);
+    if($('copyPlayerTime').disabled)$('copyTimeStatus').textContent='';
+  }
+  for(const event of ['loadedmetadata','emptied','loadstart','error'])$('player').addEventListener(event,syncCopyTimeButton);
+  $('copyPlayerTime').onclick=action(async()=>{
+    const timestamp=formatTime($('player').currentTime);
+    $('copyTimeStatus').textContent='';
+    try{
+      if(!navigator.clipboard?.writeText)throw new Error('Clipboard unavailable');
+      await navigator.clipboard.writeText(timestamp);
+    }catch{
+      const previous=document.activeElement,field=el('textarea');
+      field.value=timestamp;field.style.cssText='position:fixed;left:-9999px;top:0';
+      document.body.append(field);field.focus();field.select();
+      let copied=false;
+      try{copied=document.execCommand('copy');}finally{field.remove();previous?.focus({preventScroll:true});}
+      if(!copied){$('copyTimeStatus').textContent=`복사하지 못했습니다. 현재 시간: ${timestamp}`;return;}
+    }
+    $('copyTimeStatus').textContent=`${timestamp} 복사됨`;
+  });
   $('markStart').onclick=()=>{$('manualStart').value=$('player').currentTime.toFixed(1);};
   $('markEnd').onclick=()=>{$('manualEnd').value=$('player').currentTime.toFixed(1);};
   $('addManual').onclick=action(async()=>{await mutate('/candidates','POST',{text:$('manualText').value,start:Number($('manualStart').value),end:Number($('manualEnd').value)});$('manualText').value='';});
-  $('export').onclick=action(()=>mutate('/export','POST',{candidate_ids:state.candidates.filter(c=>c.selected).map(c=>c.id),format:$('exportFormat').value}));
+  $('export').onclick=action(async()=>{const ids=state.candidates.filter(c=>c.selected).map(c=>c.id),format=$('exportFormat').value;await saveCandidateTimes(ids);await mutate('/export','POST',{candidate_ids:ids,format});});
   $('useUrl').onclick=action(async()=>{await mutate('/source','POST',{asset_id:null});mediaUrl='';activeSegment=null;await mutate('/preview','POST',{});});
   async function loadHistory(){const data=await api('/jobs');$('history').replaceChildren(new Option('작업 선택',''));for(const job of data.jobs)$('history').append(new Option(job.video_name||job.youtube_title||job.url,job.id));if(state)$('history').value=state.id;}
   $('history').onchange=action(async()=>{if(!$('history').value)return;activeSegment=null;pendingSegment=null;apply(await api('/jobs/'+$('history').value));$('sourceUrl').value=state.url;});

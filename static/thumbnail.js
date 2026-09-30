@@ -1,5 +1,23 @@
 'use strict';
-(() => {
+// Apply adjustments to a fresh pixel buffer, never to the original frame.
+const ThumbnailTone = {
+  presets: {original:[0,0,0,0], warm:[5,5,10,20], vivid:[5,20,20,0], bright:[15,-5,10,5]},
+  apply(data, values) {
+    const [brightness, contrast, saturation, temperature] = values;
+    if(values.every(value => value === 0)) return data;
+    const light = brightness * 1.275, gain = 2 ** (contrast / 100), color = 1 + saturation / 100, warmth = temperature * .4;
+    for(let i=0;i<data.length;i+=4){
+      const r=(data[i]+light-127.5)*gain+127.5, g=(data[i+1]+light-127.5)*gain+127.5, b=(data[i+2]+light-127.5)*gain+127.5;
+      const luma=.2126*r+.7152*g+.0722*b;
+      data[i]=luma+(r-luma)*color+warmth;
+      data[i+1]=luma+(g-luma)*color;
+      data[i+2]=luma+(b-luma)*color-warmth;
+    }
+    return data;
+  }
+};
+if(typeof module !== 'undefined') module.exports=ThumbnailTone;
+if(typeof document !== 'undefined') (() => {
   const $ = id => document.getElementById(id);
   const canvas = $('canvas'), ctx = canvas.getContext('2d');
   let video = $('video'), objectURL = null, frame = null, fontReady = false, exporting = false;
@@ -7,10 +25,63 @@
   let generation = 0, offsetX = 0, offsetY = 0, zoom = 1, drag = null;
   const defaults = {subtitle: {size: 88, x: 50, y: 39}, title: {size: 230, x: 50, y: 50}};
   const styles = structuredClone(defaults);
+  const toneKeys=['brightness','contrast','saturation','temperature'];
+  let tone=[0,0,0,0], toneFrame=null, toneCache=null, toneDirty=true, toneRAF=null;
+  function updateToneControls(preset='custom') {
+    $('tonePreset').value=preset;
+    toneKeys.forEach((key,i)=>{
+      $('tone-'+key).value=$('tone-'+key+'-range').value=tone[i];
+      $('tone-'+key+'-value').textContent=(tone[i]>0?'+':'')+tone[i];
+    });
+  }
+  function resetTone() {
+    tone=[0,0,0,0];toneFrame=toneCache=null;toneDirty=true;
+    if(toneRAF!==null){cancelAnimationFrame(toneRAF);toneRAF=null;}
+    updateToneControls('original');
+  }
+  function changeTone() {
+    toneDirty=true;
+    // Invalidate an approved/exporting image immediately, even before the next paint.
+    editRevision++;document.dispatchEvent(new CustomEvent('thumbnail:changed'));
+    if(toneRAF===null) toneRAF=requestAnimationFrame(()=>{toneRAF=null;render(false);});
+  }
+  function tonedFrame() {
+    if(tone.every(value=>value===0)) return frame;
+    if(toneDirty || toneFrame!==frame){
+      toneCache ||= document.createElement('canvas');
+      toneCache.width=frame.width;toneCache.height=frame.height;
+      const context=toneCache.getContext('2d');context.drawImage(frame,0,0);
+      const pixels=context.getImageData(0,0,frame.width,frame.height);
+      ThumbnailTone.apply(pixels.data,tone);context.putImageData(pixels,0,0);
+      toneFrame=frame;toneDirty=false;
+    }
+    return toneCache;
+  }
+  toneKeys.forEach((key,i)=>{
+    const input=$('tone-'+key),range=$('tone-'+key+'-range');
+    input.oninput=range.oninput=e=>{
+      if(e.target.value==='' || !e.target.validity.valid) return;
+      const value=Number(e.target.value);if(tone[i]===value)return;
+      tone[i]=value;updateToneControls();changeTone();
+    };
+    input.onchange=()=>{
+      const value=input.value===''?tone[i]:Number(input.value);
+      const normalized=Math.round(Math.max(-100,Math.min(100,Number.isFinite(value)?value:0)));
+      if(tone[i]!==normalized){tone[i]=normalized;updateToneControls();changeTone();}
+      else updateToneControls($('tonePreset').value);
+    };
+  });
+  $('tonePreset').onchange=()=>{
+    const preset=$('tonePreset').value;if(!ThumbnailTone.presets[preset])return;
+    tone=[...ThumbnailTone.presets[preset]];updateToneControls(preset);changeTone();
+  };
+  $('resetTone').onclick=()=>{resetTone();changeTone();};
+  resetTone();
   const message = (id, text, error = false) => { $(id).textContent = text; $(id).classList.toggle('error', error); };
   const clock = seconds => `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${(seconds % 60).toFixed(1).padStart(4, '0')}`;
   const ready = () => video.readyState >= 2 && video.videoWidth > 0 && !video.seeking && Number.isFinite(video.duration);
   function controls() {
+    document.querySelectorAll('[data-tone-control]').forEach(control=>control.disabled=!frame);
     $('capture').disabled = !ready() || !video.paused;
     for (const id of ['timeline', 'prev', 'next']) $(id).disabled = !Number.isFinite(video.duration) || video.readyState < 1;
     $('export').disabled = !frame || !fontReady || exporting;
@@ -48,7 +119,7 @@
   function render(changed = true) {
     if (changed) { editRevision++; document.dispatchEvent(new CustomEvent("thumbnail:changed")); }
     ctx.fillStyle = '#171a21'; ctx.fillRect(0, 0, 1080, 1920);
-    if (frame) { const c = crop(); ctx.drawImage(frame, c.x, c.y, c.width, c.height); }
+    if (frame) { const c = crop(); ctx.drawImage(tonedFrame(), c.x, c.y, c.width, c.height); }
     if (frame && fontReady) { drawText('subtitle'); drawText('title'); }
     const empty = $('empty');
     empty.hidden = !!frame;
@@ -90,6 +161,7 @@
   function resetCrop() { zoom = 1; offsetX = offsetY = 0; $('zoom').value = $('zoom-range').value = 100; $('zoomValue').textContent = '100%'; render(); }
   async function loadFile(file) {
     if (!file) return;
+    resetTone();
     generation++; video.pause(); video.removeAttribute('src'); video.load();
     if (objectURL) URL.revokeObjectURL(objectURL);
     objectURL = null; frame = null; drag = null;
@@ -216,6 +288,7 @@
     } catch (e) { message('exportStatus', e.message, true); }
   };
   function reset() {
+    resetTone();
     generation++; video.pause(); video.removeAttribute('src'); video.load();
     if (objectURL) URL.revokeObjectURL(objectURL);
     objectURL = null; frame = null; drag = null; zoom = 1; offsetX = offsetY = 0;

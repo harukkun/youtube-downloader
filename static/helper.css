@@ -185,3 +185,7 @@
     .thumbnail-preview { position: static; width:100%; max-width:440px; justify-self:center; }
   }
   @media (max-width: 560px) { .thumbnail-workspace .type-controls { grid-template-columns:1fr; gap:4px; } .thumbnail-workspace .color-controls { gap:12px; flex-wrap:wrap; } }
+
+.thumbnail-workspace .tone-controls { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:4px 16px; margin-bottom:12px; }
+.thumbnail-workspace .tone-controls input:disabled { opacity:.4; cursor:not-allowed; }
+@media(max-width:560px) { .thumbnail-workspace .tone-controls { grid-template-columns:1fr; } }

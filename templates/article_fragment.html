@@ -1,0 +1,78 @@
+<section class="panel hidden article-builder" data-tool="article" id="ab-panel">
+  <header class="ab-head"><div><span class="ab-eyebrow">RECIPE JOURNAL / ARTICLE BUILDER</span><h2>한 편의 요리, 한 편의 글.</h2><p>레시피를 정리하고, 영상 속 장면을 담아보세요.</p></div><span class="ab-mark" aria-hidden="true">Aa<span>01—05</span></span></header>
+  <div class="ab-toolbar"><label for="ab-history">저장한 초안<select id="ab-history"><option value="">초안 선택…</option></select></label><button type="button" id="ab-new" class="secondary">새 아티클</button><button type="button" id="ab-delete" class="ghost" disabled>초안 삭제</button><span id="ab-save-status" role="status"></span></div>
+  <nav class="ab-stages" aria-label="아티클 작업 단계">
+    <button type="button" data-ab-stage="0" aria-current="step"><b>01</b> 요리 선택</button><button type="button" data-ab-stage="1"><b>02</b> 글 작성</button><button type="button" data-ab-stage="2"><b>03</b> 영상 준비</button><button type="button" data-ab-stage="3"><b>04</b> 장면 선택</button><button type="button" data-ab-stage="4"><b>05</b> 내보내기</button>
+  </nav>
+  <p id="ab-message" class="ab-message" role="status" aria-live="polite">업로드 완료된 요리를 선택해 시작하세요.</p>
+  <div id="ab-conflict" hidden><p>서버에 더 최신 초안이 있습니다. 현재 입력을 복사해 보관하거나 최신 초안을 다시 열어주세요.</p><button type="button" id="ab-rescue" class="secondary">현재 입력 복사</button><button type="button" id="ab-reload" class="secondary">최신 초안 열기</button></div>
+  <fieldset id="ab-work" class="ab-work">
+  <section data-ab-page="0" class="ab-section">
+    <div class="ab-section-title"><h3>게시한 요리에서 시작하기</h3><button type="button" id="ab-refresh" class="ghost">목록 새로고침</button></div>
+    <label for="ab-search">요리명 · 영상 제목</label><input id="ab-search" type="search" placeholder="어떤 요리의 이야기를 쓸까요?">
+    <div id="ab-items" class="ab-items"></div>
+    <div id="ab-source" hidden>
+      <h3 id="ab-selected-title"></h3><p class="ab-hint">누락된 정보만 보완합니다. 입력한 값은 현황판에도 저장됩니다.</p>
+      <label for="ab-source-title">영상 제목 <span>필수</span></label><input id="ab-source-title" maxlength="500">
+      <label for="ab-source-description">설명 · 레시피 <span>필수</span></label><textarea id="ab-source-description" rows="7" maxlength="30000"></textarea>
+      <label for="ab-source-url">업로드한 유튜브 링크 <span>필수</span></label><input id="ab-source-url" type="url" placeholder="https://www.youtube.com/shorts/…">
+      <p id="ab-source-note" class="ab-hint"></p><button type="button" id="ab-source-refresh" class="ghost">최신 정보 확인</button><button type="button" id="ab-create">현황판에 저장하고 다음 →</button>
+    </div>
+  </section>
+  <section data-ab-page="1" class="ab-section" hidden>
+    <details class="ab-template"><summary>아티클 템플릿.md <span>구성과 말투 설정</span></summary>
+      <label for="ab-template">아티클 템플릿.md</label><textarea id="ab-template" rows="13" class="mono" spellcheck="false"></textarea>
+      <p class="ab-hint">{% raw %}{{title}} · {{intro}} · {{ingredients}} · {{steps}} · {{closing}} · {{youtube_url}}{% endraw %}<br>조리 단계와 유튜브 링크 슬롯은 각각 한 번 필요합니다. 제목·목록·굵은 글씨·HTTPS 링크를 지원합니다.</p>
+      <label for="ab-instructions">추가 생성 지시</label><textarea id="ab-instructions" rows="3" maxlength="5000"></textarea>
+      <div class="ab-row"><label>호출 방식<select id="ab-backend">{% for k,v in backends.items() %}<option value="{{k}}">{{v}}</option>{% endfor %}</select></label><label>모델<select id="ab-model">{% for k,m in models.items() %}<option value="{{k}}">{{m.label}}</option>{% endfor %}</select></label></div>
+      <div class="ab-actions"><button type="button" id="ab-template-apply" class="secondary">현재 초안에 적용</button><button type="button" id="ab-template-save" class="ghost">다음 아티클의 기본값으로 저장</button><button type="button" id="ab-template-reset" class="ghost">기본 템플릿 불러오기</button></div>
+    </details>
+    <div class="ab-section-title"><h3>레시피에 이야기를 더하기</h3><span class="ab-chip">LLM ①</span></div>
+    <p class="ab-hint">원본 레시피를 바탕으로 작성합니다. 없는 재료·분량·경험은 만들지 않습니다. 직접 편집에는 LLM을 사용하지 않습니다.</p>
+    <div class="ab-actions"><button type="button" id="ab-generate">아티클 생성 · LLM 사용</button><button type="button" id="ab-regenerate" class="ghost">새 결과로 다시 생성 · 추가 사용</button></div>
+    <div id="ab-questions" class="ab-inset" hidden></div>
+    <div id="ab-pending" class="ab-inset" hidden><h4>새 아티클 후보</h4><p class="ab-hint">적용하면 기존 단계·이미지 연결을 교체합니다. 적용 전까지 현재 편집 내용은 유지됩니다.</p><pre id="ab-pending-text"></pre><button type="button" id="ab-apply">이 후보 적용</button></div>
+    <label for="ab-title">아티클 제목</label><input id="ab-title" maxlength="20000" data-ab-content>
+    <label for="ab-intro">짧은 소개</label><textarea id="ab-intro" rows="3" data-ab-content></textarea>
+    <label for="ab-ingredients">재료 · 한 줄에 하나씩</label><textarea id="ab-ingredients" rows="5" data-ab-content></textarea>
+    <div class="ab-section-title"><h3>번호별 조리법</h3><button type="button" id="ab-add-step" class="secondary">＋ 단계 추가</button></div>
+    <div id="ab-steps"></div>
+    <label for="ab-closing">마무리</label><textarea id="ab-closing" rows="3" data-ab-content></textarea>
+    <div class="ab-actions"><button type="button" data-ab-next="2">영상 준비로 →</button><button type="button" id="ab-copy-draft" class="ghost">초안 텍스트 복사</button></div>
+  </section>
+  <section data-ab-page="2" class="ab-section" hidden>
+    <div class="ab-section-title"><h3>내 영상에서 장면 가져오기</h3><span class="ab-chip quiet">영상 준비 · LLM 없음</span></div>
+    <p id="ab-video-url" class="ab-hint"></p><button type="button" id="ab-source-sync" class="ghost">현황판 원본 정보 다시 가져오기</button><button type="button" id="ab-prepare">영상 다운로드·재생 준비</button>
+    <details class="ab-template"><summary>다운로드가 어렵다면 로컬 영상 사용</summary><p class="ab-hint">동일한 업로드본의 MP4·MOV를 선택하세요. 기존 구간과 이미지 확정은 해제되며, 원격 자막은 적용하지 않습니다.</p><label for="ab-file">로컬 영상<input id="ab-file" type="file" accept=".mp4,.mov,video/mp4,video/quicktime"></label></details>
+    <div class="ab-section-title"><h3>레시피 구간 찾기</h3><span class="ab-chip">자동 제안 · LLM ②</span></div>
+    <p class="ab-hint">자막을 먼저 가져오고, 없으면 로컬 음성 인식을 사용합니다. 자막과 실제 조리 장면이 다를 수 있으므로 선택한 구간을 확인해주세요.</p>
+    <p id="ab-transcript-status"></p><div class="ab-actions"><button type="button" id="ab-transcribe" class="secondary">자막·음성 인식 준비 · LLM 없음</button><button type="button" id="ab-suggest">구간 자동 제안 · LLM 사용</button><button type="button" id="ab-resuggest" class="ghost">다시 분석 · 추가 사용</button></div>
+    <p class="ab-hint">자막이나 음성이 없어도 장면 선택에서 구간을 직접 지정할 수 있습니다.</p><button type="button" data-ab-next="3">장면 선택으로 →</button>
+  </section>
+  <section data-ab-page="3" class="ab-section" hidden>
+    <div class="ab-section-title"><h3>조리 과정에 장면 더하기 · 선택</h3><span class="ab-chip quiet">LLM 없음</span></div>
+    <p class="ab-hint">이미지가 없는 단계는 본문만 내보냅니다. 이미지를 넣은 단계는 확정하거나 ‘이미지 없이 사용’을 선택해주세요. 영상 준비 없이 바로 내보내기도 가능합니다.</p>
+    <label for="ab-step-select">이미지를 붙일 조리 단계</label><select id="ab-step-select"></select><p id="ab-step-body" class="ab-hint"></p>
+    <div id="ab-suggestions" class="ab-actions"></div>
+    <video id="ab-video" controls playsinline preload="metadata" aria-label="레시피 장면 선택용 영상"></video>
+    <div class="ab-row"><label>시작 (초)<input id="ab-start" type="number" min="0" step="0.1"></label><label>끝 (초)<input id="ab-end" type="number" min="0" step="0.1"></label></div>
+    <div class="ab-actions"><button type="button" id="ab-range" class="secondary">구간 저장</button><button type="button" id="ab-loop" class="ghost">이 구간 반복 재생</button><button type="button" id="ab-candidates" class="ghost">후보 5장 추출</button></div>
+    <label for="ab-timeline">장면 탐색 <output id="ab-time">0.0초</output></label><input id="ab-timeline" type="range" min="0" max="1" step="0.1" value="0">
+    <div class="ab-actions"><button type="button" id="ab-prev" class="secondary">−0.1초</button><button type="button" id="ab-next" class="secondary">+0.1초</button><button type="button" id="ab-use-time" class="secondary">이 시점 선택</button></div>
+    <div id="ab-candidate-images" class="ab-candidates"></div>
+    <details class="ab-template" open><summary>제목·출처 영역 제외와 정사각형 구도</summary>
+      <div class="ab-row"><label>위 제외 (%)<input id="ab-top" type="number" min="0" max="97" step="0.1" value="0"></label><label>아래 제외 (%)<input id="ab-bottom" type="number" min="0" max="97" step="0.1" value="0"></label></div>
+      <button type="button" id="ab-exclude" class="secondary">영상 전체에 적용·기존 컷 다시 추출</button><p class="ab-hint">붉은 영역은 제외됩니다. 사각형을 드래그해 구도를 조절하세요. 변경한 이미지는 다시 확정해야 합니다.</p>
+      <div class="ab-crop-layout"><canvas id="ab-canvas" width="540" height="540" aria-label="드래그로 정사각형 크롭 위치 조정"></canvas><div><label for="ab-zoom">확대 <output id="ab-zoom-value">100%</output></label><input id="ab-zoom" type="range" min="100" max="300" value="100"><div class="ab-row"><label>가로 위치 (%)<input id="ab-crop-x" type="number" min="0" max="100" step="0.1"></label><label>세로 위치 (%)<input id="ab-crop-y" type="number" min="0" max="100" step="0.1"></label></div><button type="button" id="ab-crop-reset" class="ghost">중앙 정사각형</button><p class="ab-hint">확정 이미지 · 최대 1080 × 1080</p><img id="ab-still" alt="선택한 조리 단계 스틸컷" hidden><p id="ab-image-status" role="status"></p></div></div>
+      <div class="ab-actions"><button type="button" id="ab-capture">현재 장면·구도로 이미지 추출</button><button type="button" id="ab-confirm" class="secondary">이 이미지 확정</button></div>
+    </details><button type="button" data-ab-next="4">아티클 미리보기로 →</button>
+  </section>
+  <section data-ab-page="4" class="ab-section" hidden>
+    <div class="ab-section-title"><h3>게시하기 전, 마지막 읽기</h3><span class="ab-chip quiet">LLM 없음</span></div>
+    <p id="ab-checklist" class="ab-hint"></p><div class="ab-actions"><button type="button" id="ab-copy">본문 복사</button><button type="button" id="ab-export">완성본 ZIP 다운로드</button><button type="button" id="ab-preview-refresh" class="ghost">미리보기 새로고침</button></div>
+    <p class="ab-hint">본문 복사는 이미지 삽입 위치를 표시합니다. ZIP에는 Markdown·HTML·순서별 이미지가 들어 있습니다.</p>
+    <iframe id="ab-preview" title="아티클 미리보기" sandbox="allow-same-origin"></iframe><div id="ab-exports" class="ab-actions"></div>
+  </section>
+  </fieldset>
+  <footer class="ab-usage" id="ab-usage">직접 편집·이미지 작업·내보내기는 LLM을 사용하지 않습니다.</footer>
+</section>

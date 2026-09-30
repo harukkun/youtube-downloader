@@ -16,6 +16,7 @@
 | 다운로드 내역 | 받은 영상 목록, 파일 존재 여부, 저장 경로, 크기, 시각 표시. 다시 받기 / 기록 삭제 |
 | 쇼츠 현황판 | 구글 시트 기반 제작 현황 조회·편집·추가·삭제. 상태 필터, 검색·정렬, 썸네일 등록, 복사 버튼 ([sheets/README.md](sheets/README.md)) |
 | 업로드 헬퍼 | 유튜브 업로드에 필요한 텍스트를 Claude로 만드는 도구 모음. 첫 기능: 다른 채널의 레시피 설명을 내 채널 템플릿 형식으로 변형 |
+| 아티클 빌더 | 업로드 완료한 요리의 레시피 → 번호별 조리법·정사각형 스틸컷 → 블로그용 본문 복사·Markdown/HTML/이미지 ZIP ([사용법·설정](docs/article-builder.md)) |
 
 ## 요구 사항
 
@@ -374,3 +375,10 @@ Apps Script 버전 11과 고급 Google Sheets 서비스가 필요합니다. 실�
 자막이 없을 때는 Apple Silicon Mac의 로컬 Whisper를 사용합니다. `scripts/setup-cooking-asr.sh`로 별도 Python 3.11 환경을 준비하세요. 최초 인식 때 모델이 다운로드됩니다. 자막 분석과 편집·추출은 기존 앱 환경에서 동작합니다.
 
 상세 정책·모듈·검증 기준은 [조리 대사 추출 계획](docs/cooking-dialogue-extraction-plan.md)을 참고하세요. 일반 검증은 `.venv/bin/python -m unittest discover -q`, 브라우저 검증은 `tests/cooking_browser_fixture.py` 실행 후 Playwright가 설치된 Node 환경에서 `node tests/test_cooking_browser.js`로 수행합니다.
+
+## 자동 편집 (`/auto-edit`)
+
+영상 파일 여러 개 또는 기존 캡컷 프로젝트를 입력하면 무음·정지 구간을 찾아 자동으로 컷 편집합니다.
+무음/정지 기준, 두 조건의 조합, 컷 앞뒤 여유를 조절할 수 있으며, 원본과 편집본의 길이·제거 구간을
+확인하고 pyCapCut으로 만든 프로젝트를 저장할 수 있습니다. 최근 작업은 새로고침 후에도 복원됩니다.
+설치·입력 범위·프로젝트 제한·검증 방법은 [자동 편집 안내](docs/auto-edit.md)를 참고하세요.

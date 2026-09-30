@@ -38,7 +38,7 @@ const ROW_HEIGHT = 64;      // 썸네일이 보이는 데이터 행 높이
 const PROP_TOKEN = 'UPLOAD_TOKEN';
 const PROP_FOLDER = 'THUMB_FOLDER_ID';
 const THUMB_FOLDER_NAME = '쇼츠 현황판 썸네일';
-const UPLOAD_VERSION = 14;
+const UPLOAD_VERSION = 15;
 const thumbUrlFor = (id) => `https://lh3.googleusercontent.com/d/${id}`;   // IMAGE() 와 <img> 모두에서 열리는 형식
 const SOURCE_THUMB_RE = /i\.ytimg\.com|img\.youtube\.com/;                 // 예전 버전이 넣던 원본 영상 썸네일
 
@@ -675,9 +675,10 @@ function doPost(e) {
   try { body = JSON.parse(e && e.postData && e.postData.contents || ''); } catch (err) { return jsonOut({ ok: false, error: 'bad_json' }); }
   const token = uploadToken(false);
   if (!token || String(body.token || '') !== token) return jsonOut({ ok: false, error: 'unauthorized' });
+  if (String(body.action || '').startsWith('article_')) return articleAction(body);
   if (String(body.action || '').startsWith('upload_')) return uploadAction(body);
   if (String(body.action || '').startsWith('board_')) return boardAction(body);
-  if (body.action === 'ping') return jsonOut({ ok: true, ping: true, version: UPLOAD_VERSION });
+  if (body.action === 'ping') return jsonOut({ ok: true, ping: true, version: UPLOAD_VERSION, article_version: 1 });
   if (['candidate_list', 'candidate_add', 'candidate_remove'].includes(body.action)) return candidateAction(body);
   if (String(body.action || '').startsWith('reference_')) return referenceAction(body);
   if (body.action !== 'thumbnail') return jsonOut({ ok: false, error: 'unknown_action' });
@@ -1578,6 +1579,78 @@ function uploadAction(body) {
     return jsonOut(uploadReply(sheet,row,{before,submitted:true,requestId:body.requestId,warnings}));
   } catch (err) {
     if (!committing && createdFile) { uploadDiscard(file); }
+    return jsonOut({ok:false,error:committing?'commit_unknown':writing?'commit_failed':'read_failed'});
+  } finally { lock.releaseLock(); }
+}
+
+// Article supplements only fill missing fields. Receipts and cells commit atomically.
+const ARTICLE_FIELDS = ['title','desc','youtubeUrl'];
+function articleRevision(cells) {
+  return uploadHash(['article-v1',cells.itemId,cells.status,...ARTICLE_FIELDS.map(k=>cells[k] || '')]);
+}
+function articleReply(sheet,row,extra) {
+  const cells=uploadReadRow(sheet,row);
+  return {ok:true,article_version:1,row,cells,revision:articleRevision(cells),...extra};
+}
+function articleAction(body) {
+  if (!['article_get','article_fill_missing'].includes(body.action)) return jsonOut({ok:false,error:'unknown_action'});
+  if (typeof Sheets === 'undefined') return jsonOut({ok:false,error:'sheets_service_required'});
+  const ss=SpreadsheetApp.getActiveSpreadsheet(), sheet=ss.getSheetByName(SHEET_NAME);
+  if (body.sheetId !== ss.getId()) return jsonOut({ok:false,error:'wrong_sheet'});
+  if (!sheet) return jsonOut({ok:false,error:'no_sheet'});
+  if (sheet.getMaxColumns()<COL.itemId || String(sheet.getRange(HEADER_ROW,COL.itemId).getValue()) !== COLUMNS[COL.itemId-1].header)
+    return jsonOut({ok:false,error:'article_upgrade_required'});
+  if (typeof body.itemId !== 'string' || !body.itemId.trim() || body.itemId.length>200) return jsonOut({ok:false,error:'row_mismatch'});
+  const writing=body.action==='article_fill_missing';
+  if (writing && (!/^[A-Za-z0-9_-]{16,80}$/.test(body.requestId || '') || !/^[a-f0-9]{64}$/.test(body.revision || '')))
+    return jsonOut({ok:false,error:'bad_fields'});
+  const lock=LockService.getScriptLock();
+  if (!lock.tryLock(20000)) return jsonOut({ok:false,error:'busy'});
+  let committing=false;
+  try {
+    let row=boardLocateId(sheet,body.itemId);
+    if (!row) return jsonOut({ok:false,error:'row_mismatch'});
+    const before=uploadReadRow(sheet,row);
+    if (!writing) {
+      if (before.status!==UPLOADED) return jsonOut({ok:false,error:'article_not_uploaded'});
+      return jsonOut(articleReply(sheet,row,{}));
+    }
+    const fields=body.fields;
+    if (!fields || Array.isArray(fields) || !Object.keys(fields).length || Object.keys(fields).some(k=>!ARTICLE_FIELDS.includes(k) || typeof fields[k]!=='string' || !fields[k].trim()))
+      return jsonOut({ok:false,error:'bad_fields'});
+    const digest=uploadHash(['article',body.itemId,body.revision,ARTICLE_FIELDS.map(k=>fields[k]===undefined?null:fields[k])]);
+    const receiptKey='article_'+body.requestId, receipt=uploadReceipt(ss,receiptKey);
+    if (receipt) {
+      if (receipt.itemId!==body.itemId || receipt.digest!==digest) return jsonOut({ok:false,error:'request_mismatch'});
+      return jsonOut(articleReply(sheet,row,{submitted:true,requestId:body.requestId}));
+    }
+    if (before.status!==UPLOADED) return jsonOut({ok:false,error:'article_not_uploaded'});
+    if (articleRevision(before)!==body.revision) return jsonOut({ok:false,error:'conflict'});
+    if (Object.keys(fields).some(k=>String(before[k] || '').trim())) return jsonOut({ok:false,error:'article_not_missing'});
+    const valid=boardValidateFields(fields,before);
+    if (valid.error || valid.writes.some(w=>!String(w.value).trim())) return jsonOut({ok:false,error:'bad_fields'});
+    // A YouTube link must be a single video, not a channel or arbitrary URL.
+    if (fields.youtubeUrl && !/^https:\/\/(?:(?:www\.|m\.)?youtube\.com\/(?:watch\?v=[\w-]{11}(?:&[^\s]*)?|(?:shorts|live|embed)\/[\w-]{11}(?:[?][^\s]*)?)|(?:www\.)?youtu\.be\/[\w-]{11}(?:[?][^\s]*)?)$/.test(fields.youtubeUrl))
+      return jsonOut({ok:false,error:'bad_fields'});
+    row=boardLocateId(sheet,body.itemId);
+    if (!row || articleRevision(uploadReadRow(sheet,row))!==body.revision) return jsonOut({ok:false,error:row?'conflict':'row_mismatch'});
+    const requests=valid.writes.map(w=>uploadCell(sheet.getSheetId(),row,w.key,w.value));
+    const localDate=Utilities.formatDate(new Date(),ss.getSpreadsheetTimeZone(),"yyyy-MM-dd'T'HH:mm:ss");
+    requests.push(uploadCell(sheet.getSheetId(),row,'updatedAt',Date.parse(localDate+'Z')/86400000+25569));
+    requests.push({createDeveloperMetadata:{developerMetadata:{
+      metadataId:(parseInt(uploadHash('article:'+body.requestId).slice(0,8),16)&0x7fffffff)||1,
+      metadataKey:'upload_process_'+receiptKey,metadataValue:JSON.stringify({itemId:body.itemId,digest}),
+      visibility:'DOCUMENT',location:{spreadsheet:true}}}});
+    committing=true;
+    try { Sheets.Spreadsheets.batchUpdate({requests},ss.getId()); }
+    catch(err) {
+      let recorded;
+      try { recorded=uploadReceipt(ss,receiptKey); } catch (_) { return jsonOut({ok:false,error:'commit_unknown'}); }
+      if (!recorded) return jsonOut({ok:false,error:/Invalid requests|Invalid value|Permission denied|already exists/i.test(String(err))?'commit_failed':'commit_unknown'});
+      if (recorded.itemId!==body.itemId || recorded.digest!==digest) return jsonOut({ok:false,error:'request_mismatch'});
+    }
+    return jsonOut(articleReply(sheet,row,{before,submitted:true,requestId:body.requestId}));
+  } catch(err) {
     return jsonOut({ok:false,error:committing?'commit_unknown':writing?'commit_failed':'read_failed'});
   } finally { lock.releaseLock(); }
 }
