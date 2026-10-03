@@ -2,7 +2,7 @@
   <div class="thumbnail-editor">
     <section class="thumb-card">
       <h2><span>01</span> 영상 또는 이미지 선택</h2>
-      <label class="drop" id="drop" for="file"><strong>영상이나 이미지를 놓거나 클릭해서 선택</strong><span>MOV · MP4 영상 / PNG · JPG · WebP 이미지</span><input id="file" type="file" accept="video/*,image/png,image/jpeg,image/webp,.mov,.mp4,.png,.jpg,.jpeg,.webp"></label>
+      <label class="drop" id="drop" for="file"><strong>영상이나 이미지를 놓거나 클릭해서 선택</strong><span>MOV · MP4 영상 / PNG · JPG · WebP · HEIC · HEIF 이미지</span><input id="file" type="file" accept="video/*,image/png,image/jpeg,image/webp,image/heic,image/heif,image/heic-sequence,image/heif-sequence,.mov,.mp4,.png,.jpg,.jpeg,.webp,.heic,.heif"></label>
       <p class="hint">파일은 브라우저에서 처리됩니다. 현황판에 등록할 때만 완성 이미지가 서버를 거쳐 구글 드라이브에 저장됩니다.</p><p id="fileInfo" class="hint"></p>
       <div id="videoArea" hidden><video id="video" controls playsinline preload="auto" aria-label="장면 선택용 영상"></video>
         <label for="timeline">장면 탐색 <output id="time">00:00.0 / 00:00.0</output></label><input id="timeline" type="range" min="0" max="0" step="0.1" value="0" disabled>

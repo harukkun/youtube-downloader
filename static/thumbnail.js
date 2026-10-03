@@ -159,6 +159,20 @@ if(typeof document !== 'undefined') (() => {
     video.removeAttribute('src'); video.load(); render();
   }
   function resetCrop() { zoom = 1; offsetX = offsetY = 0; $('zoom').value = $('zoom-range').value = 100; $('zoomValue').textContent = '100%'; render(); }
+  let heicDecoder;
+  function loadHeicDecoder() {
+    // Load the bundled decoder only for HEIC/HEIF; the original stays in the browser.
+    if (!heicDecoder) {
+      heicDecoder = new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = '/static/vendor/heic-to/heic-to.js';
+        script.onload = () => typeof window.HeicTo === 'function' ? resolve(window.HeicTo) : reject(new Error('HEIC decoder unavailable'));
+        script.onerror = () => { script.remove(); reject(new Error('HEIC decoder unavailable')); };
+        document.head.append(script);
+      }).catch(error => { heicDecoder = null; throw error; });
+    }
+    return heicDecoder;
+  }
   async function loadFile(file) {
     if (!file) return;
     resetTone();
@@ -171,13 +185,22 @@ if(typeof document !== 'undefined') (() => {
     $('fileInfo').textContent = `${file.name} · ${(file.size / 1024 / 1024).toFixed(1)} MB`;
     $('frameInfo').textContent = '선택한 장면이 여기에 표시됩니다.';
     message('exportStatus', ''); resetCrop();
-    const isImage = /^image\/(png|jpeg|webp)$/.test(file.type) || /\.(png|jpe?g|webp)$/i.test(file.name);
+    const isHeic = /^image\/hei[cf](?:-sequence)?$/i.test(file.type) || /\.hei[cf]$/i.test(file.name);
+    const isImage = isHeic || /^image\/(png|jpeg|webp)$/.test(file.type) || /\.(png|jpe?g|webp)$/i.test(file.name);
     $('videoArea').hidden = isImage;
-    objectURL = URL.createObjectURL(file);
     if (isImage) {
-      const token = generation, imageURL = objectURL;
-      message('videoStatus', '이미지를 불러오는 중입니다…');
+      const token = generation;
+      let imageURL = null;
+      message('videoStatus', isHeic ? 'HEIC/HEIF 이미지를 변환하는 중입니다…' : '이미지를 불러오는 중입니다…');
       try {
+        let source = file;
+        if (isHeic) {
+          const convert = await loadHeicDecoder();
+          if (generation !== token) return;
+          source = await convert({blob: file, type: 'image/png'});
+          if (generation !== token) return;
+        }
+        imageURL = URL.createObjectURL(source); objectURL = imageURL;
         const image = new Image(); image.src = imageURL; await image.decode();
         if (generation !== token) return;
         const selected = document.createElement('canvas');
@@ -188,14 +211,15 @@ if(typeof document !== 'undefined') (() => {
         $('frameInfo').textContent = `이미지 · ${selected.width} × ${selected.height} 원본`;
         message('videoStatus', '이미지를 선택했습니다. 문구와 구도를 조정해 보세요.');
       } catch {
-        if (generation === token) message('videoStatus', '이미지를 읽지 못했습니다. 정상적인 PNG, JPG 또는 WebP 파일을 선택해 주세요.', true);
+        if (generation === token) message('videoStatus', isHeic ? 'HEIC/HEIF 이미지를 변환하지 못했습니다. 파일을 확인하고 다시 선택해 주세요.' : '이미지를 읽지 못했습니다. 정상적인 PNG, JPG, WebP, HEIC 또는 HEIF 파일을 선택해 주세요.', true);
       } finally {
-        URL.revokeObjectURL(imageURL);
+        if (imageURL) URL.revokeObjectURL(imageURL);
         if (generation === token) { objectURL = null; controls(); }
       }
       return;
     }
     message('videoStatus', '영상을 불러오는 중입니다…');
+    objectURL = URL.createObjectURL(file);
     video.src = objectURL; video.load(); controls();
   }
   $('file').onchange = event => { loadFile(event.target.files[0]); event.target.value = ''; };

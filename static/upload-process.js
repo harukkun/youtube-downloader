@@ -82,6 +82,8 @@ if (typeof document !== 'undefined') (async () => {
     step=n;document.querySelectorAll('[data-step]').forEach(el=>el.hidden=Number(el.dataset.step)!==n);
     $('stepActions').hidden=n===0;$('nextStep').hidden=n===4;
     if(n===4) review();updateNav();persist();
+    const panel=document.querySelector('[data-step="'+n+'"]');
+    panel.setAttribute('tabindex','-1');panel.focus({preventScroll:true});panel.scrollIntoView({block:'start'});
   }
   function updateThumbnail() {
     if(previewURL) URL.revokeObjectURL(previewURL);
@@ -240,7 +242,7 @@ if (typeof document !== 'undefined') (async () => {
   $('refreshItems').onclick=()=>loadList();$('itemSearch').oninput=renderItems;
   document.querySelectorAll('[data-goto]').forEach(b=>b.onclick=()=>showStep(Number(b.dataset.goto)));
   $('previousStep').onclick=()=>showStep(step-1);$('nextStep').onclick=()=>showStep(step+1);
-  $('confirmRecipe').onclick=()=>{if(recipe.valid()){state.recipeConfirmed=true;updateNav();persist();}};
+  $('confirmRecipe').onclick=()=>{if(recipe.valid()){state.recipeConfirmed=true;showStep(3);}};
   document.addEventListener('recipe:changed',()=>{if(!state||restoring||state.pending)return;state.recipeConfirmed=false;updateNav();persist();});
   document.querySelector('[data-step="1"]').addEventListener('input',()=>{if(state&&!restoring){updateNav();persist();}});
   $('uploadedYoutubeUrl').addEventListener('input',()=>{if(state&&!restoring&&!state.pending)persist();});
@@ -249,7 +251,7 @@ if (typeof document !== 'undefined') (async () => {
     if(busy)return;
     const generation=selectedGeneration;$('confirmThumbnail').disabled=true;busy=true;updateNav();
     ++saveSequence;unsaved=true;$('draftStatus').textContent='썸네일 확정 중…';
-    try{const blob=await editor.exportImage('jpg',.9);if(generation!==selectedGeneration)return;state.thumb={mode:'new',blob};updateThumbnail();updateNav();await persist();message('썸네일을 확정했습니다.');}
+    try{const blob=await editor.exportImage('jpg',.9);if(generation!==selectedGeneration)return;state.thumb={mode:'new',blob};updateThumbnail();updateNav();await persist();message('썸네일을 확정했습니다.');showStep(4);}
     catch(e){message(e.message,true);persist();}finally{busy=false;$('confirmThumbnail').disabled=false;updateNav();}
   };
   $('useExisting').onclick=()=>{if(busy)return;state.thumb={mode:'existing',url:state.item.video.thumbnail};updateThumbnail();updateNav();persist();};

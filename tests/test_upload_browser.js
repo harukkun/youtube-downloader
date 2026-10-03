@@ -14,8 +14,21 @@ const base='http://127.0.0.1:8877';
  const control=data=>p.request.post(base+'/_test/control',{data});
  const status=async()=> (await p.request.get(base+'/_test/control')).json();
  async function choose(index=0){await p.goto(base+'/upload-process');await p.locator('.item-option').nth(index).click();await p.locator('#videoTitle').fill('완성한 김치볶음밥');}
- async function generate(){await p.locator('#nextStep').click();await p.locator('#srcText').fill('김치 100g과 밥 1공기를 식용유 1T에 3분간 볶는다.');await p.locator('#genBtn').click();await p.waitForFunction(()=>RecipeEditor.valid());await p.locator('#confirmRecipe').click();await p.locator('#nextStep').click();}
- await control({reset:true});await choose();await generate();
+ async function generate(){await p.locator('#nextStep').click();await p.locator('#srcText').fill('김치 100g과 밥 1공기를 식용유 1T에 3분간 볶는다.');await p.locator('#genBtn').click();await p.waitForFunction(()=>RecipeEditor.valid());await p.locator('#confirmRecipe').click();await p.locator('[data-step="3"]').waitFor({state:'visible'});}
+ async function navigationInViewport(){
+  for(const bottom of [false,true]){
+   await p.evaluate(bottom=>window.scrollTo(0,bottom?document.body.scrollHeight:0),bottom);
+   const box=await p.locator('#nextStep').boundingBox();
+   assert.ok(box && box.y>=0 && box.y+box.height<=p.viewportSize().height);
+   assert.ok(box.x>=0 && box.x+box.width<=p.viewportSize().width);
+   assert.equal(await p.locator('#nextStep').evaluate(el=>{const r=el.getBoundingClientRect();return el.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2));}),true);
+  }
+ }
+ await control({reset:true});await choose();await navigationInViewport();await generate();await navigationInViewport();
+ // A failed confirmation must leave the editor open.
+ await p.locator('#confirmThumbnail').click();
+ await p.waitForFunction(()=>document.getElementById('processMessage').textContent.includes('장면과 폰트'));
+ assert.equal(await p.locator('[data-step="3"]').isVisible(),true);
  const png=await (await p.request.get(base+'/_test/image')).body();
  await p.locator('#file').setInputFiles({name:'fixture.png',mimeType:'image/png',buffer:png});
  await p.waitForFunction(()=>!document.getElementById('export').disabled);
@@ -34,19 +47,21 @@ const base='http://127.0.0.1:8877';
  await p.locator('#tonePreset').selectOption('vivid');
  await p.screenshot({path:'/tmp/upload-process-editor.png',fullPage:true});
  await p.locator('#title').fill('김치볶음밥');await p.locator('#subtitle').fill('주말 한 끼');
- await p.locator('#confirmThumbnail').click();await p.waitForFunction(()=>!document.getElementById('confirmedThumb').hidden);
+ await p.locator('#confirmThumbnail').click();await p.locator('[data-step="4"]').waitFor({state:'visible'});
+ await p.locator('#previousStep').click();
  await p.locator('#tone-contrast').fill('35');
  assert.equal(await p.locator('#nextStep').isDisabled(),true);
- await p.locator('#confirmThumbnail').click();await p.waitForFunction(()=>!document.getElementById('confirmedThumb').hidden);
+ await p.locator('#confirmThumbnail').click();await p.locator('[data-step="4"]').waitFor({state:'visible'});
+ await p.locator('#previousStep').click();
  // Download is independent from the confirmed draft and never registers a thumbnail.
  await Promise.all([p.waitForEvent('download'),p.locator('#export').click()]);
  assert.equal(await p.locator('#nextStep').isDisabled(),false);
  assert.equal((await status()).posts,0);
  await p.locator('#title').fill('더 맛있는 볶음밥');assert.equal(await p.locator('#nextStep').isDisabled(),true);
- await p.locator('#confirmThumbnail').click();await p.waitForFunction(()=>document.getElementById('draftStatus').textContent.includes('저장했습니다'));
+ await p.locator('#confirmThumbnail').click();await p.locator('[data-step="4"]').waitFor({state:'visible'});await p.waitForFunction(()=>document.getElementById('draftStatus').textContent.includes('저장했습니다'));
  await p.reload();await p.waitForFunction(()=>!document.getElementById('confirmedThumb').hidden);
  assert.equal(await p.locator('#title').inputValue(),''); // Only the finalized image is restored, not the source frame.
- await p.locator('#nextStep').click();await p.locator('#reviewDescription').waitFor({state:'visible'});
+ await p.locator('#reviewDescription').waitFor({state:'visible'});
  assert.ok((await p.locator('#reviewDescription').innerText()).startsWith('유튜브 레시피'));
  await p.screenshot({path:'/tmp/upload-process-desktop.png',fullPage:true});
  p.once('dialog',d=>d.dismiss());await p.locator('#submitProcess').click();assert.equal((await status()).posts,0);
@@ -60,11 +75,11 @@ const base='http://127.0.0.1:8877';
  // Mobile + clarification + existing thumbnail + conflict recovery.
  ({c,p}=await context({width:390,height:844}));await control({reset:true,mode:'questions'});await choose(1);
  await p.locator('#nextStep').click();await p.locator('#srcText').fill('김치와 밥을 볶는다.');await p.locator('#genBtn').click();
- await p.locator('#answer-0').waitFor({state:'visible'});assert.equal(await p.locator('#confirmRecipe').isDisabled(),true);
+ await navigationInViewport();await p.locator('#answer-0').waitFor({state:'visible'});assert.equal(await p.locator('#confirmRecipe').isDisabled(),true);
  await p.screenshot({path:'/tmp/upload-process-recipe-mobile.png',fullPage:true});
  assert.equal(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
  await p.locator('#answer-0').fill('식용유 1T');await p.locator('#answerBtn').click();await p.waitForFunction(()=>RecipeEditor.valid());
- await p.locator('#youtubeOut').fill('직접 다듬은 유튜브 설명');await p.locator('#confirmRecipe').click();await p.locator('#nextStep').click();
+ await p.locator('#youtubeOut').fill('직접 다듬은 유튜브 설명');await p.locator('#confirmRecipe').click();await p.locator('[data-step="3"]').waitFor({state:'visible'});
  await p.locator('#useExisting').click();await p.locator('#nextStep').click();
  assert.equal(await p.locator('#reviewDescription').innerText(),'직접 다듬은 유튜브 설명');
  assert.equal(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
