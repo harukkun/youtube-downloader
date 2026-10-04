@@ -72,7 +72,7 @@
   .toolbar .spacer { flex: 1; }
 
   /* 표 */
-  .tbl-wrap { overflow-x: auto; }
+  .tbl-wrap { overflow-x: auto; container-type: inline-size; }
   table { width: 100%; border-collapse: collapse; font-size: 13.5px; min-width: 1080px; }
   th, td { text-align: left; padding: 10px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
   td.date { white-space: nowrap; }
@@ -132,7 +132,8 @@
 
   /* 상세(펼침) 행 */
   tr.detail td { background: rgba(255,255,255,.02); padding: 14px 18px 18px; border-bottom: 1px solid var(--border); }
-  .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  /* 편집 폼은 표의 최소 너비 대신 실제로 보이는 영역에 맞춘다. */
+  .detail-grid { position: sticky; left: 18px; width: calc(100cqw - 36px); max-width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
   .detail-grid .full { grid-column: 1 / -1; }
   .field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
   .field .lbl-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
