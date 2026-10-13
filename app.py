@@ -24,6 +24,7 @@ import sys
 import tempfile
 import threading
 import uuid
+import unicodedata
 import webbrowser
 from pathlib import Path
 
@@ -69,15 +70,17 @@ LLM_TIMEOUT_SEC = 300
 LLM_MAX_INPUT_CHARS = 30000
 
 # SNS 게시글 템플릿. 기존 설정은 파일에 남기고 새 버전의 기본값을 적용한다.
-RECIPE_FORMAT_VERSION = 3
+RECIPE_FORMAT_VERSION = 4
 DEFAULT_RECIPE_TEMPLATE = """{{요리 종류에 맞는 이모지}} {{INPUT에 있는 출처/인물}} {{요리명}} 레시피
 {{만들게 된 계기}} 👩🏻‍🍳
 {{궁금증/기대감을 던지는 질문}}
-결론은 👉 {{밥도둑, 밥 두 공기 각 등 구어체 한 줄 총평}}
 
 🧑🏻‍🍳 만드는 법
-{{모든 재료·수치·과정을 보존한 숫자 이모지 단계. 부가 동작은 이모지 없이 다음 줄}}
+{{모든 재료·수치·과정을 보존하며 음슴체로 최대한 간결하게 쓴 숫자 이모지 단계. 부가 동작은 이모지 없이 다음 줄}}
 {{완성/먹는 법을 이모지와 함께 쓰고 '… 끝.'으로 마무리}}
+
+더 자세한 레시피는 원본 영상을 확인해주세요 :)
+( {{원본 채널명}} )
 
 📌 알고리즘에 뜨는 요리
 일단 따라 해보는 사람 = 알쿡 🍳
@@ -86,6 +89,7 @@ DEFAULT_RECIPE_TEMPLATE = """{{요리 종류에 맞는 이모지}} {{INPUT에 �
 DEFAULT_RECIPE_INSTRUCTIONS = """닉네임: 알쿡
 콘셉트: 알고리즘에 뜨는 요리
 자기 소개: 일단 따라 해보는 사람
+만드는 법은 음슴체(~함, ~넣음, ~볶음)로 최대한 간결하게 작성. 재료·분량·시간·온도·순서는 보존.
 """
 
 RECIPE_SYSTEM_PROMPT = """당신은 요리 SNS(인스타그램/유튜브/틱톡) 게시글 작가입니다. 아래 [INPUT]으로 주어진 레시피 텍스트를 [OUTPUT 규칙]에 맞춰 플랫폼별 게시글 3가지로 재작성하세요.
@@ -105,16 +109,16 @@ RECIPE_SYSTEM_PROMPT = """당신은 요리 SNS(인스타그램/유튜브/틱톡)
 출처(방송, 유튜버, 셰프)가 INPUT에 있으면 요리명 앞에 붙이고 없으면 생략합니다.
 요리에 맞는 이모지: 닭 🍗, 면 🍜, 밥 🍚, 국/찌개 🍲, 고기 🥩, 디저트 🍰 등.
 
-2. 인트로 (3~4줄)
+2. 인트로 (2줄)
 
 - 1줄: 만들게 된 계기(알고리즘에 떠서, 레시피 보고 궁금해서 등) + 👩🏻‍🍳
 - 1줄: 궁금증/기대감을 던지는 질문
-- 1줄: '결론은 👉'로 시작하는 구어체 감탄형 한 줄 총평(밥도둑, 밥 두 공기 각, 무한 리필 등)
+- 총평 문구는 추가하지 않습니다.
 
 3. 만드는 법
 
 - 소제목은 '🧑🏻‍🍳 만드는 법'. 단계는 1️⃣ 2️⃣ 3️⃣ …로 시작하며 10은 🔟, 11부터는 1️⃣1️⃣ 형태.
-각 단계는 한 문장, '~해주세요 / ~넣어줍니다' 등의 부드러운 존칭 종결.
+각 단계는 음슴체('~함 / ~넣음 / ~볶음')로 최대한 간결하게 작성합니다.
 재료·분량·시간·온도·조리 순서와 수치는 INPUT 그대로 유지(1kg, 3T, 800ml 등).
 같은 단계의 부가 동작은 줄바꿈 후 이모지 없이 짧게 덧붙입니다.
 감탄사/의성어(톡톡! 등)는 한두 곳만. '20바퀴!' 등 수치는 INPUT에 있을 때만 사용.
@@ -128,7 +132,7 @@ RECIPE_SYSTEM_PROMPT = """당신은 요리 SNS(인스타그램/유튜브/틱톡)
 
 5. 해시태그 (1줄)
 
-- '#알쿡'을 첫 번째로 고정하고 이후 INPUT에서 추출한 출처명·인물명·요리명·방송명을 조합해 4~6개.
+- instagram과 youtube는 '#알쿡'을 첫 번째로 고정하고 이후 INPUT에서 추출한 출처명·인물명·요리명·방송명을 조합해 4~6개.
 태그 내부 공백은 제거하고, INPUT에 없는 인물·방송·출처는 만들지 않습니다.
 
 [스타일 규칙]
@@ -144,18 +148,17 @@ INPUT에 없는 재료·과정을 추가하거나 있는 내용을 생략하지 
 🍗 어남선생 안동찜닭 레시피
 알고리즘에 떠서 따라 해봤습니다 👩🏻‍🍳
 과연… 이 조합이 진짜 맛있을까?
-결론은 👉 밥 두 공기 각입니다.
 
 🧑🏻‍🍳 만드는 법
-1️⃣ 닭볶음탕용 닭 1kg을 깨끗이 씻고 물기를 빼주세요.
-2️⃣ 예열한 팬에 닭고기 껍질 부분이 아래로 가게 올려 구워주세요.
+1️⃣ 닭볶음탕용 닭 1kg을 깨끗이 씻고 물기를 뺌.
+2️⃣ 예열한 팬에 닭고기 껍질 부분이 아래로 가게 올려 구움.
 반쯤 익으면 소금 3꼬집 톡톡!
-3️⃣ 진간장 소주컵 1컵을 넣고 끓여주세요.
-4️⃣ 설탕 3T + 굴소스 2T + 짜장가루 2T + 페퍼론치노를 넣어줍니다.
-5️⃣ 대파 1대, 양파 1개, 다진 마늘 1T, 다진 생강 1/2T를 넣고 강불에서 볶아주세요.
-6️⃣ 물 800ml를 붓고 후추 20바퀴! 감자 3개도 넣어줍니다.
-7️⃣ 뚜껑을 닫고 15분간 끓여주세요.
-8️⃣ 뚜껑을 열고 국물이 자작해질 때까지 졸인 뒤, 불린 당면을 넣어주세요.
+3️⃣ 진간장 소주컵 1컵을 넣고 끓임.
+4️⃣ 설탕 3T + 굴소스 2T + 짜장가루 2T + 페퍼론치노를 넣음.
+5️⃣ 대파 1대, 양파 1개, 다진 마늘 1T, 다진 생강 1/2T를 넣고 강불에서 볶음.
+6️⃣ 물 800ml를 붓고 후추 20바퀴! 감자 3개도 넣음.
+7️⃣ 뚜껑을 닫고 15분간 끓임.
+8️⃣ 뚜껑을 열고 국물이 자작해질 때까지 졸인 뒤, 불린 당면을 넣음.
 🍚 밥 위에 올려 먹으면… 끝.
 
 📌 알고리즘에 뜨는 요리
@@ -176,6 +179,27 @@ INPUT에 없는 재료·과정을 추가하거나 있는 내용을 생략하지 
 - 세 결과 모두 위 OUTPUT 규칙과 스타일 규칙을 지키며 재료·수치·과정을 동일하게 보존합니다.
 - instagram, youtube, tiktok에는 게시글 본문만 출력하고 설명이나 부가 멘트, 코드블록을 붙이지 않습니다.
 notes는 별도 확인 사항 배열이며 게시글 본문에 포함하지 않습니다(없으면 빈 배열).
+
+[플랫폼별 태그 선정 규칙]
+
+- 실시간 검색량이나 트렌드를 조회하지 않습니다. INPUT, 추가 정보 답변, 입력한 원본 채널명에 근거한 한국어 중심의 태그를 선정합니다.
+- 중복, 무관한 인기 키워드, 확인되지 않은 인물·방송명은 제외합니다. '다이어트', '고단백', '초간단' 등은 자료가 뒷받침할 때만 사용합니다.
+- youtube_tags는 YouTube Studio의 별도 태그 입력란용 문자열 배열입니다. 본문 해시태그를 그대로 복사하지 않습니다.
+  정확한 요리명 → 구체적인 레시피 검색 구문 → 의미 있는 별칭·표기 변형 순으로 우선순위를 정합니다.
+  출처명은 관련 있을 때만 포함하며, 일부러 오타를 만들지 않습니다. 아래 기본 태그 외에는 관련성 높은 태그만 추가합니다.
+  각 태그에 #, 쉼표, 줄바꿈을 넣지 않습니다. 합계 500자 이내로 작성하고 한도를 채우기 위한 확장은 하지 않습니다.
+  youtube_tags를 게시글 본문에 나열하지 않습니다. status가 needs_input이면 빈 배열로 반환합니다.
+- dish_name에는 INPUT의 정확한 요리명만, recipe_author에는 INPUT에서 확인되는 레시피 저자·셰프·크리에이터명을 반환합니다.
+  요리명에 출처명이나 '레시피', '만드는법' 같은 검색용 접미사를 붙이지 않습니다. 저자가 명확하지 않으면 recipe_author는 빈 문자열로 반환하고 입력된 원본 채널명을 사용합니다.
+  status가 needs_input이면 두 값 모두 빈 문자열로 반환합니다.
+- 유튜브 태그와 틱톡 해시태그에는 '알쿡', '알쿡레시피', 'shorts'를 기본으로 포함합니다.
+  '{요리명} 만드는법', '{요리명} 레시피', '{요리명} 만드는방법', '{요리명} 맛있게', '{저자} 레시피' 조합도 포함합니다.
+  이 기본 태그·조합 규칙은 템플릿과 추가 지시의 태그 개수 제한보다 우선합니다. 존재하지 않는 저자를 추측하지 않습니다.
+- tiktok 본문 마지막 줄에는 위 기본 태그·조합을 #해시태그로 작성합니다. 예: #김치볶음밥만드는법 #김치볶음밥레시피.
+  틱톡 해시태그는 태그 내부 공백을 제거하며, 기존 3~5개 개수 지침으로 기본 태그를 생략하지 않습니다.
+  요리명, 핵심 재료·조리법, 관련 요리 분야 중 내용에 맞는 것을 고르고 #FYP, #ForYou 등은 자동 추가하지 않습니다.
+  틱톡의 이 규칙은 공통 OUTPUT 규칙, 예시, 채널 템플릿과 추가 지시의 해시태그 개수·출처명 조합 규칙보다 우선합니다.
+  해시태그는 공백으로 구분하고 글자·숫자·밑줄만 사용합니다. 본문과 해시태그를 별도로 중복 출력하지 않습니다.
 """
 RECIPE_OUTPUT_SCHEMA = {
     "type": "object",
@@ -188,9 +212,12 @@ RECIPE_OUTPUT_SCHEMA = {
         "instagram": {"type": "string", "description": "인스타그램 게시글 본문. 정보 확인이 필요하면 빈 문자열"},
         "youtube": {"type": "string", "description": "유튜브 게시글 본문. 정보 확인이 필요하면 빈 문자열"},
         "tiktok": {"type": "string", "description": "틱톡 게시글 본문. 정보 확인이 필요하면 빈 문자열"},
+        "dish_name": {"type": "string", "description": "원본의 정확한 요리명. 정보 확인이 필요하면 빈 문자열"},
+        "recipe_author": {"type": "string", "description": "원본에서 확인된 레시피 저자명. 불명확하거나 정보 확인이 필요하면 빈 문자열"},
+        "youtube_tags": {"type": "array", "items": {"type": "string"}, "description": "우선순위 순 YouTube Studio 태그. 정보 확인이 필요하면 빈 배열"},
         "notes": {"type": "array", "items": {"type": "string"}, "description": "업로드 전 확인할 점"},
     },
-    "required": ["status", "questions", "instagram", "youtube", "tiktok", "notes"],
+    "required": ["status", "questions", "instagram", "youtube", "tiktok", "dish_name", "recipe_author", "youtube_tags", "notes"],
     "additionalProperties": False,
 }
 
@@ -2216,6 +2243,78 @@ def llm_structured(system: str, user: str, schema: dict, backend: str, model_key
     return _llm_via_cli(system, user, schema, spec["cli"])
 
 
+def youtube_tag_length(tags: list[str]) -> int:
+    # YouTube counts separators and implicit quotes around tags containing spaces.
+    return sum(len(tag) + (2 if " " in tag else 0) for tag in tags) + max(0, len(tags) - 1)
+
+
+def normalize_youtube_tags(value) -> tuple[list[str], bool]:
+    tags, seen = [], set()
+    if not isinstance(value, list):
+        return tags, False
+    for raw in value:
+        if not isinstance(raw, str):
+            continue
+        for part in re.split(r"[,，\r\n]+", raw):
+            tag = " ".join(unicodedata.normalize("NFC", part).strip().lstrip("#＃").split())
+            key = tag.lower()
+            if tag and key not in seen:
+                tags.append(tag)
+                seen.add(key)
+    trimmed = False
+    while youtube_tag_length(tags) > 500:
+        tags.pop()
+        trimmed = True
+    return tags, trimmed
+
+
+def extract_recipe_hashtags(text: str) -> list[str]:
+    # Keep this character/boundary rule aligned with static/recipe-tags.js.
+    def tag_char(char):
+        return char == "_" or unicodedata.category(char)[0] in "LMN"
+
+    tags, seen = [], set()
+    for index, char in enumerate(text):
+        if char != "#" or (index and (tag_char(text[index - 1]) or text[index - 1] in "/#")):
+            continue
+        end = index + 1
+        while end < len(text) and tag_char(text[end]):
+            end += 1
+        if end == index + 1:
+            continue
+        tag = unicodedata.normalize("NFC", text[index:end])
+        if tag.lower() not in seen:
+            tags.append(tag)
+            seen.add(tag.lower())
+    return tags
+
+
+def default_recipe_tags(dish_name: str, author: str) -> list[str]:
+    tags = ["알쿡", "알쿡레시피", "shorts"]
+    if dish_name:
+        tags.extend(f"{dish_name} {suffix}" for suffix in ("만드는법", "레시피", "만드는방법", "맛있게"))
+    if author:
+        tags.append(f"{author} 레시피")
+    return tags
+
+
+def add_default_recipe_hashtags(text: str, defaults: list[str]) -> str:
+    existing = {tag.lower() for tag in extract_recipe_hashtags(text)}
+    missing = []
+    for tag in defaults:
+        compact = "".join(char for char in unicodedata.normalize("NFC", tag)
+                          if char == "_" or unicodedata.category(char)[0] in "LMN")
+        if compact and ("#" + compact).lower() not in existing:
+            missing.append("#" + compact)
+            existing.add(("#" + compact).lower())
+    if not missing:
+        return text
+    # Extend an existing final hashtag line, otherwise start one; retain edited prose.
+    last_line = text.rstrip().split("\n")[-1]
+    separator = " " if last_line.lstrip().startswith("#") else "\n\n"
+    return text.rstrip() + separator + " ".join(missing)
+
+
 def build_recipe_user_prompt(template: str, instructions: str, source_text: str,
                              additional_info: list[dict] | None = None,
                              source_channel: str | None = None) -> str:
@@ -2226,7 +2325,7 @@ def build_recipe_user_prompt(template: str, instructions: str, source_text: str,
         parts += [
             "[원본 영상 안내 문구]",
             "모든 플랫폼 게시글의 만드는 법 다음, 마무리 문구 앞에 아래 안내를 그대로 추가합니다. "
-            "채널명은 현황판의 원본 채널 값이며 다른 출처/인물명으로 바꾸지 않습니다. "
+            "채널명은 사용자가 입력한 원본 채널 값이며 다른 출처/인물명으로 바꾸지 않습니다. "
             "이 규칙은 채널 템플릿과 추가 지시보다 우선합니다.",
             "더 자세한 레시피는 원본 영상을 확인해주세요 :)",
         ]
@@ -2320,12 +2419,16 @@ def api_helper_recipe_description():
     if not cfg["template"].strip():
         return jsonify({"error": "채널 템플릿이 비어 있습니다."}), 400
 
+    source_channel = _s(data.get("source_channel"), 200)
+    if not source_channel:
+        return jsonify({"error": "원본 채널명을 입력해 주세요."}), 400
+
     additional_info = data.get("additional_info") or []
     if not isinstance(additional_info, list) or len(additional_info) > 12:
         return jsonify({"error": "추가 정보 답변 형식이 올바르지 않습니다."}), 400
     user_prompt = build_recipe_user_prompt(
         cfg["template"], cfg["instructions"], source, additional_info,
-        source_channel=_s(data.get("source_channel"), 200) if "source_channel" in data else None,
+        source_channel=source_channel,
     )
     try:
         result = llm_structured(RECIPE_SYSTEM_PROMPT, user_prompt, RECIPE_OUTPUT_SCHEMA, cfg["backend"], cfg["model"])
@@ -2337,6 +2440,7 @@ def api_helper_recipe_description():
     if status == "needs_input" and questions:
         return jsonify({
             "status": "needs_input", "questions": questions, "results": {},
+            "tags": {"youtube": [], "tiktok": []},
             "notes": notes, "usage": result.get("_usage"),
         })
     if status != "complete":
@@ -2349,6 +2453,17 @@ def api_helper_recipe_description():
     }
     if not all(results.values()):
         return jsonify({"error": "플랫폼별 게시글을 모두 생성하지 못했습니다. 다시 시도해 주세요."}), 502
+    dish_name = " ".join(_s(result.get("dish_name"), 200).split())
+    author = " ".join((_s(result.get("recipe_author"), 200) or source_channel).split())
+    defaults = default_recipe_tags(dish_name, author)
+    extra_tags = result.get("youtube_tags")
+    youtube_tags, trimmed = normalize_youtube_tags(defaults + (extra_tags if isinstance(extra_tags, list) else []))
+    results["tiktok"] = add_default_recipe_hashtags(results["tiktok"], defaults)
+    if not dish_name:
+        notes.append("요리명을 확인하지 못해 요리명 조합 태그를 생략했습니다. 게시글을 다시 생성하거나 태그를 직접 추가해 주세요.")
+    if trimmed:
+        notes.append("유튜브 태그가 500자를 초과해 우선순위가 낮은 태그부터 제외했습니다.")
+    tags = {"youtube": youtube_tags, "tiktok": extract_recipe_hashtags(results["tiktok"])}
     platform_labels = {"instagram": "인스타그램", "youtube": "유튜브", "tiktok": "틱톡"}
     for platform, description in results.items():
         if len(description) > 500:
@@ -2356,7 +2471,7 @@ def api_helper_recipe_description():
         elif len(description) < 300:
             notes.append(f"{platform_labels[platform]} 게시글이 권장 길이인 300자보다 짧습니다.")
     return jsonify({
-        "status": "complete", "questions": [], "results": results,
+        "status": "complete", "questions": [], "results": results, "tags": tags,
         "notes": notes, "usage": result.get("_usage"),
     })
 

@@ -102,27 +102,30 @@ if (typeof document !== 'undefined') (async () => {
       const dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=label;dd.textContent=fields()[key]||'—';dl.append(dt,dd);
       if(key==='title'){
         const button=document.createElement('button');button.type='button';button.className='secondary review-copy';button.textContent='복사';button.setAttribute('aria-label','영상 제목 복사');
-        dt.classList.add('review-heading');dt.append(button);button.onclick=()=>copyReview(dd.textContent,label,button);
+        dt.classList.add('review-heading');dt.append(button);button.onclick=()=>copyReview(dd.textContent,label,button,dd);
       }
     }
     $('reviewDescription').textContent=recipe.snapshot().results.youtube;
+    const tags=recipe.tagState();
+    $('reviewTags').textContent=tags.youtube.join(', ');
+    $('copyReviewTags').disabled=!tags.current||!tags.youtube.length||tags.length>500;
+    $('reviewTagHint').textContent=!tags.current?'태그를 다시 생성해 주세요.':tags.length>500?'태그가 500자를 초과했습니다. SNS 설명글 단계에서 줄여 주세요.':
+      !tags.youtube.length?'태그가 없습니다. SNS 설명글 단계에서 입력하거나 다시 생성할 수 있습니다.':'YouTube Studio → 세부정보 → 자세히 보기 → 태그에 붙여넣으세요.';
     if(previewURL)$('reviewThumbnail').src=previewURL;
   }
-  async function copyReview(text,label,button) {
+  async function copyReview(text,label,button,field) {
     const status=$('reviewCopyStatus');status.textContent='';button.disabled=true;
-    try{
-      try{await navigator.clipboard.writeText(text);}
-      catch{
-        const field=document.createElement('textarea'),previous=document.activeElement;
-        field.value=text;field.readOnly=true;field.style.cssText='position:fixed;left:-9999px;top:0';document.body.append(field);
-        try{field.select();if(!document.execCommand('copy'))throw new Error('Copy failed');}
-        finally{field.remove();previous?.focus({preventScroll:true});}
-      }
-      status.textContent=label+'을 복사했습니다.';
-    }catch{status.textContent='복사하지 못했습니다. 텍스트를 직접 선택해 복사해 주세요.';}
-    finally{button.disabled=false;}
+    try {
+      const copied=await window.RecipeTags.copy(text,field);
+      status.textContent=copied?label+'을 복사했습니다.':'자동 복사에 실패했습니다. 선택된 텍스트를 ⌘C 또는 Ctrl+C로 복사해 주세요.';
+    } finally { button.disabled=false; }
   }
-  $('copyReviewDescription').onclick=()=>copyReview($('reviewDescription').textContent,'유튜브 설명글',$('copyReviewDescription'));
+  $('copyReviewDescription').onclick=()=>copyReview($('reviewDescription').textContent,'유튜브 설명글',$('copyReviewDescription'),$('reviewDescription'));
+  $('copyReviewTags').onclick=()=>{
+    const tags=recipe.tagState();
+    if(!tags.current||!tags.youtube.length||tags.length>500)return;
+    copyReview(tags.youtube.join(', '),'유튜브 Studio 태그',$('copyReviewTags'),$('reviewTags'));
+  };
   function renderItems() {
     const query=$('itemSearch').value.trim().toLowerCase(), list=$('itemList');list.replaceChildren();
     const counts=new Map();items.forEach(it=>counts.set(it.item_id,(counts.get(it.item_id)||0)+1));
@@ -172,7 +175,7 @@ if (typeof document !== 'undefined') (async () => {
       if(error && ['row_mismatch','connection_changed','request_mismatch'].includes(error.code))state.pending=null;
       if(!draft&&item.status==='uploaded')throw new Error('이미 업로드 완료된 항목입니다. 다른 항목을 선택하세요.');
       if(!blocked)state.item=item;
-      recipe.setSourceChannel(state.item.source?.channel);
+      recipe.setSourceChannel(state.recipe?.sourceChannel ?? state.item.source?.channel);
       $('conflictBox').classList.toggle('hidden',!blocked);
       message(error?.message || (blocked?'시트 내용이 변경되었습니다. 초안을 확인한 뒤 최신 내용으로 다시 시작해 주세요.':draft?'저장된 초안을 복원했습니다.':''),blocked);
       document.querySelectorAll('.selected-label').forEach(el=>el.textContent=state.item.dish_title||'선택한 영상');

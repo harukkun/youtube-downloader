@@ -47,6 +47,9 @@
               <label for="srcText">원본 레시피 설명</label>
               <span class="counter" id="srcCount">0자</span>
             </div>
+            <label class="f" for="sourceChannel">원본 채널명 (필수)</label>
+            <input id="sourceChannel" type="text" required maxlength="200" placeholder="예: 원본 영상을 올린 채널명">
+            <div class="hint">더 자세한 레시피는 이 채널의 원본 영상을 참고하도록 안내합니다.</div>
             <textarea id="srcText" placeholder="다른 채널의 영상 설명란에 있는 레시피 텍스트를 여기에 붙여 넣으세요.&#10;(재료, 분량, 만드는 순서가 포함된 부분이면 충분합니다)"></textarea>
             <div class="btns">
               <button type="button" class="ghost" id="pasteBtn">클립보드에서 붙여넣기</button>
@@ -69,6 +72,19 @@
             <textarea id="instagramOut" class="platform-output" data-platform="instagram" placeholder="인스타그램용 게시글이 여기에 표시됩니다. 직접 고쳐서 복사할 수 있습니다."></textarea>
             <textarea id="youtubeOut" class="platform-output hidden" data-platform="youtube" placeholder="유튜브용 게시글이 여기에 표시됩니다. 직접 고쳐서 복사할 수 있습니다."></textarea>
             <textarea id="tiktokOut" class="platform-output hidden" data-platform="tiktok" placeholder="틱톡용 게시글이 여기에 표시됩니다. 직접 고쳐서 복사할 수 있습니다."></textarea>
+            <section id="youtubeTagBox" class="recipe-tag-box hidden" aria-label="유튜브 Studio 태그">
+              <div class="lbl-row"><label for="youtubeTags">Studio 태그</label><span id="youtubeTagCount" class="counter">0 / 500자</span></div>
+              <textarea id="youtubeTags" rows="3" spellcheck="false" aria-describedby="youtubeTagHint youtubeTagStatus" placeholder="게시글 생성 시 태그가 함께 만들어집니다. 직접 입력할 수도 있습니다."></textarea>
+              <p id="youtubeTagHint" class="hint">YouTube Studio → 세부정보 → 자세히 보기 → 태그에 붙여넣으세요. 쉼표로 구분합니다.</p>
+              <div class="btns"><span id="youtubeTagStatus" class="hint" role="status"></span><button type="button" id="copyYoutubeTags" class="secondary" disabled>태그 복사</button></div>
+            </section>
+            <section id="tiktokTagBox" class="recipe-tag-box hidden" aria-label="틱톡 해시태그">
+              <div class="lbl-row"><label for="tiktokTags">틱톡 해시태그</label><span id="tiktokTagCount" class="counter">0개</span></div>
+              <textarea id="tiktokTags" rows="2" readonly aria-describedby="tiktokTagHint" placeholder="게시글에 포함된 해시태그가 표시됩니다."></textarea>
+              <p id="tiktokTagHint" class="hint">틱톡 캡션에 붙여넣으세요. 위 게시글에서 해시태그를 수정하면 이 목록도 바뀝니다. 결과 복사에는 이미 해시태그가 포함됩니다.</p>
+              <div class="btns"><span id="tiktokTagStatus" class="hint" role="status"></span><button type="button" id="copyTiktokTags" class="secondary" disabled>해시태그 복사</button></div>
+            </section>
+            <p id="recipeCopyStatus" class="hint" role="status" aria-live="polite"></p>
             <div class="notes hidden" id="notesBox"><b>⚠ 업로드 전 확인</b><ul id="notesList"></ul></div>
             <div class="btns">
               <span class="usage" id="usageInfo"></span>

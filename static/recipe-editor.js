@@ -2,8 +2,9 @@
 window.RecipeEditor = (() => {
   const $ = id => document.getElementById(id);
   const MODELS = JSON.parse(document.getElementById('helperModels').textContent);
+  const tagTools = window.RecipeTags;
+  let generating = false, tagsCurrent = true;
   const processMode = document.body.dataset.uploadProcess === 'true';
-  let sourceChannel = '';
   let saved = null, defaults = null, generation = 0, completed = false, restoring = false, notes = [];
   function toast(text) { const el = $('toast'); el.textContent = text; el.className = 'show'; setTimeout(() => el.className = '', 2500); }
   function showMsg(el, text, kind) { el.textContent = text; el.className = 'msg ' + kind; el.classList.toggle('hidden', !text); }
@@ -85,6 +86,9 @@ window.RecipeEditor = (() => {
   function activeOutput() { return $(activePlatform + 'Out'); }
   function selectPlatform(platform) {
     activePlatform = platform;
+    $('recipeCopyStatus').textContent = '';
+    $('youtubeTagBox').classList.toggle('hidden', platform !== 'youtube');
+    $('tiktokTagBox').classList.toggle('hidden', platform !== 'tiktok');
     document.querySelectorAll('.platform-tab').forEach(btn => {
       const active = btn.dataset.platform === platform;
       btn.classList.toggle('active', active); btn.setAttribute('aria-selected', String(active));
@@ -101,7 +105,46 @@ window.RecipeEditor = (() => {
     const m = Array.from(activeOutput().value).length;
     $('outCount').textContent = m.toLocaleString() + '자 · 권장 300–500자';
     $('outCount').classList.toggle('over', m > 500 || (m > 0 && m < 300));
+    updateTags();
   }
+  function tagState() {
+    const youtube = tagTools.youtubeTags($('youtubeTags').value);
+    return {youtube, length:tagTools.youtubeLength(youtube), current:tagsCurrent && !generating};
+  }
+  function updateTags() {
+    const tags = tagState(), tiktok = tagTools.hashtags($('tiktokOut').value);
+    $('youtubeTagCount').textContent = tags.length + ' / 500자';
+    $('youtubeTagCount').classList.toggle('over', tags.length > 500);
+    $('youtubeTags').setAttribute('aria-invalid', String(tags.length > 500));
+    $('youtubeTagStatus').textContent = !tags.current ? '입력이 바뀌었거나 생성 중입니다. 새 결과 생성 후 복사하세요.' :
+      tags.length > 500 ? '500자를 초과했습니다. 태그를 줄여 주세요.' :
+      !tags.youtube.length ? '태그를 직접 입력하거나 게시글을 다시 생성해 주세요.' : '';
+    $('copyYoutubeTags').disabled = !tags.current || !tags.youtube.length || tags.length > 500;
+    $('youtubeTags').readOnly = generating;
+    $('tiktokTagStatus').textContent = tags.current ? '' : '입력이 바뀌었거나 생성 중입니다. 새 결과 생성 후 복사하세요.';
+    $('tiktokTags').value = tiktok.join(' ');
+    $('tiktokTagCount').textContent = tiktok.length + '개';
+    $('copyTiktokTags').disabled = !tags.current || !tiktok.length;
+  }
+  $('youtubeTags').addEventListener('input', updateTags);
+  async function copyResult(text, field, label) {
+    const status = $('recipeCopyStatus');
+    if (!text.trim()) { status.textContent = '복사할 내용이 없습니다.'; return; }
+    status.textContent = '';
+    const copied = await tagTools.copy(text, field);
+    status.textContent = copied ? label + '을 복사했습니다.' : '자동 복사에 실패했습니다. 선택된 텍스트를 ⌘C 또는 Ctrl+C로 복사해 주세요.';
+  }
+  $('copyYoutubeTags').addEventListener('click', () => {
+    const tags = tagState();
+    if (!tags.current || !tags.youtube.length || tags.length > 500) return;
+    const normalized = tags.youtube.join(', ');
+    if ($('youtubeTags').value !== normalized) { $('youtubeTags').value = normalized; updateTags(); notify(); }
+    copyResult($('youtubeTags').value, $('youtubeTags'), '유튜브 Studio 태그');
+  });
+  $('copyTiktokTags').addEventListener('click', () => {
+    if ($('copyTiktokTags').disabled) return;
+    copyResult($('tiktokTags').value, $('tiktokTags'), '틱톡 해시태그');
+  });
   function clearClarification() {
     pendingQuestions = []; collectedInfo = []; $('questionList').replaceChildren(); $('clarifyBox').classList.add('hidden');
     showMsg($('answerErr'), '', 'err');
@@ -124,7 +167,10 @@ window.RecipeEditor = (() => {
   $('clearSrcBtn').addEventListener('click', () => { $('srcText').value = ''; $('srcText').dispatchEvent(new Event('input', {bubbles:true})); $('srcText').focus(); });
   $('clearOutBtn').addEventListener('click', () => { invalidate(); setResult({}, [], null); notify(); });
 
-  function setResult(results, resultNotes, usage) {
+  function setResult(results, resultNotes, usage, tags = {}) {
+    tagsCurrent = true;
+    $('youtubeTags').value = Array.isArray(tags?.youtube) ? tags.youtube.join(', ') : '';
+    $('recipeCopyStatus').textContent = '';
     notes = resultNotes || [];
     Object.keys(recipePlatforms).forEach(key => { $(key + 'Out').value = results?.[key] || ''; });
     $('notesList').innerHTML = (notes || []).map(n => '<li>' + n.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])) + '</li>').join('');
@@ -156,13 +202,13 @@ window.RecipeEditor = (() => {
     list.querySelector('textarea')?.focus();
   }
 
-  let generating = false;
   async function generate(additionalInfo = []) {
     if (generating) return;
     const token = ++generation;
     const src = $('srcText').value.trim();
     if (!src) { toast('원본 레시피 설명을 붙여 넣어 주세요', true); $('srcText').focus(); return; }
-    generating = true; completed = false; notify();
+    if (!$('sourceChannel').value.trim()) { toast('원본 채널명을 입력해 주세요'); $('sourceChannel').focus(); return; }
+    generating = true; completed = false; tagsCurrent = false; updateTags(); notify();
     const btn = additionalInfo.length ? $('answerBtn') : $('genBtn'); const label = btn.innerHTML;
     $('genBtn').disabled = true; $('answerBtn').disabled = true;
     btn.innerHTML = '<span class="spinner"></span>생성 중… (수십 초 걸릴 수 있어요)';
@@ -172,14 +218,14 @@ window.RecipeEditor = (() => {
     try {
       const d = await api('POST', '/api/helper/recipe-description', {
         source_text: src, additional_info: additionalInfo, ...currentRecipeSettings(),
-        ...(processMode ? {source_channel: sourceChannel} : {})
+        source_channel: $('sourceChannel').value.trim()
       });
       if (token !== generation) return;
       if (d.status === 'needs_input') {
         collectedInfo = additionalInfo; setResult({}, d.notes, d.usage); renderQuestions(d.questions);
         toast('추가 정보가 필요합니다');
       } else {
-        clearClarification(); setResult(d.results, d.notes, d.usage); selectPlatform(processMode ? 'youtube' : 'instagram');
+        clearClarification(); setResult(d.results, d.notes, d.usage, d.tags); selectPlatform(processMode ? 'youtube' : 'instagram');
         completed = true;
         toast('세 플랫폼 생성 완료 (' + ((Date.now() - started) / 1000).toFixed(0) + '초)');
       }
@@ -188,7 +234,7 @@ window.RecipeEditor = (() => {
       showMsg(additionalInfo.length ? $('answerErr') : $('genErr'), e.message, 'err');
     } finally {
       if (token !== generation) return;
-      generating = false;
+      generating = false; updateTags();
       notify(); $('genBtn').disabled = false; $('answerBtn').disabled = false; btn.innerHTML = label;
     }
   }
@@ -200,39 +246,38 @@ window.RecipeEditor = (() => {
     generate([...collectedInfo, ...answers]);
   });
 
-  $('copyBtn').addEventListener('click', async () => {
-    const text = activeOutput().value;
-    if (!text) { toast('복사할 내용이 없습니다', true); return; }
-    try { await navigator.clipboard.writeText(text); }
-    catch { activeOutput().focus(); activeOutput().select(); document.execCommand('copy'); }
-    toast(recipePlatforms[activePlatform] + ' 게시글을 복사했습니다');
+  $('copyBtn').addEventListener('click', () => {
+    copyResult(activeOutput().value, activeOutput(), recipePlatforms[activePlatform] + ' 게시글');
   });
 
   const ready = loadSettings();
 
   const root = document.querySelector('[data-tool="recipe"].panel');
   function invalidate() {
-    generation++; completed = false; generating = false;
+    generation++; completed = false; generating = false; tagsCurrent = false; updateTags();
     $('genBtn').disabled = $('answerBtn').disabled = false;
     $('genBtn').textContent = '플랫폼별 게시글 생성 →'; $('answerBtn').textContent = '답변하고 게시글 생성 →';
   }
   root.addEventListener('input', e => {
-    if (['srcText','tplText','insText','modelSel','backendSel'].includes(e.target.id)) { invalidate(); clearClarification(); }
+    if (['sourceChannel','srcText','tplText','insText','modelSel','backendSel'].includes(e.target.id)) { invalidate(); clearClarification(); }
     notify();
   });
   function snapshot() {
-    return {source:$('srcText').value, settings:currentRecipeSettings(), results:Object.fromEntries(Object.keys(recipePlatforms).map(k => [k,$(k+'Out').value])), pendingQuestions, collectedInfo, notes,
+    return {youtubeTags:$('youtubeTags').value, tagsCurrent, sourceChannel:$('sourceChannel').value, source:$('srcText').value, settings:currentRecipeSettings(), results:Object.fromEntries(Object.keys(recipePlatforms).map(k => [k,$(k+'Out').value])), pendingQuestions, collectedInfo, notes,
       answers:pendingQuestions.map((_,i) => $('answer-'+i)?.value || ''), completed};
   }
   async function restore(state = {}) {
     await ready; restoring = true; generation++; generating = false;
     $('genBtn').disabled = $('answerBtn').disabled = false;
     $('genBtn').textContent = '플랫폼별 게시글 생성 →'; $('answerBtn').textContent = '답변하고 게시글 생성 →';
+    $('sourceChannel').value = state.sourceChannel || '';
     $('srcText').value = state.source || ''; fillRecipeSettings(state.settings || saved || defaults || {});
     clearClarification(); setResult(state.results || {}, state.notes || [], null);
+    $('youtubeTags').value = state.youtubeTags || '';
+    tagsCurrent = state.tagsCurrent !== false; updateTags();
     collectedInfo = state.collectedInfo || [];
     if (state.pendingQuestions?.length) { renderQuestions(state.pendingQuestions); (state.answers || []).forEach((v,i) => { if ($('answer-'+i)) $('answer-'+i).value=v; }); }
     completed = !!state.completed; selectPlatform(processMode ? 'youtube' : 'instagram'); restoring = false;
   }
-  return {ready, snapshot, restore, setSourceChannel:value => { sourceChannel = value || ''; }, cancel:invalidate, valid:() => completed && !generating && !pendingQuestions.length && !!$('youtubeOut').value.trim()};
+  return {ready, snapshot, restore, tagState, setSourceChannel:value => { $('sourceChannel').value = value || ''; }, cancel:invalidate, valid:() => !!$('sourceChannel').value.trim() && completed && !generating && !pendingQuestions.length && !!$('youtubeOut').value.trim()};
 })();

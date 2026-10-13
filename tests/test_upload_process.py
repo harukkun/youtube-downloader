@@ -35,7 +35,8 @@ class UploadProcessTest(unittest.TestCase):
         return response
 
     def test_optional_youtube_link(self):
-        for link in ['', 'https://youtu.be/abcdefghijk', 'https://www.youtube.com/shorts/abcdefghijk?si=test']:
+        for link in ['', 'https://youtu.be/abcdefghijk', 'https://www.youtube.com/shorts/abcdefghijk?si=test',
+                     'https://youtube.com/shorts/WsM5VWeQFxY']:
             payload = self.payload()
             payload['fields']['youtube_url'] = link
             with patch.object(m, 'apps_script_post', return_value=self.result) as post:

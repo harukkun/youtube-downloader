@@ -25,6 +25,7 @@ if(typeof document !== 'undefined') (() => {
   let generation = 0, offsetX = 0, offsetY = 0, zoom = 1, drag = null;
   const defaults = {subtitle: {size: 88, x: 50, y: 39}, title: {size: 230, x: 50, y: 50}};
   const styles = structuredClone(defaults);
+  const textBounds = {};
   const toneKeys=['brightness','contrast','saturation','temperature'];
   let tone=[0,0,0,0], toneFrame=null, toneCache=null, toneDirty=true, toneRAF=null;
   function updateToneControls(preset='custom') {
@@ -113,12 +114,20 @@ if(typeof document !== 'undefined') (() => {
     const top = Math.max(ctx.lineWidth, Math.min(1920 - height - ctx.lineWidth, y - height / 2));
     lines.forEach((line, i) => {
       const baseline = top + ascent + i * size * 1.1;
+      const bounds = ctx.measureText(line), padding = ctx.lineWidth / 2 + 8;
+      if (line.trim()) textBounds[kind].push({
+        left: x - bounds.actualBoundingBoxLeft - padding,
+        right: x + bounds.actualBoundingBoxRight + padding,
+        top: baseline - bounds.actualBoundingBoxAscent - padding,
+        bottom: baseline + bounds.actualBoundingBoxDescent + padding
+      });
       ctx.strokeText(line, x, baseline); ctx.fillText(line, x, baseline);
     });
   }
   function render(changed = true) {
     if (changed) { editRevision++; document.dispatchEvent(new CustomEvent("thumbnail:changed")); }
     ctx.fillStyle = '#171a21'; ctx.fillRect(0, 0, 1080, 1920);
+    textBounds.subtitle = []; textBounds.title = [];
     if (frame) { const c = crop(); ctx.drawImage(tonedFrame(), c.x, c.y, c.width, c.height); }
     if (frame && fontReady) { drawText('subtitle'); drawText('title'); }
     const empty = $('empty');
@@ -279,9 +288,45 @@ if(typeof document !== 'undefined') (() => {
     $('zoomValue').textContent = `${percent}%`; render();
   };
   $('resetCrop').onclick = resetCrop;
-  canvas.onpointerdown = e => { if (!frame) return; drag = {x: e.clientX, y: e.clientY}; canvas.setPointerCapture(e.pointerId); };
-  canvas.onpointermove = e => { if (!drag || !frame) return; const ratio = 1080 / canvas.getBoundingClientRect().width; offsetX += (e.clientX - drag.x) * ratio; offsetY += (e.clientY - drag.y) * ratio; drag = {x: e.clientX, y: e.clientY}; render(); };
-  canvas.onpointerup = canvas.onpointercancel = canvas.onlostpointercapture = () => { drag = null; };
+  function textAt(e) {
+    const rect = canvas.getBoundingClientRect();
+    const x = (e.clientX - rect.left) * canvas.width / rect.width;
+    const y = (e.clientY - rect.top) * canvas.height / rect.height;
+    // The title is painted last, so it also takes priority where text overlaps.
+    return ['title', 'subtitle'].find(kind => textBounds[kind].some(b =>
+      x >= b.left && x <= b.right && y >= b.top && y <= b.bottom));
+  }
+  canvas.onpointerdown = e => {
+    if (!frame || drag || e.button !== 0) return;
+    const kind = textAt(e);
+    drag = {kind, pointerId: e.pointerId, x: e.clientX, y: e.clientY,
+      startY: kind ? styles[kind].y : null};
+    canvas.style.cursor = kind ? 'ns-resize' : 'grabbing';
+    canvas.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  };
+  canvas.onpointermove = e => {
+    if (!drag) { canvas.style.cursor = frame && textAt(e) ? 'ns-resize' : 'grab'; return; }
+    if (!frame || e.pointerId !== drag.pointerId) return;
+    const rect = canvas.getBoundingClientRect();
+    if (drag.kind) {
+      const y = Math.round(Math.max(5, Math.min(95, drag.startY + (e.clientY - drag.y) * 100 / rect.height)));
+      if (styles[drag.kind].y === y) return;
+      styles[drag.kind].y = y;
+      updateOutputs();
+    } else {
+      offsetX += (e.clientX - drag.x) * canvas.width / rect.width;
+      offsetY += (e.clientY - drag.y) * canvas.height / rect.height;
+      drag.x = e.clientX; drag.y = e.clientY;
+    }
+    render();
+  };
+  canvas.onpointerup = canvas.onpointercancel = canvas.onlostpointercapture = e => {
+    if (!drag || e.pointerId !== drag.pointerId) return;
+    drag = null;
+    if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
+    canvas.style.cursor = frame && textAt(e) ? 'ns-resize' : 'grab';
+  };
   async function exportImage(extension = 'jpg', quality = 1) {
     if (!frame || !fontReady || exporting) throw new Error('장면과 폰트를 먼저 준비해 주세요.');
     exporting = true; controls();

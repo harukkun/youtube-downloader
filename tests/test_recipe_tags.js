@@ -1,0 +1,10 @@
+'use strict';
+const assert = require('node:assert/strict');
+const {youtubeTags, youtubeLength, hashtags} = require('../static/recipe-tags.js');
+assert.deepEqual(youtubeTags(' #김치볶음밥,김치볶음밥, 김치볶음밥  레시피\nKFood,kfood,＃집밥'), ['김치볶음밥','김치볶음밥 레시피','KFood','집밥']);
+assert.equal(youtubeLength(['가'.repeat(493), '밥 볶음']), 500);
+assert.equal(youtubeLength(['가'.repeat(494), '밥 볶음']), 501);
+assert.equal(youtubeLength(['🍚 밥']), 5);
+assert.deepEqual(hashtags('#알쿡 #김치볶음밥, #집밥! #알쿡 #KFood #kfood #한식 #한식 https://x/#no 단어#no ##no #밥_1'), ['#알쿡','#김치볶음밥','#집밥','#KFood','#한식','#밥_1']);
+assert.deepEqual(hashtags('태그 없음'), []);
+console.log('Tag normalization, Unicode extraction and YouTube length boundaries passed.');

@@ -189,3 +189,10 @@
 .thumbnail-workspace .tone-controls { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:4px 16px; margin-bottom:12px; }
 .thumbnail-workspace .tone-controls input:disabled { opacity:.4; cursor:not-allowed; }
 @media(max-width:560px) { .thumbnail-workspace .tone-controls { grid-template-columns:1fr; } }
+
+/* Tag outputs are compact even inside the recipe's tall text editors. */
+.recipe-tag-box { margin-top:16px; padding-top:14px; border-top:1px solid var(--border); min-width:0; }
+.io .recipe-tag-box textarea { min-height:72px; flex:none; }
+.recipe-tag-box .lbl-row, .recipe-tag-box .btns { flex-wrap:wrap; }
+.recipe-tag-box .btns { justify-content:space-between; }
+.recipe-tag-box .hint { overflow-wrap:anywhere; }

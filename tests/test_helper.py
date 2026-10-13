@@ -12,9 +12,16 @@ class RecipeHelperTest(unittest.TestCase):
     def post(self, **extra):
         body = {
             "source_text": "김치볶음밥. 김치 100g과 밥 1공기를 3분간 볶는다.",
+            "source_channel": "테스트 요리 채널",
             **extra,
         }
         return self.client.post("/api/helper/recipe-description", json=body)
+
+    def test_requires_source_channel_before_calling_llm(self):
+        with patch.object(appmod, "llm_structured") as llm:
+            for channel in (None, "", "   "):
+                self.assertEqual(self.post(source_channel=channel).status_code, 400)
+            llm.assert_not_called()
 
     def test_requests_missing_information_before_generation(self):
         llm_result = {
@@ -23,6 +30,9 @@ class RecipeHelperTest(unittest.TestCase):
             "instagram": "",
             "youtube": "",
             "tiktok": "",
+            "dish_name": "김치볶음밥",
+            "recipe_author": "",
+            "youtube_tags": ["김치볶음밥", "김치볶음밥 레시피"],
             "notes": [],
             "_usage": {"model": "test"},
         }
@@ -34,23 +44,34 @@ class RecipeHelperTest(unittest.TestCase):
         self.assertEqual(data["status"], "needs_input")
         self.assertEqual(data["questions"], llm_result["questions"])
         self.assertEqual(data["results"], {})
+        self.assertEqual(data["tags"], {"youtube": [], "tiktok": []})
         system, user, schema, _, _ = llm.call_args.args
         self.assertIn("[정보 확인 규칙]", system)
         self.assertIn("instagram", schema["required"])
         self.assertIn("youtube", schema["required"])
         self.assertIn("tiktok", schema["required"])
+        self.assertIn("youtube_tags", schema["required"])
+        self.assertIn("틱톡의 이 규칙은", system)
         self.assertIn("[INPUT]", user)
+        self.assertIn("( 테스트 요리 채널 )", user)
+        self.assertIn("더 자세한 레시피는 원본 영상을 확인해주세요", user)
+        self.assertIn("음슴체", system)
+        self.assertNotIn("결론은 👉", system)
+        self.assertNotIn("결론은 👉", appmod.DEFAULT_RECIPE_TEMPLATE)
 
     def test_returns_separate_platform_results_with_followup_answers(self):
         instagram = "가" * 300
         youtube = "나" * 300
-        tiktok = "다" * 300
+        tiktok = "다" * 300 + "\n" + " ".join("#" + tag.replace(" ", "") for tag in appmod.default_recipe_tags("김치볶음밥", "테스트 요리 채널"))
         llm_result = {
             "status": "complete",
             "questions": [],
             "instagram": instagram,
             "youtube": youtube,
             "tiktok": tiktok,
+            "dish_name": "김치볶음밥",
+            "recipe_author": "",
+            "youtube_tags": ["김치볶음밥", "김치볶음밥 레시피"],
             "notes": [],
         }
         additional = [{"question": "기름 양은?", "answer": "식용유 1T"}]
@@ -73,6 +94,9 @@ class RecipeHelperTest(unittest.TestCase):
             "instagram": "짧음",
             "youtube": "나" * 501,
             "tiktok": "다" * 501,
+            "dish_name": "김치볶음밥",
+            "recipe_author": "",
+            "youtube_tags": ["김치볶음밥", "김치볶음밥 레시피"],
             "notes": [],
         }
         with patch.object(appmod, "llm_structured", return_value=llm_result):

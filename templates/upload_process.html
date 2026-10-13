@@ -6,6 +6,7 @@
 <title>업로드 프로세스 · 콘텐츠 작업실</title>
 <link rel="stylesheet" href="/static/helper.css"><link rel="stylesheet" href="/static/upload-process.css">
 <script src="/static/thumb-upload.js" defer></script><script src="/static/thumbnail.js" defer></script>
+<script src="/static/recipe-tags.js" defer></script>
 <script src="/static/recipe-editor.js" defer></script><script src="/static/upload-process.js" defer></script>
 </head>
 <body data-upload-process="true">
@@ -46,7 +47,7 @@
 </section>
 <section data-step="4" class="card" hidden>
 <div class="panel-head"><h2>제출 내용을 확인하세요</h2><span class="selected-label"></span></div>
-<div class="review-grid"><div><dl id="reviewFields"></dl><div class="review-heading"><h3>유튜브 설명글</h3><button type="button" id="copyReviewDescription" class="secondary review-copy" aria-label="유튜브 설명글 복사">복사</button></div><pre id="reviewDescription"></pre><p id="reviewCopyStatus" class="hint" role="status" aria-live="polite"></p></div><img id="reviewThumbnail" alt="제출할 썸네일"></div>
+<div class="review-grid"><div><dl id="reviewFields"></dl><div class="review-heading"><h3>유튜브 설명글</h3><button type="button" id="copyReviewDescription" class="secondary review-copy" aria-label="유튜브 설명글 복사">복사</button></div><pre id="reviewDescription" tabindex="-1"></pre><div class="review-heading"><h3>유튜브 Studio 태그</h3><button type="button" id="copyReviewTags" class="secondary review-copy" disabled>태그 복사</button></div><pre id="reviewTags" tabindex="-1"></pre><p id="reviewTagHint" class="hint"></p><p id="reviewCopyStatus" class="hint" role="status" aria-live="polite"></p></div><img id="reviewThumbnail" alt="제출할 썸네일"></div>
 <p class="hint">승인하면 현황판에 저장하고 상태를 ✅ 업로드 완료로 변경합니다. 실제 유튜브 게시 기능은 포함하지 않습니다.</p>
 <label for="uploadedYoutubeUrl">유튜브 링크 (선택)</label>
 <input type="url" id="uploadedYoutubeUrl" maxlength="2000" placeholder="https://www.youtube.com/watch?v=..." aria-describedby="uploadedYoutubeHint">

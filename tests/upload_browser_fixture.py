@@ -27,7 +27,7 @@ def seed():
     m._recent_edits.clear();m._recent_thumbs.clear();m._sheet_cache['at']=0
     for i in range(3):records['item-'+str(i)]={'itemId':'item-'+str(i),'status':'✅ 업로드 완료' if i==2 else '✂️ 편집 중',
         'dish':['주말 김치볶음밥','토마토 달걀 볶음','완료된 영상'][i],'title':'','desc':'','memo':'',
-        'srcUrl':'https://youtu.be/abcdefghijk','refUrls':'https://youtu.be/lmnopqrstuv','thumbUrl':'/_test/image' if i==1 else ''}
+        'srcChannel':'테스트 요리 채널','srcUrl':'https://youtu.be/abcdefghijk','refUrls':'https://youtu.be/lmnopqrstuv','thumbUrl':'/_test/image' if i==1 else ''}
 seed()
 def revision(c):return hashlib.sha256(str(c).encode()).hexdigest()
 def result(item_id,request_id=''):
@@ -53,8 +53,8 @@ m.apps_script_post=lambda *args,**kwargs: {'ok':False,'error':'fixture_only'}
 m.sheet_items_cached=lambda *args,**kw:([m.item_from_script(i+3,c) for i,c in enumerate(records.values())],False,None)
 def llm(*args):
     control['generations']+=1
-    if control['mode']=='questions' and control['generations']==1:return {'status':'needs_input','questions':['기름의 양은 얼마인가요?'],'notes':['분량 확인'],'instagram':'','youtube':'','tiktok':''}
-    return {'status':'complete','instagram':'인스타그램 레시피 '+('재료와 조리 과정. '*25),'youtube':'유튜브 레시피 '+('김치와 밥을 볶아 완성하세요. '*20),'tiktok':'틱톡 레시피 '+('맛있게 만드는 방법. '*25),'notes':['분량을 확인하세요.']}
+    if control['mode']=='questions' and control['generations']==1:return {'status':'needs_input','questions':['기름의 양은 얼마인가요?'],'notes':['분량 확인'],'instagram':'','youtube':'','tiktok':'','dish_name':'','recipe_author':'','youtube_tags':[]}
+    return {'status':'complete','instagram':'인스타그램 레시피 '+('재료와 조리 과정. '*25),'youtube':'유튜브 레시피 '+('김치와 밥을 볶아 완성하세요. '*20),'tiktok':'틱톡 레시피 '+('맛있게 만드는 방법. '*25)+'\n#알쿡 #김치볶음밥 #집밥','dish_name':'김치볶음밥','recipe_author':'','youtube_tags':['김치볶음밥','김치볶음밥 레시피','볶음밥 만들기'],'notes':['분량을 확인하세요.']}
 m.llm_structured=llm
 @m.app.get('/_test/image')
 def image():
@@ -72,4 +72,4 @@ def test_control():
         if data.get('change'):records['item-0']['memo']='팀원이 바꾼 메모'
         if data.get('delete'):records.pop('item-0',None)
     return control
-if __name__=='__main__':m.app.run(host='127.0.0.1',port=8877,threaded=True)
+if __name__=='__main__':m.app.run(host='127.0.0.1',port=int(os.environ.get('UPLOAD_FIXTURE_PORT', '8877')),threaded=True)

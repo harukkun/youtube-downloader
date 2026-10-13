@@ -1,7 +1,7 @@
 // Start tests/upload_browser_fixture.py first. This uses isolated Chrome profiles and only localhost.
 const {chromium}=require('playwright');
 const assert=require('node:assert/strict');
-const base='http://127.0.0.1:8877';
+const base=process.env.UPLOAD_FIXTURE_URL || 'http://127.0.0.1:8877';
 (async()=>{
  const browser=await chromium.launch({channel:'chrome',headless:true});
  const errors=[];
@@ -113,7 +113,7 @@ const base='http://127.0.0.1:8877';
  await choose();await p.waitForFunction(()=>document.getElementById('draftStatus').textContent.includes('보관하지 못했습니다'));
  assert.equal(await p.locator('#videoTitle').inputValue(),'완성한 김치볶음밥');await c.close();
  // Existing helper still initializes, generates and switches tools.
- ({c,p}=await context());await control({reset:true});await p.goto(base+'/helper');await p.locator('#srcText').fill('김치 100g 밥 1공기 식용유 1T를 3분 볶는다.');
+ ({c,p}=await context());await control({reset:true});await p.goto(base+'/helper');await p.locator('#sourceChannel').fill('테스트 요리 채널');await p.locator('#srcText').fill('김치 100g 밥 1공기 식용유 1T를 3분 볶는다.');
  await p.locator('#genBtn').click();await p.waitForFunction(()=>RecipeEditor.valid());
  await p.locator('.tool[data-tool="thumbnail"]').click();await p.locator('#file').waitFor({state:'attached'});await p.locator('#file').setInputFiles({name:'fixture.png',mimeType:'image/png',buffer:png});
  await p.waitForFunction(()=>!document.getElementById('export').disabled);
