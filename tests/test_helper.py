@@ -100,6 +100,20 @@ class RecipeHelperTest(unittest.TestCase):
             with patch.object(appmod.os, "access", return_value=False):
                 self.assertIsNone(appmod.find_codex_cli())
 
+    def test_finds_nested_desktop_codex_without_path(self):
+        for root in (appmod.Path("/Applications"), appmod.Path.home() / "Applications"):
+            for name in ("Codex.app", "ChatGPT.app"):
+                bundled = str(root / name / "Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex")
+                with self.subTest(bundled=bundled), \
+                        patch.dict(appmod.os.environ, {}, clear=True), \
+                        patch.object(appmod.shutil, "which", return_value=None), \
+                        patch.object(appmod.Path, "is_file", lambda path: str(path) == bundled), \
+                        patch.object(appmod.os, "access", return_value=True):
+                    self.assertEqual(appmod.find_codex_cli(), bundled)
+                    self.assertTrue(appmod.llm_environment()["codex_available"])
+                    with patch.object(appmod.os, "access", return_value=False):
+                        self.assertIsNone(appmod.find_codex_cli())
+
     def test_rejects_invalid_additional_information(self):
         response = self.post(additional_info=[{}] * 13)
         self.assertEqual(response.status_code, 400)

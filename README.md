@@ -188,11 +188,6 @@ zsh run-public.sh
    - 그대로 남길 글자(이모지, 구분선, 소제목, 고정 문구)는 그냥 적고
    - 채울 자리는 `{{ 여기에 무엇을 넣을지 설명 }}` 형식으로 적습니다 (예: `{{재료를 "· 재료 분량" 형식으로 한 줄씩}}`)
    - **추가 지시**에는 말투, 제거할 문구 등 채널 고유 규칙을 적습니다
-
-### Codex CLI 경로 오류
-
-서버는 PATH와 Homebrew 경로, Codex·ChatGPT 앱에 포함된 Codex CLI를 차례로 확인합니다.
-별도 설치 위치를 사용한다면 `CODEX_CLI_PATH` 환경 변수에 실행 파일의 절대 경로를 지정한 뒤 서버를 재시작하세요.
 2. 왼쪽 칸에 원본 레시피 설명을 붙여 넣고 **내 템플릿으로 변형 →**
 3. 오른쪽 결과를 확인·수정하고 **결과 복사** → 유튜브 설명란에 붙여넣기
    - **⚠ 업로드 전 확인** 상자에는 원본에 없어서 채우지 못한 항목(인분, 시간 등)이 표시됩니다
@@ -208,6 +203,12 @@ zsh run-public.sh
 | **Anthropic API** | `ANTHROPIC_API_KEY` 환경 변수 + `anthropic` 패키지 (`.venv/bin/pip install anthropic`) | 사용량 과금 |
 
 모델은 Sonnet(빠름, 기본)과 Opus(품질 우선) 중 선택합니다. 한 번 변형에 보통 10~40초 걸립니다.
+
+### Codex CLI 경로 오류
+
+서버는 PATH와 Homebrew 경로, Codex·ChatGPT 앱에 포함된 Codex CLI를 차례로 확인합니다.
+앱 내부의 `Contents/Resources/codex`와 `Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex` 경로를 모두 지원합니다.
+별도 설치 위치를 사용한다면 `CODEX_CLI_PATH` 환경 변수에 실행 파일의 절대 경로를 지정한 뒤 서버를 재시작하세요.
 
 ### 저장 위치
 ```

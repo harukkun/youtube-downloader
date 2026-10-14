@@ -2084,6 +2084,11 @@ def find_codex_cli() -> str | None:
         "/Applications/ChatGPT.app/Contents/Resources/codex",
         str(Path.home() / "Applications/Codex.app/Contents/Resources/codex"),
         str(Path.home() / "Applications/ChatGPT.app/Contents/Resources/codex"),
+        # 최근 데스크톱 앱은 CLI를 별도 앱 번들 안에 포함한다.
+        "/Applications/Codex.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex",
+        "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex",
+        str(Path.home() / "Applications/Codex.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex"),
+        str(Path.home() / "Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex"),
     )
     for candidate in candidates:
         path = Path(candidate)
