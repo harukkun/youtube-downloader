@@ -25,13 +25,13 @@ const base=process.env.UPLOAD_FIXTURE_URL || 'http://127.0.0.1:8877';
   }
  }
  await control({reset:true});await choose();await navigationInViewport();await generate();await navigationInViewport();
- // A failed confirmation must leave the editor open.
- await p.locator('#confirmThumbnail').click();
- await p.waitForFunction(()=>document.getElementById('processMessage').textContent.includes('장면과 폰트'));
+ // Confirmation stays disabled until an image is loaded.
+ assert.equal(await p.locator('#confirmThumbnail').isDisabled(),true);
  assert.equal(await p.locator('[data-step="3"]').isVisible(),true);
  const png=await (await p.request.get(base+'/_test/image')).body();
  await p.locator('#file').setInputFiles({name:'fixture.png',mimeType:'image/png',buffer:png});
  await p.waitForFunction(()=>!document.getElementById('export').disabled);
+ assert.equal(await p.locator('#confirmThumbnail').isDisabled(),false);
  // Tone uses the same composited pixels for preview and export.
  const original=await p.locator('#canvas').evaluate(el=>el.toDataURL());
  await p.locator('#tonePreset').selectOption('warm');

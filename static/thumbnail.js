@@ -87,6 +87,7 @@ if(typeof document !== 'undefined') (() => {
     for (const id of ['timeline', 'prev', 'next']) $(id).disabled = !Number.isFinite(video.duration) || video.readyState < 1;
     $('export').disabled = !frame || !fontReady || exporting;
     $('zoom').disabled = $('zoom-range').disabled = $('resetCrop').disabled = !frame;
+    document.dispatchEvent(new CustomEvent('thumbnail:state'));
   }
   function crop() {
     const scale = Math.max(1080 / frame.width, 1920 / frame.height) * zoom;
@@ -368,7 +369,7 @@ if(typeof document !== 'undefined') (() => {
     message('exportStatus', ''); message('videoStatus', '영상이나 이미지를 선택해 시작하세요.');
     updateOutputs(); render();
   }
-  window.ThumbnailEditor = {exportImage, reset, download};
+  window.ThumbnailEditor = {exportImage, reset, download, canExport: () => !!frame && fontReady && !exporting};
   window.addEventListener('beforeunload', () => { if (objectURL) URL.revokeObjectURL(objectURL); });
   updateOutputs(); render(false); loadFont();
 })();

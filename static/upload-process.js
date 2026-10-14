@@ -75,6 +75,7 @@ if (typeof document !== 'undefined') (async () => {
     $('nextStep').disabled=busy||switching||blocked||!!state?.pending||!reachable(step+1);
     $('submitProcess').disabled=busy||switching||blocked||!reachable(4)||!recipe.valid();
     $('confirmRecipe').disabled=!recipe.valid();
+    $('confirmThumbnail').disabled=busy||!editor.canExport();
     $('recipeState').textContent=state?.recipeConfirmed?'설명글 확정됨':'설명글을 생성·수정한 뒤 확정하세요.';
   }
   function showStep(n) {
@@ -250,12 +251,13 @@ if (typeof document !== 'undefined') (async () => {
   document.querySelector('[data-step="1"]').addEventListener('input',()=>{if(state&&!restoring){updateNav();persist();}});
   $('uploadedYoutubeUrl').addEventListener('input',()=>{if(state&&!restoring&&!state.pending)persist();});
   document.addEventListener('thumbnail:changed',()=>{if(!state||restoring||state.pending)return;state.thumb=null;updateThumbnail();updateNav();persist();});
+  document.addEventListener('thumbnail:state',()=>{if(state)updateNav();});
   $('confirmThumbnail').onclick=async()=>{
-    if(busy)return;
+    if(busy||!editor.canExport())return;
     const generation=selectedGeneration;$('confirmThumbnail').disabled=true;busy=true;updateNav();
     ++saveSequence;unsaved=true;$('draftStatus').textContent='썸네일 확정 중…';
     try{const blob=await editor.exportImage('jpg',.9);if(generation!==selectedGeneration)return;state.thumb={mode:'new',blob};updateThumbnail();updateNav();await persist();message('썸네일을 확정했습니다.');showStep(4);}
-    catch(e){message(e.message,true);persist();}finally{busy=false;$('confirmThumbnail').disabled=false;updateNav();}
+    catch(e){message(e.message,true);persist();}finally{busy=false;updateNav();}
   };
   $('useExisting').onclick=()=>{if(busy)return;state.thumb={mode:'existing',url:state.item.video.thumbnail};updateThumbnail();updateNav();persist();};
   $('restartDraft').onclick=async()=>{
