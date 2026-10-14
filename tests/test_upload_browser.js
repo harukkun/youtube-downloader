@@ -62,6 +62,15 @@ const base=process.env.UPLOAD_FIXTURE_URL || 'http://127.0.0.1:8877';
  await p.reload();await p.waitForFunction(()=>!document.getElementById('confirmedThumb').hidden);
  assert.equal(await p.locator('#title').inputValue(),''); // Only the finalized image is restored, not the source frame.
  await p.locator('#reviewDescription').waitFor({state:'visible'});
+ // Drafts follow the saved template unless they kept unsaved template edits.
+ const savedTemplate=(await (await p.request.get(base+'/api/helper/settings')).json()).recipe.template;
+ assert.equal(await p.locator('#tplText').inputValue(),savedTemplate);
+ const draftRecipe=await p.evaluate(()=>RecipeEditor.snapshot());
+ await p.evaluate(s=>RecipeEditor.restore({...s,settings:{...s.settings,template:'예전 템플릿'},settingsDirty:undefined}),draftRecipe);
+ assert.equal(await p.locator('#tplText').inputValue(),savedTemplate);
+ await p.evaluate(s=>RecipeEditor.restore({...s,settings:{...s.settings,template:'수정 중인 템플릿'},settingsDirty:true}),draftRecipe);
+ assert.equal(await p.locator('#tplText').inputValue(),'수정 중인 템플릿');
+ await p.evaluate(s=>RecipeEditor.restore(s),draftRecipe);
  assert.ok((await p.locator('#reviewDescription').innerText()).startsWith('유튜브 레시피'));
  await p.screenshot({path:'/tmp/upload-process-desktop.png',fullPage:true});
  p.once('dialog',d=>d.dismiss());await p.locator('#submitProcess').click();assert.equal((await status()).posts,0);

@@ -193,6 +193,9 @@
 /* Tag outputs are compact even inside the recipe's tall text editors. */
 .recipe-tag-box { margin-top:16px; padding-top:14px; border-top:1px solid var(--border); min-width:0; }
 .io .recipe-tag-box textarea { min-height:72px; flex:none; }
+.io label.f[for=productLinks] { margin-top:14px; }
+.io textarea.product-links { min-height:72px; flex:none; margin-bottom:6px; }
+.io textarea.product-links + .hint { margin-bottom:14px; }
 .recipe-tag-box .lbl-row, .recipe-tag-box .btns { flex-wrap:wrap; }
 .recipe-tag-box .btns { justify-content:space-between; }
 .recipe-tag-box .hint { overflow-wrap:anywhere; }

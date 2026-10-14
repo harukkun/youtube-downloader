@@ -50,6 +50,9 @@
             <label class="f" for="sourceChannel">원본 채널명 (필수)</label>
             <input id="sourceChannel" type="text" required maxlength="200" placeholder="예: 원본 영상을 올린 채널명">
             <div class="hint">더 자세한 레시피는 이 채널의 원본 영상을 참고하도록 안내합니다.</div>
+            <label class="f" for="productLinks">재료·도구 쿠팡 링크 (선택)</label>
+            <textarea id="productLinks" class="product-links" maxlength="5000" placeholder="한 줄에 하나씩: 제품명: https://link.coupang.com/..."></textarea>
+            <div class="hint">입력한 그대로 🛒 오늘 쓴 재료·도구 목록에 넣습니다. 비워 두면 재료·도구와 쿠팡 파트너스 문구를 생략합니다.</div>
             <textarea id="srcText" placeholder="다른 채널의 영상 설명란에 있는 레시피 텍스트를 여기에 붙여 넣으세요.&#10;(재료, 분량, 만드는 순서가 포함된 부분이면 충분합니다)"></textarea>
             <div class="btns">
               <button type="button" class="ghost" id="pasteBtn">클립보드에서 붙여넣기</button>
@@ -62,7 +65,7 @@
           <section class="card">
             <div class="lbl-row">
               <label id="resultLabel" for="instagramOut">플랫폼별 게시글 결과</label>
-              <span class="counter" id="outCount">0자 · 권장 300–500자</span>
+              <span class="counter" id="outCount">0 / 5,000자</span>
             </div>
             <div class="platform-tabs" role="tablist" aria-label="SNS 플랫폼">
               <button type="button" class="platform-tab active" data-platform="instagram" role="tab" aria-selected="true">인스타그램</button>

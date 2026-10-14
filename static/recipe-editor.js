@@ -81,6 +81,7 @@ window.RecipeEditor = (() => {
   // ---- 입력 / 결과 ------------------------------------------------------------
   let activePlatform = 'instagram';
   const recipePlatforms = { instagram: '인스타그램', youtube: '유튜브', tiktok: '틱톡' };
+  const charLimits = { instagram: 2200, youtube: 5000, tiktok: 4000 };
   let pendingQuestions = [];
   let collectedInfo = [];
   function activeOutput() { return $(activePlatform + 'Out'); }
@@ -103,8 +104,9 @@ window.RecipeEditor = (() => {
     const n = $('srcText').value.length;
     $('srcCount').textContent = n.toLocaleString() + '자';
     const m = Array.from(activeOutput().value).length;
-    $('outCount').textContent = m.toLocaleString() + '자 · 권장 300–500자';
-    $('outCount').classList.toggle('over', m > 500 || (m > 0 && m < 300));
+    const limit = charLimits[activePlatform];
+    $('outCount').textContent = m.toLocaleString() + ' / ' + limit.toLocaleString() + '자';
+    $('outCount').classList.toggle('over', m > limit);
     updateTags();
   }
   function tagState() {
@@ -218,7 +220,7 @@ window.RecipeEditor = (() => {
     try {
       const d = await api('POST', '/api/helper/recipe-description', {
         source_text: src, additional_info: additionalInfo, ...currentRecipeSettings(),
-        source_channel: $('sourceChannel').value.trim()
+        source_channel: $('sourceChannel').value.trim(), product_links: $('productLinks').value.trim()
       });
       if (token !== generation) return;
       if (d.status === 'needs_input') {
@@ -259,19 +261,21 @@ window.RecipeEditor = (() => {
     $('genBtn').textContent = '플랫폼별 게시글 생성 →'; $('answerBtn').textContent = '답변하고 게시글 생성 →';
   }
   root.addEventListener('input', e => {
-    if (['sourceChannel','srcText','tplText','insText','modelSel','backendSel'].includes(e.target.id)) { invalidate(); clearClarification(); }
+    if (['sourceChannel','productLinks','srcText','tplText','insText','modelSel','backendSel'].includes(e.target.id)) { invalidate(); clearClarification(); }
     notify();
   });
   function snapshot() {
-    return {youtubeTags:$('youtubeTags').value, tagsCurrent, sourceChannel:$('sourceChannel').value, source:$('srcText').value, settings:currentRecipeSettings(), results:Object.fromEntries(Object.keys(recipePlatforms).map(k => [k,$(k+'Out').value])), pendingQuestions, collectedInfo, notes,
+    return {youtubeTags:$('youtubeTags').value, tagsCurrent, sourceChannel:$('sourceChannel').value, productLinks:$('productLinks').value, source:$('srcText').value, settings:currentRecipeSettings(), settingsDirty:isDirty(), results:Object.fromEntries(Object.keys(recipePlatforms).map(k => [k,$(k+'Out').value])), pendingQuestions, collectedInfo, notes,
       answers:pendingQuestions.map((_,i) => $('answer-'+i)?.value || ''), completed};
   }
   async function restore(state = {}) {
     await ready; restoring = true; generation++; generating = false;
     $('genBtn').disabled = $('answerBtn').disabled = false;
     $('genBtn').textContent = '플랫폼별 게시글 생성 →'; $('answerBtn').textContent = '답변하고 게시글 생성 →';
-    $('sourceChannel').value = state.sourceChannel || '';
-    $('srcText').value = state.source || ''; fillRecipeSettings(state.settings || saved || defaults || {});
+    $('sourceChannel').value = state.sourceChannel || ''; $('productLinks').value = state.productLinks || '';
+    $('srcText').value = state.source || '';
+    // 저장된 템플릿은 서버 값을 따르고, 초안에는 저장하지 않은 수정만 남긴다.
+    fillRecipeSettings((state.settingsDirty && state.settings) || saved || defaults || {});
     clearClarification(); setResult(state.results || {}, state.notes || [], null);
     $('youtubeTags').value = state.youtubeTags || '';
     tagsCurrent = state.tagsCurrent !== false; updateTags();

@@ -70,21 +70,25 @@ LLM_TIMEOUT_SEC = 300
 LLM_MAX_INPUT_CHARS = 30000
 
 # SNS 게시글 템플릿. 기존 설정은 파일에 남기고 새 버전의 기본값을 적용한다.
-RECIPE_FORMAT_VERSION = 4
+RECIPE_FORMAT_VERSION = 5
+SOURCE_VIDEO_GUIDE = "더 자세한 레시피 확인을 위해 원본 영상을 꼭 확인해주세요 :)"
 DEFAULT_RECIPE_TEMPLATE = """{{요리 종류에 맞는 이모지}} {{INPUT에 있는 출처/인물}} {{요리명}} 레시피
 {{만들게 된 계기}} 👩🏻‍🍳
-{{궁금증/기대감을 던지는 질문}}
+
+🛒 오늘 쓴 재료·도구
+- [제품명]: [쿠팡 링크]
+- [제품명]: [쿠팡 링크]
+※ 이 포스팅은 쿠팡 파트너스 활동의 일환으로, 이에 따른 일정액의 수수료를 제공받습니다.
 
 🧑🏻‍🍳 만드는 법
-{{모든 재료·수치·과정을 보존하며 음슴체로 최대한 간결하게 쓴 숫자 이모지 단계. 부가 동작은 이모지 없이 다음 줄}}
+{{모든 재료·수치·과정을 보존한 숫자 이모지 단계. 부가 동작은 이모지 없이 다음 줄}}
 {{완성/먹는 법을 이모지와 함께 쓰고 '… 끝.'으로 마무리}}
 
-더 자세한 레시피는 원본 영상을 확인해주세요 :)
+더 자세한 레시피 확인을 위해 원본 영상을 꼭 확인해주세요 :)
 ( {{원본 채널명}} )
 
 📌 알고리즘에 뜨는 요리
 일단 따라 해보는 사람 = 알쿡 🍳
-#알쿡 {{INPUT의 출처명·인물명·요리명·방송명을 조합한 해시태그 4~6개}}
 """
 DEFAULT_RECIPE_INSTRUCTIONS = """닉네임: 알쿡
 콘셉트: 알고리즘에 뜨는 요리
@@ -109,11 +113,15 @@ RECIPE_SYSTEM_PROMPT = """당신은 요리 SNS(인스타그램/유튜브/틱톡)
 출처(방송, 유튜버, 셰프)가 INPUT에 있으면 요리명 앞에 붙이고 없으면 생략합니다.
 요리에 맞는 이모지: 닭 🍗, 면 🍜, 밥 🍚, 국/찌개 🍲, 고기 🥩, 디저트 🍰 등.
 
-2. 인트로 (2줄)
+2. 인트로 (1줄)
 
-- 1줄: 만들게 된 계기(알고리즘에 떠서, 레시피 보고 궁금해서 등) + 👩🏻‍🍳
-- 1줄: 궁금증/기대감을 던지는 질문
-- 총평 문구는 추가하지 않습니다.
+- 만들게 된 계기(알고리즘에 떠서, 레시피 보고 궁금해서 등) + 👩🏻‍🍳
+- 질문이나 총평 문구는 추가하지 않습니다.
+
+2-1. 재료·도구 링크
+
+- 인트로 다음에 '🛒 오늘 쓴 재료·도구' 소제목, '- [제품명]: [쿠팡 링크]' 2줄, 쿠팡 파트너스 고지 문구를 템플릿 그대로 둡니다.
+- [제품명]과 [쿠팡 링크]는 사용자가 입력한 링크로 나중에 채우는 자리이므로 대괄호 표시를 그대로 출력하고 제품명이나 링크를 만들지 않습니다.
 
 3. 만드는 법
 
@@ -132,22 +140,26 @@ RECIPE_SYSTEM_PROMPT = """당신은 요리 SNS(인스타그램/유튜브/틱톡)
 
 5. 해시태그 (1줄)
 
-- instagram과 youtube는 '#알쿡'을 첫 번째로 고정하고 이후 INPUT에서 추출한 출처명·인물명·요리명·방송명을 조합해 4~6개.
+- instagram은 '#알쿡'을 첫 번째로 고정하고 이후 INPUT에서 추출한 출처명·인물명·요리명·방송명을 조합해 4~6개.
+- youtube 설명란에는 해시태그를 넣지 않습니다. 검색어는 youtube_tags에만 작성합니다.
 태그 내부 공백은 제거하고, INPUT에 없는 인물·방송·출처는 만들지 않습니다.
 
 [스타일 규칙]
 
-- 각 플랫폼 게시글은 전체 300~500자.
-- 굵게·헤더·불릿 등 마크다운 없이 줄바꿈과 이모지만 사용.
+- 길이 제한 때문에 내용을 줄이지 말고, 재료·수치·과정을 모두 담되 군더더기 없이 간결하게 씁니다.
+- 굵게·헤더·불릿 등 마크다운 없이 줄바꿈과 이모지만 사용(재료·도구 링크의 '- ' 줄은 예외).
 광고성 문구, '정말', '진짜 맛있어요' 같은 반복 감탄을 남발하지 않습니다.
 INPUT에 없는 재료·과정을 추가하거나 있는 내용을 생략하지 말고 표현만 바꿉니다.
-분량 보존과 500자 한도가 충돌하면 재료·수치·과정 보존을 우선하고 notes에 길이 초과 이유를 적습니다.
 
 [OUTPUT 예시]
 
 🍗 어남선생 안동찜닭 레시피
 알고리즘에 떠서 따라 해봤습니다 👩🏻‍🍳
-과연… 이 조합이 진짜 맛있을까?
+
+🛒 오늘 쓴 재료·도구
+- [제품명]: [쿠팡 링크]
+- [제품명]: [쿠팡 링크]
+※ 이 포스팅은 쿠팡 파트너스 활동의 일환으로, 이에 따른 일정액의 수수료를 제공받습니다.
 
 🧑🏻‍🍳 만드는 법
 1️⃣ 닭볶음탕용 닭 1kg을 깨끗이 씻고 물기를 뺌.
@@ -2187,14 +2199,18 @@ def _llm_via_cli(system: str, user: str, schema: dict, model: str) -> dict:
         proc = subprocess.run(cmd, input=user, capture_output=True, text=True, timeout=LLM_TIMEOUT_SEC, env=env)
     except subprocess.TimeoutExpired as e:
         raise RuntimeError(f"Claude 응답이 {LLM_TIMEOUT_SEC}초 안에 오지 않았습니다.") from e
-    if proc.returncode != 0:
-        raise RuntimeError(f"claude -p 실패 ({proc.returncode}): {(proc.stderr or proc.stdout)[-800:].strip()}")
     try:
         data = json.loads(proc.stdout)
     except json.JSONDecodeError as e:
+        if proc.returncode != 0:
+            raise RuntimeError(f"claude -p 실패 ({proc.returncode}): {(proc.stderr or proc.stdout)[-800:].strip()}") from e
         raise RuntimeError(f"claude -p 출력이 JSON이 아닙니다: {proc.stdout[:300]}") from e
-    if data.get("is_error"):
-        raise RuntimeError(f"claude -p 오류: {str(data.get('result'))[:500]}")
+    if proc.returncode != 0 or data.get("is_error"):
+        message = str(data.get("result") or proc.stderr).strip()
+        if re.search(r"authenticate|oauth|not logged in|/login", message, re.IGNORECASE):
+            raise RuntimeError("Claude Code CLI 로그인이 필요합니다. 터미널에서 'claude auth login'으로 다시 로그인한 뒤 시도해 주세요. "
+                               f"({message[:200]})")
+        raise RuntimeError(f"claude -p 오류: {message[:500]}")
     payload = data.get("structured_output")
     if not isinstance(payload, dict):
         raise RuntimeError(f"구조화된 결과가 없습니다 ({data.get('subtype')}): {str(data.get('result'))[:300]}")
@@ -2320,6 +2336,53 @@ def add_default_recipe_hashtags(text: str, defaults: list[str]) -> str:
     return text.rstrip() + separator + " ".join(missing)
 
 
+def strip_trailing_hashtag_lines(text: str) -> str:
+    # 유튜브 설명란은 해시태그 없이 게시하므로 끝의 해시태그 줄을 제거한다.
+    lines = text.rstrip().split("\n")
+    while lines and lines[-1].strip() and all(word.startswith("#") for word in lines[-1].split()):
+        lines.pop()
+    return "\n".join(lines).rstrip()
+
+
+# 플랫폼별 게시글 글자 수 한도 (틱톡은 앱 직접 게시 기준)
+RECIPE_CHAR_LIMITS = {"instagram": 2200, "youtube": 5000, "tiktok": 4000}
+PRODUCT_LINK_PLACEHOLDER = "- [제품명]: [쿠팡 링크]"
+
+
+def parse_product_links(text: str) -> list[tuple[str, str]]:
+    """'제품명: 링크' 줄을 (제품명, 링크) 목록으로 바꾼다."""
+    products = []
+    for line in (text or "").splitlines():
+        line = line.strip().lstrip("-•").strip()
+        if not line:
+            continue
+        match = re.search(r"https?://\S+", line)
+        name = line[:match.start()].strip().rstrip(":：-").strip() if match else ""
+        if not match or not name or line[match.end():].strip():
+            raise ValueError(f"쿠팡 링크는 한 줄에 '제품명: 링크' 형식으로 입력해 주세요: {line[:80]}")
+        products.append((name, match.group(0)))
+    return products
+
+
+def apply_product_links(text: str, products: list[tuple[str, str]]) -> tuple[str, bool]:
+    """템플릿의 쿠팡 자리표시 줄을 실제 링크로 바꾸고, 링크가 없으면 재료·도구 블록을 지운다."""
+    lines = text.split("\n")
+    if not any(line.strip() == PRODUCT_LINK_PLACEHOLDER for line in lines):
+        return text, False
+    out, inserted = [], False
+    for line in lines:
+        stripped = line.strip()
+        if stripped == PRODUCT_LINK_PLACEHOLDER:
+            if products and not inserted:
+                out += [f"- {name}: {url}" for name, url in products]
+                inserted = True
+            continue
+        if not products and (stripped.startswith("🛒") or "쿠팡 파트너스 활동" in stripped):
+            continue
+        out.append(line)
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(out)).strip(), True
+
+
 def build_recipe_user_prompt(template: str, instructions: str, source_text: str,
                              additional_info: list[dict] | None = None,
                              source_channel: str | None = None) -> str:
@@ -2332,7 +2395,7 @@ def build_recipe_user_prompt(template: str, instructions: str, source_text: str,
             "모든 플랫폼 게시글의 만드는 법 다음, 마무리 문구 앞에 아래 안내를 그대로 추가합니다. "
             "채널명은 사용자가 입력한 원본 채널 값이며 다른 출처/인물명으로 바꾸지 않습니다. "
             "이 규칙은 채널 템플릿과 추가 지시보다 우선합니다.",
-            "더 자세한 레시피는 원본 영상을 확인해주세요 :)",
+            SOURCE_VIDEO_GUIDE,
         ]
         channel = _s(source_channel, 200)
         if channel:
@@ -2427,6 +2490,10 @@ def api_helper_recipe_description():
     source_channel = _s(data.get("source_channel"), 200)
     if not source_channel:
         return jsonify({"error": "원본 채널명을 입력해 주세요."}), 400
+    try:
+        products = parse_product_links(_s(data.get("product_links"), 5000))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
 
     additional_info = data.get("additional_info") or []
     if not isinstance(additional_info, list) or len(additional_info) > 12:
@@ -2464,6 +2531,14 @@ def api_helper_recipe_description():
     extra_tags = result.get("youtube_tags")
     youtube_tags, trimmed = normalize_youtube_tags(defaults + (extra_tags if isinstance(extra_tags, list) else []))
     results["tiktok"] = add_default_recipe_hashtags(results["tiktok"], defaults)
+    results["youtube"] = strip_trailing_hashtag_lines(results["youtube"])
+    missing_links = []
+    for platform in results:
+        results[platform], found = apply_product_links(results[platform], products)
+        if products and not found:
+            missing_links.append(platform)
+    if missing_links:
+        notes.append("쿠팡 링크를 넣을 자리를 찾지 못한 게시글이 있습니다. 재료·도구 목록을 직접 확인해 주세요.")
     if not dish_name:
         notes.append("요리명을 확인하지 못해 요리명 조합 태그를 생략했습니다. 게시글을 다시 생성하거나 태그를 직접 추가해 주세요.")
     if trimmed:
@@ -2471,10 +2546,9 @@ def api_helper_recipe_description():
     tags = {"youtube": youtube_tags, "tiktok": extract_recipe_hashtags(results["tiktok"])}
     platform_labels = {"instagram": "인스타그램", "youtube": "유튜브", "tiktok": "틱톡"}
     for platform, description in results.items():
-        if len(description) > 500:
-            notes.append(f"{platform_labels[platform]} 게시글이 500자를 초과했습니다. 재료·수치·과정을 확인하며 길이를 조정해 주세요.")
-        elif len(description) < 300:
-            notes.append(f"{platform_labels[platform]} 게시글이 권장 길이인 300자보다 짧습니다.")
+        limit = RECIPE_CHAR_LIMITS[platform]
+        if len(description) > limit:
+            notes.append(f"{platform_labels[platform]} 게시글이 {limit:,}자 제한을 초과했습니다. 게시 전에 길이를 줄여 주세요.")
     return jsonify({
         "status": "complete", "questions": [], "results": results, "tags": tags,
         "notes": notes, "usage": result.get("_usage"),
