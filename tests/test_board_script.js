@@ -62,7 +62,13 @@ assert.ok(emptyRows.rows[5][COL.itemId-1]);
 const candidate = {status:STATUSES[0].label,youtubeOn:false,youtubeUrl:''};
 assert.equal(boardValidateFields({youtubeOn:true},candidate).error,'locked_platform');
 assert.equal(boardValidateFields({status:'촬영 완료',youtubeOn:true},candidate).error,'locked_platform');
-assert.equal(boardValidateFields({status:'촬영 완료'},candidate).writes[0].value,'🎥 촬영 완료');
+assert.equal(boardValidateFields({status:'촬영 완료'},candidate).writes[0].value,'🎞️ 촬영 완료');
+assert.equal(boardLabelOf('🎥 촬영 완료'),'🎞️ 촬영 완료');
+// 내 영상 정보 group (with affiliate links) comes before the upload platforms.
+assert.ok(COL.title < COL.desc && COL.desc < COL.pinned && COL.pinned + 1 === COL.affiliate && COL.affiliate + 1 === PLATFORM_FIRST_COL);
+assert.ok(COLUMNS[COL.affiliate-1].wrap && COLUMNS[COL.affiliate-1].group === 'video');
+assert.equal(boardValidateFields({affiliate:'a: https://x\\nb: https://y'},candidate).writes[0].value,'a: https://x\\nb: https://y');
+assert.equal(boardValidateFields({affiliate:'a'.repeat(5001)},candidate).error,'bad_fields');
 assert.equal(boardValidateFields({youtubeOn:'false'},candidate).error,'bad_fields');
 assert.equal(boardValidateFields({status:'wrong'},candidate).error,'bad_status');
 assert.equal(boardValidateFields({itemId:'x'},candidate).error,'bad_fields');
@@ -110,4 +116,38 @@ assert.equal(sheet.rows[2][COL.desc-1]||'','');assert.equal(sheet.rows[2][COL.pi
 boardAddCandidate(sheet,'12345678902','Plain','Channel');
 assert.equal(sheet.rows[2][COL.srcDesc-1]||'','');assert.equal(sheet.rows[2][COL.srcPinned-1]||'','');
 console.log('Board Apps Script ID, validation, CRUD, metadata and formula checks passed.');
+`,ctx);
+
+// Layout migration from v15: platforms before 내 영상 정보, no affiliate column, old 촬영 완료 emoji.
+vm.runInContext(`
+class LayoutSheet {
+  constructor(headers, data) { this.rows = [headers.map((_, i) => i ? '' : '📋 기본'), headers.slice(), data.slice()]; }
+  width() { return this.rows[1].length; }
+  getLastColumn() { return this.width(); } getMaxColumns() { return this.width(); } getLastRow() { return this.rows.length; }
+  getRange(r, c, h = 1, w = 1) {
+    const rows = this.rows, cells = () => rows.slice(r - 1, r - 1 + h).map(row => row.slice(c - 1, c - 1 + w));
+    return {col:c, getValue:() => rows[r - 1][c - 1], getValues:cells, getFormulas:() => cells().map(row => row.map(() => '')),
+      setValues:vals => vals.forEach((row, i) => row.forEach((v, j) => rows[r - 1 + i][c - 1 + j] = v)),
+      breakApart() {}, clearDataValidations() {}, clearContent() {}};
+  }
+  deleteColumn(c) { this.rows.forEach(row => row.splice(c - 1, 1)); }
+  insertColumnBefore(c) { this.rows.forEach(row => row.splice(c - 1, 0, '')); }
+  insertColumnsAfter(c, n) { this.rows.forEach(row => row.splice(c, 0, ...Array(n).fill(''))); }
+  moveColumns(range, target) { this.rows.forEach(row => { const [v] = row.splice(range.col - 1, 1); row.splice(target - 1, 0, v); }); }
+}
+const previous = COLUMNS.filter(c => c.key !== 'affiliate');
+const platformCols = previous.filter(c => c.group === 'platform'), restCols = previous.filter(c => c.group !== 'platform');
+const at = restCols.findIndex(c => c.key === 'title');
+const oldLayout = [...restCols.slice(0, at), ...platformCols, ...restCols.slice(at)];
+const oldRow = oldLayout.map(c => c.key === 'status' ? '🎥 촬영 완료' : c.checkbox ? true : 'v-' + c.key);
+const layout = new LayoutSheet(oldLayout.map(c => c.header), oldRow);
+migrateLayout(layout);
+assert.equal(layout.width(), LAST_COL);
+COLUMNS.forEach((c, i) => assert.equal(headerKeyName(layout.rows[1][i]), c.key === 'affiliate' ? '' : headerKeyName(c.header), c.key));
+const migrated = layout.rows[2];
+assert.equal(migrated[COL.status - 1], '🎞️ 촬영 완료');
+for (const key of ['title', 'desc', 'pinned', 'memo', 'youtubeUrl', 'naverClipUrl', 'itemId']) assert.equal(migrated[COL[key] - 1], 'v-' + key, key);
+assert.equal(migrated[COL.youtubeOn - 1], true);
+assert.equal(migrated[COL.affiliate - 1], '');
+console.log('Board layout migration: video group before platforms, affiliate column and status emoji passed.');
 `,ctx);

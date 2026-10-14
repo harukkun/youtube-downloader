@@ -27,7 +27,7 @@ class ParseTest(unittest.TestCase):
         self.assertEqual(it["source"]["thumbnail"], "https://i.ytimg.com/vi/kRl5OlSq7Sw/hqdefault.jpg")
 
     def test_status_labels_new_and_legacy(self):
-        rows = {"⭐ 촬영 후보": "candidate", "⭐ 후보": "candidate", "⬜ 제작 전": "candidate", "🎬 촬영 중": "making", "🎬 제작 중": "making", "🎥 촬영 완료": "filmed",
+        rows = {"⭐ 촬영 후보": "candidate", "⭐ 후보": "candidate", "⬜ 제작 전": "candidate", "🎬 촬영 중": "making", "🎬 제작 중": "making", "🎥 촬영 완료": "filmed", "🎞️ 촬영 완료": "filmed",
                 "✂️ 편집 중": "editing", "⏳ 업로드 대기": "ready", "제작 완료·업로드 대기": "ready", "✅ 업로드 완료": "uploaded"}
         for label, key in rows.items():
             items = appmod.parse_sheet_items("\n".join([HEADER_GROUP, HEADER, label + "," + ROW.split(",", 1)[1]]))

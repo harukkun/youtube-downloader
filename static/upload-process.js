@@ -106,6 +106,8 @@ if (typeof document !== 'undefined') (async () => {
         dt.classList.add('review-heading');dt.append(button);button.onclick=()=>copyReview(dd.textContent,label,button,dd);
       }
     }
+    const affiliateDt=document.createElement('dt'),affiliateDd=document.createElement('dd');
+    affiliateDt.textContent='쿠팡 링크 (어필리에이트)';affiliateDd.textContent=recipe.snapshot().productLinks.trim()||'—';dl.append(affiliateDt,affiliateDd);
     $('reviewDescription').textContent=recipe.snapshot().results.youtube;
     const tags=recipe.tagState();
     $('reviewTags').textContent=tags.youtube.join(', ');
@@ -177,6 +179,7 @@ if (typeof document !== 'undefined') (async () => {
       if(!draft&&item.status==='uploaded')throw new Error('이미 업로드 완료된 항목입니다. 다른 항목을 선택하세요.');
       if(!blocked)state.item=item;
       recipe.setSourceChannel(state.recipe?.sourceChannel ?? state.item.source?.channel);
+      recipe.setProductLinks(state.recipe?.productLinks ?? state.item.video?.affiliate);
       $('conflictBox').classList.toggle('hidden',!blocked);
       message(error?.message || (blocked?'시트 내용이 변경되었습니다. 초안을 확인한 뒤 최신 내용으로 다시 시작해 주세요.':draft?'저장된 초안을 복원했습니다.':''),blocked);
       document.querySelectorAll('.selected-label').forEach(el=>el.textContent=state.item.dish_title||'선택한 영상');
@@ -237,7 +240,7 @@ if (typeof document !== 'undefined') (async () => {
     if(busy||blocked||state?.pending||!reachable(4)||!recipe.valid())return;
     if(!$('uploadedYoutubeUrl').reportValidity())return;
     if(!confirm('이 내용과 썸네일을 현황판에 저장하고 상태를 ✅ 업로드 완료로 변경할까요?'))return;
-    const payload={connection,item_id:state.item.item_id,revision:state.revision,request_id:crypto.randomUUID(),fields:{...fields(),desc:recipe.snapshot().results.youtube},thumbnail_mode:state.thumb.mode};
+    const payload={connection,item_id:state.item.item_id,revision:state.revision,request_id:crypto.randomUUID(),fields:{...fields(),desc:recipe.snapshot().results.youtube,affiliate:recipe.snapshot().productLinks.trim()},thumbnail_mode:state.thumb.mode};
     state.pending={payload,blob:state.thumb.blob || null};setLoading('submit');showRecovery();
     try{await persist();}catch(e){state.pending=null;setLoading();showRecovery();message('제출 내용을 임시 보관하지 못했습니다. 브라우저 저장 공간을 확인한 뒤 다시 제출해 주세요.',true);return;}
     await sendPending();

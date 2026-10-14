@@ -49,6 +49,27 @@ class UploadProcessTest(unittest.TestCase):
                 self.assertEqual(self.post(payload).status_code, 400)
                 post.assert_not_called()
 
+    def test_optional_affiliate_links_are_normalized(self):
+        payload = self.payload()
+        payload['fields']['affiliate'] = '- 육개장 사발면 : https://link.coupang.com/a/one\n\n초록매실: https://link.coupang.com/a/two'
+        with patch.object(m, 'apps_script_post', return_value=self.result) as post:
+            self.assertEqual(self.post(payload).status_code, 200)
+            self.assertEqual(post.call_args.args[1]['fields']['affiliate'],
+                             '육개장 사발면: https://link.coupang.com/a/one\n초록매실: https://link.coupang.com/a/two')
+        with patch.object(m, 'apps_script_post', return_value=self.result) as post:
+            self.assertEqual(self.post().status_code, 200)
+            self.assertNotIn('affiliate', post.call_args.args[1]['fields'])
+        for value in ['링크 없는 제품', ['x'], None]:
+            payload = self.payload()
+            payload['fields']['affiliate'] = value
+            with patch.object(m, 'apps_script_post') as post:
+                self.assertEqual(self.post(payload).status_code, 400)
+                post.assert_not_called()
+
+    def test_board_item_exposes_affiliate_links(self):
+        cells = dict(self.cells, affiliate='육개장 사발면: https://link.coupang.com/a/one')
+        self.assertEqual(m.item_from_script(3, cells)['video']['affiliate'], cells['affiliate'])
+
     def test_page_and_shared_helper(self):
         for path in ['/upload-process', '/helper', '/', '/shorts', '/references']:
             r = self.client.get(path)

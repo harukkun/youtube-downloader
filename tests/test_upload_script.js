@@ -58,6 +58,13 @@ r=uploadAction(b);assert.ok(r.submitted);assert.equal(r.cells.youtubeOn,true);as
 r=uploadAction(b);assert.ok(r.submitted);assert.equal(batchCount,1);
 assert.equal(uploadAction({...b,fields:{...b.fields,youtubeUrl:'https://youtu.be/lmnopqrstuv'}}).error,'request_mismatch');
 reset();b=body();b.fields.youtubeUrl='';r=uploadAction(b);assert.ok(r.submitted);assert.equal(r.cells.youtubeUrl,'https://my/video');
+// Affiliate links are optional: older clients keep their receipts and existing cells.
+reset();b=body();sheet.rows[2][COL.affiliate-1]='keep: https://old';r=uploadAction(b);assert.ok(r.submitted);assert.equal(r.cells.affiliate,'keep: https://old');
+reset();b=body();b.fields.affiliate='라면: https://link.coupang.com/a/x\\n물: https://link.coupang.com/a/y';r=uploadAction(b);assert.ok(r.submitted);assert.equal(r.cells.affiliate,b.fields.affiliate);
+r=uploadAction(b);assert.ok(r.submitted);assert.equal(batchCount,1);
+assert.equal(uploadAction({...b,fields:{...b.fields,affiliate:'other: https://x'}}).error,'request_mismatch');
+reset();b=body();const plainRevision=b.revision;sheet.rows[2][COL.affiliate-1]='edited: https://x';assert.equal(uploadRevision(boardReadRow(sheet,3)),plainRevision);
+assert.equal(uploadAction({...b,fields:{...b.fields,affiliate:['x']}}).error,'bad_fields');assert.equal(batchCount,0);
 reset();b=body();b.fields.youtubeUrl='https://example.com/video';assert.equal(uploadAction(b).error,'bad_fields');assert.equal(batchCount,0);
 reset();b=body();sheet.rows[2][COL.desc-1]='teammate';assert.equal(uploadAction(b).error,'conflict');assert.equal(batchCount,0);
 reset();b=body();sheet.rows[2][COL.status-1]=UPLOADED;assert.equal(uploadAction(b).error,'already_uploaded');

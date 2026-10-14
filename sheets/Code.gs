@@ -38,7 +38,7 @@ const ROW_HEIGHT = 64;      // 썸네일이 보이는 데이터 행 높이
 const PROP_TOKEN = 'UPLOAD_TOKEN';
 const PROP_FOLDER = 'THUMB_FOLDER_ID';
 const THUMB_FOLDER_NAME = '쇼츠 현황판 썸네일';
-const UPLOAD_VERSION = 15;
+const UPLOAD_VERSION = 16;
 const thumbUrlFor = (id) => `https://lh3.googleusercontent.com/d/${id}`;   // IMAGE() 와 <img> 모두에서 열리는 형식
 const SOURCE_THUMB_RE = /i\.ytimg\.com|img\.youtube\.com/;                 // 예전 버전이 넣던 원본 영상 썸네일
 
@@ -47,7 +47,7 @@ const stripEmoji = (s) => String(s || '').replace(/^[^\p{L}\p{N}]+/u, '').trim()
 const STATUSES = [
   { label: '⭐ 촬영 후보',   legacy: ['후보', '제작 전'],      bg: '#f3e8ff', fg: '#7e22ce' },   // '제작 전' 단계는 없어졌다 → 촬영 후보로 합친다
   { label: '🎬 촬영 중',     legacy: ['제작 중'],             bg: '#dbeafe', fg: '#1d4ed8' },
-  { label: '🎥 촬영 완료',   legacy: [],                      bg: '#ccfbf1', fg: '#0f766e' },
+  { label: '🎞️ 촬영 완료',   legacy: [],                      bg: '#ccfbf1', fg: '#0f766e' },
   { label: '✂️ 편집 중',     legacy: [],                      bg: '#e0f2fe', fg: '#0369a1' },
   { label: '⏳ 업로드 대기', legacy: ['제작 완료·업로드 대기'], bg: '#fef3c7', fg: '#b45309' },
   { label: '✅ 업로드 완료', legacy: [],                      bg: '#dcfce7', fg: '#15803d' },
@@ -76,13 +76,14 @@ const COLUMNS = [
   { key: 'thumb',       header: '🖼️ 썸네일',       width: 110, group: 'source', note: '내가 재가공한 쇼츠의 썸네일. 웹 현황판(/shorts) 또는 업로드 헬퍼의 썸네일 만들기에서 등록합니다.' },
   { key: 'refUrls',     header: '🔍 참고 쇼츠 링크', width: 220, group: 'ref', wrap: true, note: '여러 개는 줄바꿈(⌥⏎ / Alt+Enter)으로 한 줄에 하나씩. 참고 채널이 같은 순서로 채워집니다.' },
   { key: 'refChannels', header: '👥 참고 채널',    width: 120, group: 'ref', wrap: true },
+  { key: 'title',       header: '✏️ 영상 제목',    width: 240, group: 'video', wrap: true },
+  { key: 'desc',        header: '📝 설명',         width: 320, group: 'video', wrap: true },
+  { key: 'pinned',      header: '💬 고정 댓글',    width: 240, group: 'video', wrap: true },
+  { key: 'affiliate',   header: '🛒 어필리에이트 링크', width: 260, group: 'video', wrap: true, note: '한 줄에 하나씩 "제품명: 링크" 형식. 업로드 프로세스에서 입력한 쿠팡 링크가 저장됩니다.' },
   ...PLATFORMS.flatMap(p => [
     { key: p.key + 'On',  header: `${p.emoji} ${p.label}`,  width: 90,  group: 'platform', checkbox: true, platform: true },
     { key: p.key + 'Url', header: `🔗 ${p.label} 링크`,     width: 160, group: 'platform', platform: true },
   ]),
-  { key: 'title',       header: '✏️ 영상 제목',    width: 240, group: 'video', wrap: true },
-  { key: 'desc',        header: '📝 설명',         width: 320, group: 'video', wrap: true },
-  { key: 'pinned',      header: '💬 고정 댓글',    width: 240, group: 'video', wrap: true },
   { key: 'memo',        header: '🗒️ 메모',         width: 200, group: 'etc', wrap: true },
   { key: 'updatedAt',   header: '🕒 수정일',       width: 130, group: 'etc', date: true },
   { key: 'createdAt',   header: '📅 등록일',       width: 130, group: 'etc', date: true },
@@ -1300,7 +1301,7 @@ function regenerateUploadToken() {
 // 현황판 편집 웹 앱. ID와 계산 열은 일반 편집에서 제외한다.
 const BOARD_EDITABLE = new Set(COLUMNS.filter(c => !c.date && !['thumb', 'thumbUrl', 'itemId'].includes(c.key)).map(c => c.key));
 const BOARD_LIMITS = {dish:200, srcUrl:2000, srcTitle:500, srcChannel:200, srcDesc:20000, srcPinned:20000, refUrls:5000, refChannels:2000,
-  title:500, desc:20000, pinned:20000, memo:5000,
+  title:500, desc:20000, pinned:20000, affiliate:5000, memo:5000,
   ...Object.fromEntries(PLATFORMS.map(p => [p.key + 'Url', 2000]))};
 function safeToast(msg) {
   try { SpreadsheetApp.getActiveSpreadsheet().toast(msg, '쇼츠 현황판', 5); } catch (_) {}
@@ -1421,6 +1422,8 @@ function boardAction(body) {
 
 // Upload funnel. Reads bypass CSV; only upload_submit writes after confirmation.
 const UPLOAD_FIELDS = ['title','srcUrl','refUrls','memo','desc'];
+// Optional fields keep revisions and receipts from older clients unchanged.
+const UPLOAD_OPTIONAL = ['affiliate'];
 const UPLOAD_COMPARE = ['itemId','status', ...UPLOAD_FIELDS, 'thumbUrl','srcTitle','srcChannel','refChannels'];
 function uploadHash(value) {
   return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, JSON.stringify(value), Utilities.Charset.UTF_8)
@@ -1480,13 +1483,14 @@ function uploadAction(body) {
       return jsonOut(uploadReply(sheet,row,{submitted:!!receipt,requestId:receipt ? body.requestId : null}));
     }
     const fields = body.fields;
-    if (!fields || Array.isArray(fields) || Object.keys(fields).some(k => !UPLOAD_FIELDS.includes(k) && k !== 'youtubeUrl') ||
-        UPLOAD_FIELDS.some(k => typeof fields[k] !== 'string') || !['existing','new'].includes(body.thumbnailMode) ||
+    if (!fields || Array.isArray(fields) || Object.keys(fields).some(k => !UPLOAD_FIELDS.includes(k) && !UPLOAD_OPTIONAL.includes(k) && k !== 'youtubeUrl') ||
+        UPLOAD_FIELDS.some(k => typeof fields[k] !== 'string') || UPLOAD_OPTIONAL.some(k => k in fields && typeof fields[k] !== 'string') || !['existing','new'].includes(body.thumbnailMode) ||
         !/^[a-f0-9]{64}$/.test(body.revision || '')) return jsonOut({ok:false,error:'bad_fields'});
     if ('youtubeUrl' in fields && (typeof fields.youtubeUrl !== 'string' || fields.youtubeUrl.length > 2000)) return jsonOut({ok:false,error:'bad_fields'});
     const youtubeUrl = (fields.youtubeUrl || '').trim();
     if (youtubeUrl && !/^https:\/\/(?:(?:www\.|m\.)?youtube\.com\/(?:watch\?v=[\w-]{11}(?:&[^\s]*)?|(?:shorts|live|embed)\/[\w-]{11}(?:[?][^\s]*)?)|(?:www\.)?youtu\.be\/[\w-]{11}(?:[?][^\s]*)?)$/.test(youtubeUrl)) return jsonOut({ok:false,error:'bad_fields'});
-    const valid = boardValidateFields(Object.fromEntries(UPLOAD_FIELDS.map(k => [k, fields[k]])),before);
+    const optional = UPLOAD_OPTIONAL.filter(k => k in fields);
+    const valid = boardValidateFields(Object.fromEntries([...UPLOAD_FIELDS, ...optional].map(k => [k, fields[k]])),before);
     if (valid.error || ['title','srcUrl','refUrls','desc'].some(k => !fields[k].trim().replace(/^=+/,'')))
       return jsonOut({ok:false,error:valid.error || 'bad_fields'});
     let bytes = null;
@@ -1501,7 +1505,7 @@ function uploadAction(body) {
         b.slice(0,4).join(',')==='82,73,70,70' && b.slice(8,12).join(',')==='87,69,66,80' ? 'image/webp' : '';
       if (mime !== body.mime) return jsonOut({ok:false,error:'bad_fields'});
     } else if (body.data || body.mime) return jsonOut({ok:false,error:'bad_fields'});
-    const digest = uploadHash([body.itemId,body.revision,UPLOAD_FIELDS.map(k => fields[k]),body.thumbnailMode,body.mime || '',body.data || '',...(youtubeUrl ? [youtubeUrl] : [])]);
+    const digest = uploadHash([body.itemId,body.revision,UPLOAD_FIELDS.map(k => fields[k]),body.thumbnailMode,body.mime || '',body.data || '',...(youtubeUrl ? [youtubeUrl] : []),...optional.map(k => [k, fields[k]])]);
     if (receipt) {
       if (receipt.itemId !== body.itemId || receipt.digest !== digest) return jsonOut({ok:false,error:'request_mismatch'});
       uploadForget(body.requestId);

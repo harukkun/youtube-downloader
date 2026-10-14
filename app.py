@@ -618,7 +618,7 @@ SHEET_HEADER_KEYS = {
     "틱톡": "tiktok_on", "틱톡 링크": "tiktok_url",
     "네이버 클립": "naver_clip_on", "네이버 클립 링크": "naver_clip_url",
     "영상 제목": "title", "설명": "desc", "설명 글자수": "desc_len",
-    "고정 댓글": "pinned", "메모": "memo", "수정일": "updated", "등록일": "created",
+    "고정 댓글": "pinned", "어필리에이트 링크": "affiliate", "메모": "memo", "수정일": "updated", "등록일": "created",
     "항목 ID": "item_id",
     "썸네일 링크": "thumb_url",   # 숨김 열. 재가공 쇼츠 썸네일 이미지 URL (Code.gs doPost 가 기록)
 }
@@ -728,7 +728,7 @@ def _item_from_cells(sheet_row, cell):
     # Identity and modification timestamps can survive clearing a sheet row.
     # Keep explicitly registered blank items and any actual user content.
     content_keys = ["status", "dish", "src_url", "src_title", "src_channel", "src_desc", "src_pinned", "title",
-                    "ref_urls", "ref_channels", "desc", "pinned", "memo", "thumb_url", "created",
+                    "ref_urls", "ref_channels", "desc", "pinned", "affiliate", "memo", "thumb_url", "created",
                     *(f"{k}_url" for k in PLATFORMS)]
     if not (any(cell(k).strip() for k in content_keys) or
             any(cell(f"{k}_on", 10).upper() == "TRUE" for k in PLATFORMS)):
@@ -753,7 +753,7 @@ def _item_from_cells(sheet_row, cell):
         "status": SHEET_STATUS_KEYS.get(_clean_header(cell("status", 50)), "candidate"),
         "platforms": plats,
         "video": {"title": title, "description": cell("desc"), "pinned_comment": cell("pinned"),
-                  "thumbnail": cell("thumb_url", 2000)},
+                  "affiliate": cell("affiliate", 5000), "thumbnail": cell("thumb_url", 2000)},
         "memo": cell("memo", 5000),
         "updated_at": _iso(cell("updated")),
         "created_at": _iso(cell("created")),
@@ -765,7 +765,7 @@ SCRIPT_FIELDS = {
     "status": "status", "dish": "dish", "src_url": "srcUrl", "src_title": "srcTitle",
     "src_channel": "srcChannel", "src_desc": "srcDesc", "src_pinned": "srcPinned",
     "ref_urls": "refUrls", "ref_channels": "refChannels",
-    "title": "title", "desc": "desc", "pinned": "pinned", "memo": "memo",
+    "title": "title", "desc": "desc", "pinned": "pinned", "affiliate": "affiliate", "memo": "memo",
     "updated": "updatedAt", "created": "createdAt", "thumb_url": "thumbUrl", "item_id": "itemId",
     **{f"{k}_{suffix}": ("naverClip" if k == "naver_clip" else k) + suffix.title()
        for k in PLATFORMS for suffix in ("on", "url")},
@@ -774,7 +774,7 @@ BOARD_BOOL_FIELDS = {f"{k}_on" for k in PLATFORMS}
 BOARD_TEXT_LIMITS = {
     "dish": 200, "src_url": 2000, "src_title": 500, "src_channel": 200, "src_desc": 20000, "src_pinned": 20000,
     "ref_urls": 5000, "ref_channels": 2000, "title": 500, "desc": 20000,
-    "pinned": 20000, "memo": 5000, **{f"{k}_url": 2000 for k in PLATFORMS},
+    "pinned": 20000, "affiliate": 5000, "memo": 5000, **{f"{k}_url": 2000 for k in PLATFORMS},
 }
 
 
@@ -1581,7 +1581,7 @@ class SheetCallError(RuntimeError):
 _SHEET_ERRORS = {
     "row_mismatch": (409, "항목 ID가 없거나 중복되었거나 항목이 삭제되었습니다. 초기 설정 후 새로고침해 주세요."),
     "bad_row": (400, "데이터 행(3행 이상)만 편집할 수 있습니다."),
-    "bad_fields": (400, "편집 필드가 올바르지 않습니다."),
+    "bad_fields": (400, "편집 필드가 올바르지 않습니다. Apps Script가 최신 버전(16)인지도 확인해 주세요."),
     "bad_status": (400, "상태가 올바르지 않습니다."),
     "locked_platform": (409, "업로드 완료 상태에서만 플랫폼 값을 입력할 수 있습니다."),
     "unauthorized": (401, "Apps Script 업로드 토큰이 맞지 않습니다."),
@@ -1591,8 +1591,8 @@ _SHEET_ERRORS = {
     "bad_video": (400, "유효한 유튜브 쇼츠 정보가 아닙니다."),
     "bad_channel": (400, "유효한 채널 정보가 아닙니다."),
     "no_sheet": (502, "구글 시트에 '현황판' 탭이 없습니다."),
-    "unknown_action": (409, "Apps Script를 최신 버전(11, 업로드 프로세스 포함)으로 업데이트해 주세요."),
-    "upgrade_required": (409, "Apps Script를 최신 버전(11, 업로드 프로세스 포함)으로 업데이트해 주세요."),
+    "unknown_action": (409, "Apps Script를 최신 버전(16)으로 업데이트해 주세요."),
+    "upgrade_required": (409, "Apps Script를 최신 버전(16)으로 업데이트한 뒤 시트 메뉴에서 초기 설정을 다시 실행해 주세요."),
 }
 
 
@@ -2012,8 +2012,17 @@ def api_upload_process_submit():
         return jsonify(error='항목 또는 제출 번호가 올바르지 않습니다.', code='bad_fields'), 400
     fields = body['fields']
     required_fields = {'title', 'src_url', 'ref_urls', 'memo', 'desc'}
-    if not isinstance(fields, dict) or not required_fields <= set(fields) or set(fields) - required_fields - {'youtube_url'}:
+    if not isinstance(fields, dict) or not required_fields <= set(fields) or set(fields) - required_fields - {'youtube_url', 'affiliate'}:
         return jsonify(error='입력 필드가 올바르지 않습니다.', code='bad_fields'), 400
+    if 'affiliate' in fields:
+        # Store the same "제품명: 링크" lines used to build the descriptions.
+        if not isinstance(fields['affiliate'], str):
+            return jsonify(error='어필리에이트 링크는 문자열이어야 합니다.', code='bad_fields'), 400
+        try:
+            products = parse_product_links(fields['affiliate'])
+        except ValueError as e:
+            return jsonify(error=str(e), code='bad_fields'), 400
+        fields = {**fields, 'affiliate': "\n".join(f"{name}: {url}" for name, url in products)}
     clean, error = _board_patch(fields)
     if error or any(not clean.get(k) for k in ('title', 'srcUrl', 'refUrls', 'desc')):
         return jsonify(error=error or '제목·원본 링크·참고 링크·유튜브 설명이 필요합니다.', code='bad_fields'), 400

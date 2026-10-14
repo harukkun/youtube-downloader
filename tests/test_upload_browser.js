@@ -14,7 +14,7 @@ const base=process.env.UPLOAD_FIXTURE_URL || 'http://127.0.0.1:8877';
  const control=data=>p.request.post(base+'/_test/control',{data});
  const status=async()=> (await p.request.get(base+'/_test/control')).json();
  async function choose(index=0){await p.goto(base+'/upload-process');await p.locator('.item-option').nth(index).click();await p.locator('#videoTitle').fill('완성한 김치볶음밥');}
- async function generate(){await p.locator('#nextStep').click();await p.locator('#srcText').fill('김치 100g과 밥 1공기를 식용유 1T에 3분간 볶는다.');await p.locator('#genBtn').click();await p.waitForFunction(()=>RecipeEditor.valid());await p.locator('#confirmRecipe').click();await p.locator('[data-step="3"]').waitFor({state:'visible'});}
+ async function generate(){await p.locator('#nextStep').click();assert.equal(await p.locator('#productLinks').inputValue(),'기존 팬: https://link.coupang.com/a/old');await p.locator('#productLinks').fill('라면: https://link.coupang.com/a/new');await p.locator('#srcText').fill('김치 100g과 밥 1공기를 식용유 1T에 3분간 볶는다.');await p.locator('#genBtn').click();await p.waitForFunction(()=>RecipeEditor.valid());await p.locator('#confirmRecipe').click();await p.locator('[data-step="3"]').waitFor({state:'visible'});}
  async function navigationInViewport(){
   for(const bottom of [false,true]){
    await p.evaluate(bottom=>window.scrollTo(0,bottom?document.body.scrollHeight:0),bottom);
@@ -72,10 +72,12 @@ const base=process.env.UPLOAD_FIXTURE_URL || 'http://127.0.0.1:8877';
  assert.equal(await p.locator('#tplText').inputValue(),'수정 중인 템플릿');
  await p.evaluate(s=>RecipeEditor.restore(s),draftRecipe);
  assert.ok((await p.locator('#reviewDescription').innerText()).startsWith('유튜브 레시피'));
+ assert.ok((await p.locator('#reviewFields').innerText()).includes('라면: https://link.coupang.com/a/new'));
  await p.screenshot({path:'/tmp/upload-process-desktop.png',fullPage:true});
  p.once('dialog',d=>d.dismiss());await p.locator('#submitProcess').click();assert.equal((await status()).posts,0);
- await control({mode:'lost'});p.once('dialog',d=>d.accept());await p.locator('#submitProcess').click();await p.locator('#recovery').waitFor({state:'visible'});
+ await control({mode:'lost'});p.once('dialog',d=>d.accept());await Promise.all([p.waitForResponse(r=>r.url().endsWith('/api/upload-process/submit')),p.locator('#submitProcess').click()]);await p.locator('#recovery').waitFor({state:'visible'});
  await p.waitForFunction(()=>!document.getElementById('checkSubmission').disabled);
+ assert.equal((await status()).last_fields.affiliate,'라면: https://link.coupang.com/a/new');
  assert.equal(await p.locator('#videoTitle').isDisabled(),true);
  await p.reload();await p.locator('#completed').waitFor({state:'visible'});
  assert.equal((await status()).posts,1);

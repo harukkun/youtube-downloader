@@ -283,5 +283,5 @@ window.RecipeEditor = (() => {
     if (state.pendingQuestions?.length) { renderQuestions(state.pendingQuestions); (state.answers || []).forEach((v,i) => { if ($('answer-'+i)) $('answer-'+i).value=v; }); }
     completed = !!state.completed; selectPlatform(processMode ? 'youtube' : 'instagram'); restoring = false;
   }
-  return {ready, snapshot, restore, tagState, setSourceChannel:value => { $('sourceChannel').value = value || ''; }, cancel:invalidate, valid:() => !!$('sourceChannel').value.trim() && completed && !generating && !pendingQuestions.length && !!$('youtubeOut').value.trim()};
+  return {ready, snapshot, restore, tagState, setSourceChannel:value => { $('sourceChannel').value = value || ''; }, setProductLinks:value => { $('productLinks').value = value || ''; }, cancel:invalidate, valid:() => !!$('sourceChannel').value.trim() && completed && !generating && !pendingQuestions.length && !!$('youtubeOut').value.trim()};
 })();

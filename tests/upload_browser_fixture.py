@@ -27,7 +27,7 @@ def seed():
     m._recent_edits.clear();m._recent_thumbs.clear();m._sheet_cache['at']=0
     for i in range(3):records['item-'+str(i)]={'itemId':'item-'+str(i),'status':'✅ 업로드 완료' if i==2 else '✂️ 편집 중',
         'dish':['주말 김치볶음밥','토마토 달걀 볶음','완료된 영상'][i],'title':'','desc':'','memo':'',
-        'srcChannel':'테스트 요리 채널','srcUrl':'https://youtu.be/abcdefghijk','refUrls':'https://youtu.be/lmnopqrstuv','thumbUrl':'/_test/image' if i==1 else ''}
+        'srcChannel':'테스트 요리 채널','srcUrl':'https://youtu.be/abcdefghijk','refUrls':'https://youtu.be/lmnopqrstuv','thumbUrl':'/_test/image' if i==1 else '','affiliate':'기존 팬: https://link.coupang.com/a/old' if i==0 else ''}
 seed()
 def revision(c):return hashlib.sha256(str(c).encode()).hexdigest()
 def result(item_id,request_id=''):
@@ -37,7 +37,7 @@ def call(action,**kw):
     item_id=kw['itemId']
     if item_id not in records:raise m.SheetCallError('항목이 삭제되었습니다.',409,'row_mismatch')
     if action=='upload_get':return result(item_id,kw.get('requestId',''))
-    control['posts']+=1
+    control['posts']+=1;control['last_fields']=kw['fields']
     if kw['requestId'] in receipts:return result(item_id,kw['requestId'])
     if control['mode']=='conflict':raise m.SheetCallError('작업 중 내용이 변경되었습니다.',409,'conflict')
     if control['mode']=='unknown':raise m.SheetCallError('저장 결과를 확인해 주세요.',503,'commit_unknown')

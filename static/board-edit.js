@@ -7,7 +7,7 @@ const BoardEdit = (() => {
       src_desc:it.source?.description || '', src_pinned:it.source?.pinned_comment || '',
       ref_urls:it.ref_urls ?? (it.reference_shorts || []).map(r => r.url).join('\n'),
       ref_channels:it.ref_channels ?? (it.reference_shorts || []).map(r => r.channel).join('\n'),
-      title:it.video?.title || '', desc:it.video?.description || '', pinned:it.video?.pinned_comment || '', memo:it.memo || ''};
+      title:it.video?.title || '', desc:it.video?.description || '', pinned:it.video?.pinned_comment || '', affiliate:it.video?.affiliate || '', memo:it.memo || ''};
     for (const [k, v] of Object.entries(it.platforms || {})) { flat[k + '_on'] = !!v.checked; flat[k + '_url'] = v.url || ''; }
     return flat;
   }
