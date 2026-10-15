@@ -723,7 +723,12 @@ def parse_sheet_items(text: str) -> list[dict]:
     return items
 
 
-def _item_from_cells(sheet_row, cell):
+def _item_from_cells(sheet_row, raw_cell):
+    def cell(key, limit=20000):
+        value = raw_cell(key, limit)
+        # 어필리에이트 칸에 남은 체크박스 값(TRUE/FALSE)은 링크가 아니므로 빈 값으로 본다.
+        return "" if key == "affiliate" and value.upper() in ("TRUE", "FALSE") else value
+
     dish, src_url, title = cell("dish", 200), cell("src_url", 2000), cell("title", 500)
     # Identity and modification timestamps can survive clearing a sheet row.
     # Keep explicitly registered blank items and any actual user content.

@@ -70,6 +70,11 @@ class UploadProcessTest(unittest.TestCase):
         cells = dict(self.cells, affiliate='육개장 사발면: https://link.coupang.com/a/one')
         self.assertEqual(m.item_from_script(3, cells)['video']['affiliate'], cells['affiliate'])
 
+    def test_board_item_treats_checkbox_affiliate_as_empty(self):
+        for value in [False, True, 'FALSE']:
+            with self.subTest(value=value):
+                self.assertEqual(m.item_from_script(3, dict(self.cells, affiliate=value))['video']['affiliate'], '')
+
     def test_page_and_shared_helper(self):
         for path in ['/upload-process', '/helper', '/', '/shorts', '/references']:
             r = self.client.get(path)
