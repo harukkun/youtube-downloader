@@ -24,6 +24,42 @@ class RecipeHelperTest(unittest.TestCase):
                 self.assertEqual(self.post(source_channel=channel).status_code, 400)
             llm.assert_not_called()
 
+    def test_legacy_codex_model_is_removed_from_choices(self):
+        response = self.client.get("/upload-process")
+        self.assertNotIn(b'gpt-5.5', response.data)
+        self.assertIn(appmod.DEFAULT_CODEX_MODEL.encode(), response.data)
+
+    def test_saved_legacy_model_keeps_custom_recipe_settings(self):
+        saved = {**appmod.recipe_defaults(), "model": "gpt-5.5",
+                 "template": "내 템플릿", "instructions": "내 지시사항"}
+        with patch.object(appmod, "load_helper", return_value={"recipe": saved}):
+            settings = appmod.get_recipe_settings()
+        self.assertEqual(settings["model"], appmod.DEFAULT_CODEX_MODEL)
+        self.assertEqual(settings["template"], saved["template"])
+        self.assertEqual(settings["instructions"], saved["instructions"])
+
+    def test_stale_browser_model_generates_with_default_codex_model(self):
+        result = {"status": "needs_input", "questions": ["분량은 얼마인가요?"]}
+        with patch.object(appmod, "_llm_via_codex", return_value=result) as codex:
+            response = self.post(backend="codex", model="gpt-5.5")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(codex.call_args.args[-1], appmod.DEFAULT_CODEX_MODEL)
+
+    def test_shared_llm_dispatch_replaces_legacy_codex_model(self):
+        with patch.object(appmod, "_llm_via_codex", return_value={}) as codex:
+            appmod.llm_structured("system", "user", {}, "codex", "gpt-5.5")
+        codex.assert_called_once_with("system", "user", {}, appmod.DEFAULT_CODEX_MODEL)
+
+    def test_unsupported_codex_model_error_omits_echoed_recipe(self):
+        error = "개인 레시피 내용\nERROR: The 'fixture' model is not supported when using Codex with a ChatGPT account."
+        proc = appmod.subprocess.CompletedProcess([], 1, stdout="", stderr=error)
+        with patch.object(appmod, "find_codex_cli", return_value="/fake/codex"), \
+                patch.object(appmod.subprocess, "run", return_value=proc):
+            with self.assertRaises(RuntimeError) as caught:
+                appmod._llm_via_codex("system", "user", {}, "fixture")
+        self.assertIn("fixture 모델을 지원하지 않습니다", str(caught.exception))
+        self.assertNotIn("개인 레시피", str(caught.exception))
+
     def test_requests_missing_information_before_generation(self):
         llm_result = {
             "status": "needs_input",

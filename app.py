@@ -62,7 +62,7 @@ LLM_MODELS = {
     "opus": {"label": "Claude Opus (품질 우선)", "cli": "opus", "api": "claude-opus-5"},
 }
 DEFAULT_CODEX_MODEL = "gpt-5.6-sol"
-CODEX_MODELS = ("gpt-5.6-sol", "gpt-6-astra", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5")
+CODEX_MODELS = ("gpt-5.6-sol", "gpt-6-astra", "gpt-5.6-terra", "gpt-5.6-luna")
 for _model in CODEX_MODELS:
     LLM_MODELS[_model] = {"label": _model + (" (기본)" if _model == DEFAULT_CODEX_MODEL else ""), "codex": _model}
 
@@ -2091,6 +2091,9 @@ def normalize_recipe_settings(data: dict, base: dict | None = None) -> dict:
         cur["instructions"] = _s(data.get("instructions"), 5000)
     if "model" in data:
         m = data.get("model")
+        # 이전 저장값과 열린 브라우저의 선택값을 호환 가능한 기본값으로 옮긴다.
+        if m == "gpt-5.5" and data.get("backend", cur["backend"]) == "codex":
+            m = DEFAULT_CODEX_MODEL
         if m not in LLM_MODELS:
             raise ValueError(f"알 수 없는 모델입니다: {m!r}")
         cur["model"] = m
@@ -2181,7 +2184,13 @@ def _llm_via_codex(system: str, user: str, schema: dict, model: str) -> dict:
         except subprocess.TimeoutExpired as e:
             raise RuntimeError(f"Codex 응답이 {LLM_TIMEOUT_SEC}초 안에 오지 않았습니다.") from e
         if proc.returncode != 0:
-            raise RuntimeError("Codex CLI 호출 실패: " + (proc.stderr or proc.stdout)[-800:].strip())
+            error = proc.stderr or proc.stdout
+            if "is not supported when using Codex with a ChatGPT account" in error:
+                raise RuntimeError(
+                    f"현재 ChatGPT 계정의 Codex에서 {model} 모델을 지원하지 않습니다. "
+                    "모델 설정에서 다른 GPT 모델을 선택한 뒤 다시 생성해 주세요."
+                )
+            raise RuntimeError("Codex CLI 호출 실패: " + error[-800:].strip())
         try:
             payload = json.loads(output_path.read_text(encoding="utf-8"))
             if not isinstance(payload, dict) or any(key not in payload for key in schema.get("required", [])):
