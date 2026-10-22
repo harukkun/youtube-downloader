@@ -38,7 +38,7 @@ const ROW_HEIGHT = 64;      // 썸네일이 보이는 데이터 행 높이
 const PROP_TOKEN = 'UPLOAD_TOKEN';
 const PROP_FOLDER = 'THUMB_FOLDER_ID';
 const THUMB_FOLDER_NAME = '쇼츠 현황판 썸네일';
-const UPLOAD_VERSION = 16;
+const UPLOAD_VERSION = 18;
 const thumbUrlFor = (id) => `https://lh3.googleusercontent.com/d/${id}`;   // IMAGE() 와 <img> 모두에서 열리는 형식
 const SOURCE_THUMB_RE = /i\.ytimg\.com|img\.youtube\.com/;                 // 예전 버전이 넣던 원본 영상 썸네일
 
@@ -90,9 +90,16 @@ const COLUMNS = [
   // 숨김 열: 썸네일 이미지의 URL(텍스트). IMAGE() 수식은 CSV 로 내보내면 빈 칸이 되므로 웹 현황판은 이 열을 읽는다.
   { key: 'thumbUrl',    header: '🔗 썸네일 링크',  width: 60,  group: 'etc', hidden: true, note: '웹 현황판이 쓰는 칸입니다. 직접 고치지 마세요.' },
   { key: 'itemId', header: '🆔 항목 ID', width: 60, group: 'etc', hidden: true, note: '항목 고유 ID. 직접 수정하거나 복사하지 마세요.' },
+  {key:'cookBasic',header:'요리사전 기본정보',width:240,group:'cook',wrap:true},
+  {key:'cookIngredients',header:'요리사전 재료',width:280,group:'cook',wrap:true},
+  {key:'cookSteps',header:'요리사전 만드는 순서',width:280,group:'cook',wrap:true},
+  {key:'cookPhoto',header:'요리사전 사진 URL',width:200,group:'cook'},
+  {key:'cookVersion',header:'요리사전 데이터 버전',width:100,group:'cook'},
+  {key:'cookUpdated',header:'요리사전 데이터 수정일',width:180,group:'cook'},
 ];
 // 그룹 띠 색: strong = 1행 배경(흰 글자), light/dark = 2행 열 이름 배경/글자
 const GROUPS = {
+  cook: {label:'🍳 요리사전',strong:'#047857',light:'#d1fae5',dark:'#065f46'},
   basic:    { label: '📋 기본',          strong: '#4f46e5', light: '#e0e7ff', dark: '#3730a3' },
   source:   { label: '🎬 원본 영상',     strong: '#0284c7', light: '#e0f2fe', dark: '#075985' },
   ref:      { label: '🔎 참고 쇼츠',     strong: '#0d9488', light: '#ccfbf1', dark: '#115e59' },
@@ -193,6 +200,8 @@ function onOpen() {
     .addItem('✨ 빈 정보 모두 채우기', 'fillAllMissing')
     .addSeparator()
     .addItem('🔑 썸네일 업로드 연결 정보', 'showUploadInfo')
+    .addItem('🍳 요리사전 읽기 연결 정보', 'showCookDictInfo')
+    .addItem('⏱ 요리사전 6시간 자동 가져오기 설치', 'installCookDictSync')
     .addItem('♻️ 업로드 토큰 다시 만들기', 'regenerateUploadToken')
     .addToUi();
 }
@@ -499,7 +508,11 @@ function handleEdit(e) {
       }
       touched = true;
     }
-    if (touched) touchRow(sheet, r, now);
+    if (touched) {
+      touchRow(sheet, r, now);
+      if (left <= COL.cookUpdated && left + numCols > COL.cookBasic && sheet.getRange(r,COL.cookVersion).getValue())
+        sheet.getRange(r,COL.cookUpdated).setValue(now.toISOString());
+    }
     ensureBoardRowId(sheet, r);
   }
   if (affectedVideos.size) refSyncBoardVideos(sheet.getParent(), [...affectedVideos]);
@@ -674,8 +687,10 @@ function doGet() {
 function doPost(e) {
   let body;
   try { body = JSON.parse(e && e.postData && e.postData.contents || ''); } catch (err) { return jsonOut({ ok: false, error: 'bad_json' }); }
+  if (body.action === 'cook_dict_list') return cookDictList(body);
   const token = uploadToken(false);
   if (!token || String(body.token || '') !== token) return jsonOut({ ok: false, error: 'unauthorized' });
+  if (String(body.action || '').startsWith('cook_backfill_')) return cookBackfillAction(body);
   if (String(body.action || '').startsWith('article_')) return articleAction(body);
   if (String(body.action || '').startsWith('upload_')) return uploadAction(body);
   if (String(body.action || '').startsWith('board_')) return boardAction(body);
@@ -1429,7 +1444,7 @@ function uploadHash(value) {
   return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, JSON.stringify(value), Utilities.Charset.UTF_8)
     .map(b => (b & 255).toString(16).padStart(2,'0')).join('');
 }
-function uploadRevision(cells) { return uploadHash(UPLOAD_COMPARE.map(k => cells[k] || '')); }
+function uploadRevision(cells) { return uploadHash([...UPLOAD_COMPARE.map(k => cells[k] || ''), ...(cells.cookVersion ? COOK_KEYS.map(k=>cells[k]||'') : [])]); }
 function uploadReceipt(ss, requestId) {
   if (!requestId) return null;
   const result = Sheets.Spreadsheets.DeveloperMetadata.search({dataFilters:[{developerMetadataLookup:{metadataKey:'upload_process_' + requestId}}]},ss.getId());
@@ -1470,7 +1485,7 @@ function uploadAction(body) {
   if ((writing || body.requestId) && !/^[A-Za-z0-9_-]{16,80}$/.test(body.requestId || '')) return jsonOut({ok:false,error:'bad_fields'});
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(20000)) return jsonOut({ok:false,error:'busy'});
-  let file = null, createdFile = false, committing = false;
+  let file = null, createdFile = false, cookFile = null, createdCookFile = false, committing = false;
   try {
     let row = boardLocateId(sheet,body.itemId);
     if (!row) return jsonOut({ok:false,error:'row_mismatch'});
@@ -1505,7 +1520,10 @@ function uploadAction(body) {
         b.slice(0,4).join(',')==='82,73,70,70' && b.slice(8,12).join(',')==='87,69,66,80' ? 'image/webp' : '';
       if (mime !== body.mime) return jsonOut({ok:false,error:'bad_fields'});
     } else if (body.data || body.mime) return jsonOut({ok:false,error:'bad_fields'});
-    const digest = uploadHash([body.itemId,body.revision,UPLOAD_FIELDS.map(k => fields[k]),body.thumbnailMode,body.mime || '',body.data || '',...(youtubeUrl ? [youtubeUrl] : []),...optional.map(k => [k, fields[k]])]);
+    if (body.cookDict && !cookDictReady(sheet)) return jsonOut({ok:false,error:'upgrade_required'});
+    let cook = null;
+    try { cook = cookDictValidate(body, sheet); } catch (_) { return jsonOut({ok:false,error:'bad_fields'}); }
+    const digest = uploadHash([body.itemId,body.revision,UPLOAD_FIELDS.map(k => fields[k]),body.thumbnailMode,body.mime || '',body.data || '',...(youtubeUrl ? [youtubeUrl] : []),...optional.map(k => [k, fields[k]]),...(cook ? [body.cookDict, body.cookPhoto] : [])]);
     if (receipt) {
       if (receipt.itemId !== body.itemId || receipt.digest !== digest) return jsonOut({ok:false,error:'request_mismatch'});
       uploadForget(body.requestId);
@@ -1541,13 +1559,31 @@ function uploadAction(body) {
         thumbUrl = thumbUrlFor(file.getId());
       } catch (_) { if (createdFile) uploadDiscard(file); return jsonOut({ok:false,error:'image_failed'}); }
     }
+    if (cook) {
+      try {
+        if (pending?.cookFileId) cookFile = DriveApp.getFileById(pending.cookFileId);
+        if (!cookFile || cookFile.isTrashed()) {
+          cookFile = thumbFolder().createFile(Utilities.newBlob(cook.bytes, body.cookPhoto.mime, 'cook-' + body.requestId + (body.cookPhoto.mime==='image/png'?'.png':body.cookPhoto.mime==='image/webp'?'.webp':'.jpg')));
+          createdCookFile = true;
+          cookFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK,DriveApp.Permission.VIEW);
+        }
+        writes.push({key:'cookBasic',value:JSON.stringify(cook.basic)},
+          {key:'cookIngredients',value:JSON.stringify(body.cookDict.ingredients)},
+          {key:'cookSteps',value:JSON.stringify(body.cookDict.steps)},
+          {key:'cookPhoto',value:thumbUrlFor(cookFile.getId())},
+          {key:'cookVersion',value:1},{key:'cookUpdated',value:new Date().toISOString()});
+      } catch (_) {
+        if (createdFile) uploadDiscard(file); if (createdCookFile) uploadDiscard(cookFile);
+        return jsonOut({ok:false,error:'image_failed'});
+      }
+    }
     // Recheck after slow network/image preparation; script locks do not lock native editing.
     row = boardLocateId(sheet,body.itemId);
     if (!row || uploadRevision(uploadReadRow(sheet,row)) !== body.revision) {
-      if (createdFile) uploadDiscard(file);
+      if (createdFile) uploadDiscard(file); if (createdCookFile) uploadDiscard(cookFile);
       return jsonOut({ok:false,error:row?'conflict':'row_mismatch'});
     }
-    props.setProperty(uploadPendingKey(body.requestId),JSON.stringify({digest,fileId:file ? file.getId():null}));
+    props.setProperty(uploadPendingKey(body.requestId),JSON.stringify({digest,fileId:file ? file.getId():null,cookFileId:cookFile ? cookFile.getId():null}));
     writes.push({key:'status',value:UPLOADED});
     if (youtubeUrl) writes.push({key:'youtubeOn',value:true},{key:'youtubeUrl',value:youtubeUrl});
     const requests = writes.map(w=>uploadCell(sheet.getSheetId(),row,w.key,w.value));
@@ -1570,7 +1606,7 @@ function uploadAction(body) {
       try { recorded = uploadReceipt(ss,body.requestId); } catch (_) { return jsonOut({ok:false,error:'commit_unknown'}); }
       if (!recorded) {
         const definite = /Invalid requests|Invalid value|Permission denied|does not have permission|insufficient.*permission|not found|already exists/i.test(String(err));
-        if (definite && (createdFile || !file)) { uploadDiscard(file); uploadForget(body.requestId); }
+        if (definite) { uploadDiscard(file); uploadDiscard(cookFile); uploadForget(body.requestId); }
         return jsonOut({ok:false,error:definite?'commit_failed':'commit_unknown'});
       }
       if (recorded.digest !== digest || recorded.itemId !== body.itemId) return jsonOut({ok:false,error:'request_mismatch'});
@@ -1582,7 +1618,8 @@ function uploadAction(body) {
     catch (_) { warnings.push('저장은 완료됐지만 레퍼 동기화에 실패했습니다. 레퍼 화면을 새로고침해 주세요.'); }
     return jsonOut(uploadReply(sheet,row,{before,submitted:true,requestId:body.requestId,warnings}));
   } catch (err) {
-    if (!committing && createdFile) { uploadDiscard(file); }
+    if (!committing && createdFile) uploadDiscard(file);
+    if (!committing && createdCookFile) uploadDiscard(cookFile);
     return jsonOut({ok:false,error:committing?'commit_unknown':writing?'commit_failed':'read_failed'});
   } finally { lock.releaseLock(); }
 }
@@ -1657,4 +1694,148 @@ function articleAction(body) {
   } catch(err) {
     return jsonOut({ok:false,error:committing?'commit_unknown':writing?'commit_failed':'read_failed'});
   } finally { lock.releaseLock(); }
+}
+
+
+// cook-dict consumes only these columns with a separate, read-only token.
+const COOK_KEYS = ['cookBasic','cookIngredients','cookSteps','cookPhoto','cookVersion','cookUpdated'];
+function showCookDictInfo() {
+  const props = PropertiesService.getScriptProperties();
+  let token = props.getProperty('COOK_DICT_READ_TOKEN');
+  if (!token) { token = Utilities.getUuid() + Utilities.getUuid(); props.setProperty('COOK_DICT_READ_TOKEN',token); }
+  SpreadsheetApp.getUi().alert('요리사전 읽기 연결',
+    'COOK_DICT_SHEET_ID=' + SpreadsheetApp.getActiveSpreadsheet().getId() + '\nCOOK_DICT_READ_TOKEN=' + token +
+    '\nCOOK_DICT_SHEETS_URL에는 기존 Apps Script 웹 앱 /exec 주소를 사용하세요. 서버 환경변수에만 저장하세요.',SpreadsheetApp.getUi().ButtonSet.OK);
+}
+function cookDictReady(sheet) {
+  return sheet.getMaxColumns() >= COL.cookUpdated && COOK_KEYS.every(k=>String(sheet.getRange(HEADER_ROW,COL[k]).getValue())===COLUMNS[COL[k]-1].header);
+}
+function cookRecipeValidate(c) {
+  const text=(v,n,empty=false)=>typeof v==='string'&&v.length<=n&&(empty||!!v.trim());
+  if (!c || c.version!==1 || !text(c.title,80) || !text(c.author,40,true) || !text(c.description,20000) ||
+      !text(c.sourceChannel,200,true) || ![null,1,2,3].includes(c.difficulty) ||
+      !(c.baseServings===null || Number.isInteger(c.baseServings)&&c.baseServings>=1&&c.baseServings<=20) ||
+      ![null,'side_dish','soup_stew','one_bowl','grilled_fried','baby_food','dessert_snack'].includes(c.category) ||
+      !Array.isArray(c.ingredients)||!c.ingredients.length||c.ingredients.length>60||
+      !Array.isArray(c.steps)||!c.steps.length||c.steps.length>60||!c.steps.every(v=>text(v,500))||
+      !c.ingredients.every(r=>r&&text(r.name,60)&&typeof r.isMain==='boolean'&&
+        ['amount','unit','note'].every(k=>r[k]===null||text(r[k],k==='note'?100:20,true)))) throw Error('bad recipe');
+  const {ingredients,steps,...basic}=c;
+  return basic;
+}
+function cookDictValidate(body, sheet) {
+  if (body.cookDict === undefined && body.cookPhoto === undefined) return null;
+  if (!cookDictReady(sheet)) throw Error('upgrade');
+  const basic=cookRecipeValidate(body.cookDict),p=body.cookPhoto;
+  if (!p||!/^image\/(jpeg|png|webp)$/.test(p.mime)||typeof p.data!=='string'||p.data.length>11200000) throw Error('bad photo');
+  const bytes=Utilities.base64Decode(p.data), b=bytes.slice(0,12).map(v=>v&255);
+  const mime=b[0]===255&&b[1]===216&&b[2]===255?'image/jpeg':b.slice(0,8).join(',')==='137,80,78,71,13,10,26,10'?'image/png':
+    b.slice(0,4).join(',')==='82,73,70,70'&&b.slice(8,12).join(',')==='87,69,66,80'?'image/webp':'';
+  if (!bytes.length||bytes.length>8*1024*1024||mime!==p.mime) throw Error('bad photo');
+  return {bytes,basic};
+}
+function cookDictList(body) {
+  const token=PropertiesService.getScriptProperties().getProperty('COOK_DICT_READ_TOKEN');
+  if (!token || body.token!==token) return jsonOut({ok:false,error:'unauthorized'});
+  const ss=SpreadsheetApp.getActiveSpreadsheet(),sheet=ss.getSheetByName(SHEET_NAME);
+  if (body.sheetId!==ss.getId()) return jsonOut({ok:false,error:'wrong_sheet'});
+  if (!sheet||!cookDictReady(sheet)) return jsonOut({ok:false,error:'upgrade_required'});
+  const start=body.cursor===undefined?FIRST_DATA_ROW:Number(body.cursor),limit=50;
+  if (!Number.isInteger(start)||start<FIRST_DATA_ROW) return jsonOut({ok:false,error:'bad_cursor'});
+  const end=Math.min(sheet.getLastRow()+1,start+limit),items=[],errors=[];
+  const counts={};
+  if(sheet.getLastRow()>=FIRST_DATA_ROW)sheet.getRange(FIRST_DATA_ROW,COL.itemId,sheet.getLastRow()-FIRST_DATA_ROW+1,1).getValues().forEach(r=>{const id=String(r[0]||'');counts[id]=(counts[id]||0)+1;});
+  if(end>start) {
+    const rows=sheet.getRange(start,1,end-start,LAST_COL).getValues();
+    rows.forEach((values,index)=>{
+      const c=Object.fromEntries(COLUMNS.map((col,i)=>[col.key,boardCellText(values[i])]));
+      if(c.status!==UPLOADED||!c.cookVersion)return;
+      try {
+        if(!c.itemId||counts[c.itemId]!==1||!c.cookUpdated)throw Error('missing');
+        items.push({itemId:c.itemId,updatedAt:c.cookUpdated,recipe:{...JSON.parse(c.cookBasic),version:Number(c.cookVersion),
+          ingredients:JSON.parse(c.cookIngredients),steps:JSON.parse(c.cookSteps),photoUrl:c.cookPhoto,
+          sourceUrl:c.srcUrl||'',youtubeUrl:c.youtubeUrl||'',instagramUrl:c.instagramUrl||'',tiktokUrl:c.tiktokUrl||''}});
+      } catch (_) { errors.push({itemId:c.itemId||String(start+index),error:'레시피 컬럼을 확인해 주세요.'}); }
+    });
+  }
+  return jsonOut({ok:true,version:1,sheetId:ss.getId(),items,errors,nextCursor:end<=sheet.getLastRow()?end:null});
+}
+
+
+// Backfill only blank recipe columns; never change an existing post or thumbnail.
+function cookBackfillHasData(cells) {
+  return COOK_KEYS.some(k=>String(cells[k] ?? '').trim()!=='');
+}
+function cookBackfillRevision(cells) {
+  return uploadHash(['itemId','status','title','dish','desc','srcChannel',...COOK_KEYS].map(k=>cells[k] || ''));
+}
+function cookBackfillAction(body) {
+  if (!['cook_backfill_list','cook_backfill_get','cook_backfill_save'].includes(body.action)) return jsonOut({ok:false,error:'unknown_action'});
+  const ss=SpreadsheetApp.getActiveSpreadsheet(),sheet=ss.getSheetByName(SHEET_NAME);
+  if (body.sheetId!==ss.getId()) return jsonOut({ok:false,error:'wrong_sheet'});
+  if (!sheet||!cookDictReady(sheet)) return jsonOut({ok:false,error:'upgrade_required'});
+  if (body.action==='cook_backfill_list') {
+    const start=body.cursor===undefined?FIRST_DATA_ROW:Number(body.cursor),last=sheet.getLastRow();
+    if (!Number.isInteger(start)||start<FIRST_DATA_ROW) return jsonOut({ok:false,error:'bad_cursor'});
+    const end=Math.min(last+1,start+50),items=[],errors=[],counts=Object.create(null);
+    let skipped=0;
+    if (last>=FIRST_DATA_ROW) sheet.getRange(FIRST_DATA_ROW,COL.itemId,last-FIRST_DATA_ROW+1,1).getValues().forEach(r=>{const id=String(r[0]||'');counts[id]=(counts[id]||0)+1;});
+    if (end>start) sheet.getRange(start,1,end-start,LAST_COL).getValues().forEach((values,index)=>{
+      const c=Object.fromEntries(COLUMNS.map((col,i)=>[col.key,boardCellText(values[i])]));
+      if (c.status!==UPLOADED) return;
+      if (cookBackfillHasData(c)) { skipped++; return; }
+      if (!c.itemId||counts[c.itemId]!==1) { errors.push({title:c.title||c.dish||String(start+index),error:'항목 ID가 없거나 중복입니다. 시트 초기 설정과 ID를 확인해 주세요.'}); return; }
+      items.push({itemId:c.itemId,title:c.title||c.dish||'제목 없음',revision:cookBackfillRevision(c)});
+    });
+    return jsonOut({ok:true,items,errors,skipped,nextCursor:end<=last?end:null});
+  }
+  if (typeof Sheets==='undefined') return jsonOut({ok:false,error:'sheets_service_required'});
+  if (typeof body.itemId!=='string'||!body.itemId.trim()||body.itemId.length>200||!(/^[a-f0-9]{64}$/).test(body.revision||'')) return jsonOut({ok:false,error:'bad_fields'});
+  const lock=LockService.getScriptLock();
+  if (!lock.tryLock(20000)) return jsonOut({ok:false,error:'busy'});
+  try {
+    const row=boardLocateId(sheet,body.itemId);
+    if (!row) return jsonOut({ok:false,error:'row_mismatch'});
+    const before=uploadReadRow(sheet,row);
+    if (before.itemId!==body.itemId||before.status!==UPLOADED) return jsonOut({ok:false,error:'conflict'});
+    if (cookBackfillHasData(before)) return jsonOut({ok:true,skipped:true});
+    if (cookBackfillRevision(before)!==body.revision) return jsonOut({ok:false,error:'conflict'});
+    if (!before.desc.trim()||before.desc.length>20000) return jsonOut({ok:false,error:'cook_description_required'});
+    if (body.action==='cook_backfill_get') return jsonOut({ok:true,item:{itemId:body.itemId,title:before.title||before.dish,
+      description:before.desc,sourceChannel:before.srcChannel||'',revision:body.revision}});
+    let basic;
+    try { basic=cookRecipeValidate(body.cookDict); } catch (_) { return jsonOut({ok:false,error:'bad_fields'}); }
+    if (basic.description!==before.desc||basic.sourceChannel!==(before.srcChannel||'')) return jsonOut({ok:false,error:'conflict'});
+    // Re-read immediately before the atomic write, including edits made in Sheets.
+    const current=uploadReadRow(sheet,row);
+    if (cookBackfillRevision(current)!==body.revision) return jsonOut({ok:false,error:'conflict'});
+    const values={cookBasic:JSON.stringify(basic),cookIngredients:JSON.stringify(body.cookDict.ingredients),
+      cookSteps:JSON.stringify(body.cookDict.steps),cookPhoto:'',cookVersion:1,cookUpdated:new Date().toISOString()};
+    Sheets.Spreadsheets.batchUpdate({requests:COOK_KEYS.map(k=>uploadCell(sheet.getSheetId(),row,k,values[k]))},ss.getId());
+    return jsonOut({ok:true,saved:true});
+  } catch (_) {
+    // A lost response can follow a successful commit. Retrying first checks populated columns.
+    return jsonOut({ok:false,error:'cook_backfill_unknown'});
+  } finally { lock.releaseLock(); }
+}
+
+// Optional timer for a 6-hour cadence even when the site uses Vercel Hobby.
+// Set these two Script Properties before installing: COOK_DICT_SITE_URL, COOK_DICT_CRON_SECRET.
+function installCookDictSync() {
+  cookDictSyncConfig();
+  ScriptApp.getProjectTriggers().filter(t=>t.getHandlerFunction()==='runCookDictSync').forEach(t=>ScriptApp.deleteTrigger(t));
+  ScriptApp.newTrigger('runCookDictSync').timeBased().everyHours(6).create();
+  SpreadsheetApp.getUi().alert('요리사전 자동 가져오기를 6시간 간격으로 설정했습니다.');
+}
+function cookDictSyncConfig() {
+  const props=PropertiesService.getScriptProperties(),url=props.getProperty('COOK_DICT_SITE_URL'),secret=props.getProperty('COOK_DICT_CRON_SECRET');
+  if(!url||!/^https:\/\/[a-z0-9.-]+(?::443)?\/?$/i.test(url)||!secret||secret.length<16)
+    throw Error('스크립트 속성에 COOK_DICT_SITE_URL(사이트 HTTPS 주소), COOK_DICT_CRON_SECRET(사이트 CRON_SECRET과 동일, 16자 이상)을 설정하세요.');
+  return {url:url.replace(/\/$/,''),secret};
+}
+function runCookDictSync() {
+  const config=cookDictSyncConfig();
+  const response=UrlFetchApp.fetch(config.url+'/api/cron/import-recipes',{
+    method:'get',headers:{Authorization:'Bearer '+config.secret},followRedirects:false,muteHttpExceptions:true});
+  if(response.getResponseCode()!==200)throw Error('요리사전 가져오기에 실패했습니다. 관리자 화면의 실행 결과를 확인하세요. HTTP '+response.getResponseCode());
 }

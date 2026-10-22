@@ -28,8 +28,8 @@ Sheets={Spreadsheets:{Values:{get:(_,range,options)=>{assert.equal(options.value
  batchCount++;
  if(mode==='invalid')throw Error('Invalid requests[0]: invalid range');
  if(mode==='timeoutBefore')throw Error('network timeout');
- const metadata=body.requests.find(r=>r.createDeveloperMetadata).createDeveloperMetadata.developerMetadata;
- if(receipts.some(r=>r.metadataId===metadata.metadataId))throw Error('metadata already exists');
+ const metadata=body.requests.find(r=>r.createDeveloperMetadata)?.createDeveloperMetadata.developerMetadata;
+ if(metadata&&receipts.some(r=>r.metadataId===metadata.metadataId))throw Error('metadata already exists');
  // Validate every request before applying any writes, matching Sheets batchUpdate semantics.
  for(const r of body.requests)if(r.updateCells){assert.equal(r.updateCells.fields,'userEnteredValue');assert.equal(r.updateCells.range.sheetId,7);}
  for(const r of body.requests)if(r.updateCells){const u=r.updateCells,v=u.rows[0].values[0].userEnteredValue;
@@ -37,7 +37,7 @@ Sheets={Spreadsheets:{Values:{get:(_,range,options)=>{assert.equal(options.value
    if(v.formulaValue)sheet.formulas[row+':'+col]=v.formulaValue;
    else sheet.rows[row][col]=v.boolValue!==undefined?v.boolValue:v.stringValue===undefined?v.numberValue:v.stringValue;
  }
- receipts.push(metadata);
+ if(metadata)receipts.push(metadata);
  if(mode==='timeoutAfter')throw Error('network timeout after commit');
 }}};
 function reset(){sheet=new Sheet();locked=false;properties={};files=[];batchCount=0;mode='';receipts=[];syncFail=false;

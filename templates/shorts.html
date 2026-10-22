@@ -6,6 +6,14 @@
 <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
 <title>쇼츠 현황판 (시트 뷰어)</title>
 <style>
+  .backfill-activity { margin-top:16px; padding:16px; border:1px solid var(--border); border-radius:10px; background:var(--bg); }
+  .backfill-activity[hidden] { display:none; }
+  .backfill-heading { display:flex; align-items:center; gap:10px; font-weight:600; }
+  .backfill-spinner { width:17px; height:17px; flex:none; border:2px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:backfill-spin .8s linear infinite; }
+  .backfill-activity progress { display:block; width:100%; height:8px; margin-top:14px; accent-color:var(--accent); }
+  .backfill-activity p { margin:8px 0 0; color:var(--muted); font-size:13px; overflow-wrap:anywhere; }
+  @keyframes backfill-spin { to { transform:rotate(360deg); } }
+  @media (prefers-reduced-motion:reduce) { .backfill-spinner { animation:none; } }
   :root {
     --bg: #0f1115; --card: #181b22; --border: #2a2f3a; --text: #e8eaf0; --muted: #8b93a7;
     --accent: #ff3d3d; --accent-hover: #ff5c5c; --ok: #3ecf8e; --err: #ff6b6b; --warn: #ffb020; --info: #8fa6ff;
@@ -231,6 +239,29 @@
     <a id="openSheetBtn" class="hidden" target="_blank" rel="noopener"><button type="button">시트 열기 ↗</button></a>
   </section>
 
+  <section class="card" aria-labelledby="cookBackfillTitle">
+    <h2 id="cookBackfillTitle">기존 완료 항목을 요리사전으로</h2>
+    <p class="sheet-meta">업로드 완료 항목의 설명글에서 재료와 만드는 순서를 준비합니다. 사진은 요리사전의 비공개 초안에서 추가할 수 있습니다.</p>
+    <button type="button" id="cookBackfillScan" class="secondary">기존 완료 항목 레시피 준비</button>
+    <div id="cookBackfillPanel" hidden>
+      <div id="cookBackfillActivity" class="backfill-activity" hidden>
+        <div class="backfill-heading"><span class="backfill-spinner" aria-hidden="true"></span><span id="cookBackfillActivityTitle" role="status" aria-live="polite"></span></div>
+        <p id="cookBackfillCurrent"></p>
+        <progress id="cookBackfillProgress" aria-label="레시피 처리 진행률"></progress>
+        <p id="cookBackfillHint"></p>
+      </div>
+      <p id="cookBackfillStatus" role="status" aria-live="polite"></p>
+      <p class="sheet-meta">시작하면 현재 설정한 AI로 한 항목씩 추출해 현황판에 저장합니다. 이미 입력된 요리사전 정보와 기존 게시 정보는 유지합니다. 완료 후 요리사전에서 ‘지금 가져오기’를 누르세요.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button type="button" id="cookBackfillStart" disabled>처리 시작</button>
+        <button type="button" id="cookBackfillRetry" class="secondary" disabled>실패한 항목 재시도</button>
+        <button type="button" id="cookBackfillStop" class="ghost" disabled>현재 항목 후 중지</button>
+      </div>
+      <p class="sheet-meta">이 화면을 열어 두세요. 중간에 닫아도 저장된 항목은 유지됩니다. 설명글을 수정했다면 ‘대상 다시 확인’으로 목록을 갱신하세요.</p>
+      <ul id="cookBackfillResults" style="padding-left:20px;max-height:320px;overflow:auto;overflow-wrap:anywhere"></ul>
+    </div>
+  </section>
+
   <section class="card" style="padding: 6px 18px 10px;">
     <div class="tbl-wrap">
       <table>
@@ -275,6 +306,7 @@
 
 <script src="/static/thumb-upload.js"></script>
 <script src="/static/board-edit.js"></script>
+<script src="/static/cook-backfill.js" defer></script>
 <script>
   const $ = (id) => document.getElementById(id);
   const STATUSES = {{ statuses | tojson }};

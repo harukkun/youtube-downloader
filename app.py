@@ -851,18 +851,57 @@ def sniff_image(data: bytes) -> str | None:
     return None
 
 
+class AppsScriptTransportError(RuntimeError):
+    def __init__(self, message, status):
+        super().__init__(message)
+        self.status = status
+
+
+def apps_script_read_curl(url, body, executable):
+    """Read-only fallback transport; secrets stay on stdin, never process arguments."""
+    try:
+        result = subprocess.run(
+            [executable, '--silent', '--show-error', '--location', '--max-redirs', '5',
+             '--proto', '=https', '--proto-redir', '=https', '--max-time', '25',
+             '--header', 'Content-Type: application/json', '--data-binary', '@-',
+             '--write-out', '\n%{http_code}', url],
+            input=body, capture_output=True, timeout=30)
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        raise AppsScriptTransportError('Google 웹 앱 조회 연결이 지연되었습니다.', 408) from exc
+    if result.returncode:
+        raise AppsScriptTransportError('Google 웹 앱 조회 연결에 실패했습니다.', 408)
+    text, _, status = result.stdout.decode('utf-8', errors='replace').rpartition('\n')
+    if status != '200':
+        raise AppsScriptTransportError(f'Google 웹 앱 조회에 실패했습니다 (HTTP {status}).',
+                                       int(status) if status.isdigit() else 502)
+    try:
+        data = json.loads(text)
+    except ValueError as exc:
+        raise AppsScriptTransportError('Google 웹 앱이 올바른 조회 응답을 반환하지 않았습니다.', 502) from exc
+    if not isinstance(data, dict):
+        raise AppsScriptTransportError('Google 웹 앱 조회 응답 형식이 올바르지 않습니다.', 502)
+    return data
+
+
 def apps_script_post(url: str, payload: dict, timeout: int = SHORTS_UPLOAD_TIMEOUT) -> dict:
     """Apps Script 웹 앱에 JSON 을 POST 한다. 웹 앱은 302 로 script.googleusercontent.com 에 응답을 두는데
     urllib 기본 핸들러가 GET 으로 따라가므로 본문을 그대로 받는다. 실패는 RuntimeError."""
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    if payload.get('action') in ('cook_backfill_list', 'cook_backfill_get'):
+        curl = shutil.which('curl')
+        if curl:
+            return apps_script_read_curl(url, body, curl)
+    headers = {"Content-Type": "application/json", "User-Agent": "youtube-downloader/1.0"}
+    if payload.get('action') in ('cook_backfill_list', 'cook_backfill_get'):
+        headers['Cache-Control'] = 'no-cache'
     req = urllib.request.Request(url, data=body, method="POST",
-                                 headers={"Content-Type": "application/json", "User-Agent": "youtube-downloader/1.0"})
+                                 headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             ctype = resp.headers.get("Content-Type", "")
             text = resp.read().decode("utf-8", errors="replace")
     except urllib.error.HTTPError as e:
-        raise RuntimeError(f"웹 앱 호출에 실패했습니다 (HTTP {e.code}). 배포 상태를 확인해 주세요.") from e
+        raise AppsScriptTransportError(f"웹 앱 호출에 실패했습니다 (HTTP {e.code}). 배포 상태를 확인해 주세요.", e.code) from e
     except (urllib.error.URLError, TimeoutError, OSError) as e:
         raise RuntimeError(f"웹 앱에 연결할 수 없습니다: {getattr(e, 'reason', e)}") from e
     if "text/html" in ctype:
@@ -1586,7 +1625,7 @@ class SheetCallError(RuntimeError):
 _SHEET_ERRORS = {
     "row_mismatch": (409, "항목 ID가 없거나 중복되었거나 항목이 삭제되었습니다. 초기 설정 후 새로고침해 주세요."),
     "bad_row": (400, "데이터 행(3행 이상)만 편집할 수 있습니다."),
-    "bad_fields": (400, "편집 필드가 올바르지 않습니다. Apps Script가 최신 버전(16)인지도 확인해 주세요."),
+    "bad_fields": (400, "편집 필드가 올바르지 않습니다. Apps Script가 최신 버전(18)인지도 확인해 주세요."),
     "bad_status": (400, "상태가 올바르지 않습니다."),
     "locked_platform": (409, "업로드 완료 상태에서만 플랫폼 값을 입력할 수 있습니다."),
     "unauthorized": (401, "Apps Script 업로드 토큰이 맞지 않습니다."),
@@ -1596,8 +1635,10 @@ _SHEET_ERRORS = {
     "bad_video": (400, "유효한 유튜브 쇼츠 정보가 아닙니다."),
     "bad_channel": (400, "유효한 채널 정보가 아닙니다."),
     "no_sheet": (502, "구글 시트에 '현황판' 탭이 없습니다."),
-    "unknown_action": (409, "Apps Script를 최신 버전(16)으로 업데이트해 주세요."),
-    "upgrade_required": (409, "Apps Script를 최신 버전(16)으로 업데이트한 뒤 시트 메뉴에서 초기 설정을 다시 실행해 주세요."),
+    "unknown_action": (409, "Apps Script를 최신 버전(18)으로 업데이트해 주세요."),
+    "upgrade_required": (409, "Apps Script를 최신 버전(18)으로 업데이트한 뒤 시트 메뉴에서 초기 설정을 다시 실행해 주세요."),
+    "cook_description_required": (400, "현황판의 설명글을 채워 주세요. 재료와 만드는 순서가 포함된 20,000자 이하 설명글이 필요합니다."),
+    "cook_backfill_unknown": (503, "저장 결과를 확인하지 못했습니다. 재시도하면 이미 저장된 항목은 건너뜁니다."),
 }
 
 
@@ -1611,6 +1652,9 @@ def sheet_call(action: str, **values) -> dict:
     payload = {"action": action, "token": up["token"], "sheetId": cfg["sheet_id"], **values}
     try:
         result = apps_script_post(up["url"], payload)
+    except AppsScriptTransportError as exc:
+        retryable = exc.status in (404, 408, 429, 500, 502, 503, 504)
+        raise SheetCallError(str(exc), 502, 'transport_retryable' if retryable else 'transport_error') from exc
     except RuntimeError as exc:
         raise SheetCallError(str(exc), 502) from exc
     if result.get("ok"):
@@ -1978,9 +2022,95 @@ def upload_error(exc):
     return jsonify(error=str(exc), code=exc.code or 'commit_unknown'), exc.status
 
 
+@app.post('/api/upload-process/cook-dict')
+def api_cook_dict_extract():
+    from cook_dict import PROMPT, SCHEMA, validate
+    body = request.get_json(silent=True) or {}
+    description = body.get('description')
+    if not isinstance(description, str) or not description.strip() or len(description) > 20000:
+        return jsonify(error='확정할 설명글이 필요합니다. (20,000자 이하)'), 400
+    cfg = get_recipe_settings()
+    try:
+        raw = llm_structured(PROMPT, description, SCHEMA, cfg['backend'], cfg['model'])
+        return jsonify(ok=True, recipe=validate(raw))
+    except (ValueError, RuntimeError) as exc:
+        return jsonify(error=str(exc)), 502
+
+
 @app.get('/upload-process')
 def upload_process_page():
     return render_template('upload_process.html', models=LLM_MODELS, backends=LLM_BACKENDS)
+
+
+def cook_backfill_read(action, **values):
+    """Retry reads only: Google may bounce its response URL to doGet or return 404."""
+    if action not in ('cook_backfill_list', 'cook_backfill_get'):
+        raise ValueError('Only backfill reads may be retried.')
+    for attempt in range(3):
+        try:
+            result = sheet_call(action, **values)
+            valid = (isinstance(result.get('items'), list) and 'nextCursor' in result) if action == 'cook_backfill_list' else (
+                result.get('skipped') is True or isinstance(result.get('item'), dict))
+            if valid:
+                return result
+            raise SheetCallError('Google 웹 앱이 요청한 데이터 대신 다른 응답을 반환했습니다.', 502, 'transport_retryable')
+        except SheetCallError as exc:
+            if exc.code != 'transport_retryable':
+                raise
+            if attempt == 2:
+                raise SheetCallError('Google 웹 앱 조회가 3회 연속 실패했습니다. 잠시 후 대상을 다시 확인해 주세요. 계속 실패하면 시트 쓰기 연결의 웹 앱 URL과 배포 상태를 확인해 주세요.',
+                                     502, 'read_failed') from exc
+            time.sleep(0.5 * (attempt + 1))
+
+
+@app.get('/api/cook-dict/backfill')
+@board_write_serialized
+def api_cook_backfill_list():
+    cursor = request.args.get('cursor', '3')
+    if not cursor.isdigit() or not 3 <= int(cursor) <= 1000000:
+        return jsonify(error='목록 페이지가 올바르지 않습니다.'), 400
+    connection = upload_connection()
+    if request.args.get('connection') and request.args['connection'] != connection:
+        return jsonify(error='연결된 시트가 변경되었습니다. 대상을 다시 확인해 주세요.', code='connection_changed'), 409
+    try:
+        result = cook_backfill_read('cook_backfill_list', cursor=int(cursor))
+        return jsonify(**result, connection=connection)
+    except SheetCallError as exc:
+        return upload_error(exc)
+
+
+@app.post('/api/cook-dict/backfill/<item_id>')
+@board_write_serialized
+def api_cook_backfill_item(item_id):
+    from cook_dict import PROMPT, SCHEMA, validate
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict) or not item_id.strip() or len(item_id) > 200 or not re.fullmatch(r'[a-f0-9]{64}', str(body.get('revision', ''))):
+        return jsonify(error='항목 정보가 올바르지 않습니다.'), 400
+    if not upload_connection() or body.get('connection') != upload_connection():
+        return jsonify(error='연결된 시트가 변경되었습니다. 대상을 다시 확인해 주세요.', code='connection_changed'), 409
+    try:
+        current = cook_backfill_read('cook_backfill_get', itemId=item_id, revision=body['revision'])
+        if current.get('skipped'):
+            return jsonify(ok=True, skipped=True)
+        item = current['item']
+        description = item.get('description')
+        if not isinstance(description, str) or not description.strip() or len(description) > 20000:
+            return jsonify(error='현황판에 재료와 만드는 순서가 포함된 설명글을 채워 주세요.'), 400
+        cfg = get_recipe_settings()
+        raw = llm_structured(PROMPT, json.dumps({'title': item.get('title', ''), 'description': description}, ensure_ascii=False),
+                             SCHEMA, cfg['backend'], cfg['model'])
+        recipe = validate(raw)
+        recipe.update(version=1, description=description, sourceChannel=item.get('sourceChannel', ''))
+        if body['connection'] != upload_connection():
+            return jsonify(error='연결된 시트가 변경되었습니다. 대상을 다시 확인해 주세요.', code='connection_changed'), 409
+        result = sheet_call('cook_backfill_save', itemId=item_id, revision=body['revision'], cookDict=recipe)
+        return jsonify(ok=True, skipped=bool(result.get('skipped')), saved=bool(result.get('saved')))
+    except SheetCallError as exc:
+        return upload_error(exc)
+    except (ValueError, RuntimeError) as exc:
+        return jsonify(error=str(exc)), 502
+    except (KeyError, TypeError):
+        return jsonify(error='Apps Script 응답이 올바르지 않습니다. 최신 버전으로 재배포해 주세요.'), 502
 
 
 @app.get('/api/upload-process/items/<item_id>')
@@ -2007,7 +2137,7 @@ def api_upload_process_submit():
     except (ValueError, TypeError):
         body = None
     allowed = {'connection', 'item_id', 'revision', 'request_id', 'fields', 'thumbnail_mode'}
-    if not isinstance(body, dict) or set(body) != allowed:
+    if not isinstance(body, dict) or (not allowed <= set(body) or set(body) - allowed - {'cook_dict'}):
         return jsonify(error='제출 형식이 올바르지 않습니다.', code='bad_fields'), 400
     if not upload_connection() or body['connection'] != upload_connection():
         return jsonify(error='시트 연결이 변경되었거나 쓰기 연결이 없습니다.', code='connection_changed'), 409
@@ -2053,9 +2183,32 @@ def api_upload_process_submit():
         image = {'mime': mime, 'data': base64.b64encode(data).decode('ascii')}
     elif f is not None:
         return jsonify(error='기존 썸네일 사용 시 새 파일을 보낼 수 없습니다.', code='bad_fields'), 400
+    cook = {}
+    if 'cook_dict' in body:
+        from cook_dict import validate
+        try:
+            value = body['cook_dict']
+            if not isinstance(value, dict) or value.get('version') != 1:
+                raise ValueError('요리사전 데이터 버전이 올바르지 않습니다.')
+            structured = validate(value)
+            source_channel = value.get('sourceChannel', '')
+            if not isinstance(source_channel, str) or len(source_channel) > 200:
+                raise ValueError('원본 채널명을 확인해 주세요.')
+            structured.update(version=1, description=fields['desc'], sourceChannel=source_channel)
+            photo = request.files.get('cook_photo')
+            if photo is None:
+                raise ValueError('글씨 없는 요리 사진을 선택해 주세요.')
+            photo_data = photo.read(THUMB_MAX_BYTES + 1)
+            photo_mime = sniff_image(photo_data)
+            if not photo_mime or not photo_data or len(photo_data) > THUMB_MAX_BYTES:
+                raise ValueError('요리 사진은 8 MB 이하의 JPG·PNG·WebP여야 합니다.')
+            cook = {'cookDict': structured, 'cookPhoto': {
+                'mime': photo_mime, 'data': base64.b64encode(photo_data).decode('ascii')}}
+        except ValueError as exc:
+            return jsonify(error=str(exc), code='bad_fields'), 400
     try:
         result = sheet_call('upload_submit', itemId=body['item_id'], requestId=body['request_id'],
-                            revision=body['revision'], fields=clean, thumbnailMode=mode, **image)
+                            revision=body['revision'], fields=clean, thumbnailMode=mode, **image, **cook)
         return jsonify(upload_result(result, get_sheet_setting(), remember=True, expected_id=body['item_id']))
     except SheetCallError as exc:
         return upload_error(exc)

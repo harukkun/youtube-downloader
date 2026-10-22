@@ -340,6 +340,18 @@ if(typeof document !== 'undefined') (() => {
       return blob;
     } finally { exporting = false; controls(); }
   }
+  async function exportBackground() {
+    if (!frame) throw new Error('요리 사진으로 사용할 장면을 선택해 주세요.');
+    const token = generation, revision = editRevision;
+    const photo = document.createElement('canvas');
+    photo.width = 1080; photo.height = 1920;
+    const context = photo.getContext('2d'), c = crop();
+    context.fillStyle = '#171a21'; context.fillRect(0, 0, photo.width, photo.height);
+    context.drawImage(tonedFrame(), c.x, c.y, c.width, c.height);
+    const blob = await new Promise(resolve => photo.toBlob(resolve, 'image/jpeg', .9));
+    if (!blob || token !== generation || revision !== editRevision) throw new Error('장면이 변경되었습니다. 다시 확정해 주세요.');
+    return blob;
+  }
   function download(blob, extension, stamp) {
     const url = URL.createObjectURL(blob), a = document.createElement('a');
     a.href = url; a.download = `shorts-thumbnail-${stamp}.${extension}`; document.body.append(a); a.click(); a.remove();
@@ -369,7 +381,7 @@ if(typeof document !== 'undefined') (() => {
     message('exportStatus', ''); message('videoStatus', '영상이나 이미지를 선택해 시작하세요.');
     updateOutputs(); render();
   }
-  window.ThumbnailEditor = {exportImage, reset, download, canExport: () => !!frame && fontReady && !exporting};
+  window.ThumbnailEditor = {exportImage, exportBackground, reset, download, canExport: () => !!frame && fontReady && !exporting};
   window.addEventListener('beforeunload', () => { if (objectURL) URL.revokeObjectURL(objectURL); });
   updateOutputs(); render(false); loadFont();
 })();

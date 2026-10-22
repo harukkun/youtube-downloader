@@ -37,7 +37,7 @@ def call(action,**kw):
     item_id=kw['itemId']
     if item_id not in records:raise m.SheetCallError('항목이 삭제되었습니다.',409,'row_mismatch')
     if action=='upload_get':return result(item_id,kw.get('requestId',''))
-    control['posts']+=1;control['last_fields']=kw['fields']
+    control['posts']+=1;control['last_fields']=kw['fields'];control['cook_recipe']=kw.get('cookDict');control['cook_photo']=bool(kw.get('cookPhoto'))
     if kw['requestId'] in receipts:return result(item_id,kw['requestId'])
     if control['mode']=='conflict':raise m.SheetCallError('작업 중 내용이 변경되었습니다.',409,'conflict')
     if control['mode']=='unknown':raise m.SheetCallError('저장 결과를 확인해 주세요.',503,'commit_unknown')
@@ -52,6 +52,8 @@ m.sheet_call=call
 m.apps_script_post=lambda *args,**kwargs: {'ok':False,'error':'fixture_only'}
 m.sheet_items_cached=lambda *args,**kw:([m.item_from_script(i+3,c) for i,c in enumerate(records.values())],False,None)
 def llm(*args):
+    if 'ingredients' in args[2].get('properties', {}):
+        return {'title':'김치볶음밥','author':'테스트 요리사','baseServings':2,'difficulty':1,'category':'one_bowl','ingredients':[{'name':'김치','amount':'100','unit':'g','note':None,'isMain':True},{'name':'밥','amount':'1','unit':'공기','note':None,'isMain':True}], 'steps':['김치와 밥을 볶는다.']}
     control['generations']+=1
     if control['mode']=='questions' and control['generations']==1:return {'status':'needs_input','questions':['기름의 양은 얼마인가요?'],'notes':['분량 확인'],'instagram':'','youtube':'','tiktok':'','dish_name':'','recipe_author':'','youtube_tags':[]}
     return {'status':'complete','instagram':'인스타그램 레시피 '+('재료와 조리 과정. '*25),'youtube':'유튜브 레시피 '+('김치와 밥을 볶아 완성하세요. '*20),'tiktok':'틱톡 레시피 '+('맛있게 만드는 방법. '*25)+'\n#알쿡 #김치볶음밥 #집밥','dish_name':'김치볶음밥','recipe_author':'','youtube_tags':['김치볶음밥','김치볶음밥 레시피','볶음밥 만들기'],'notes':['분량을 확인하세요.']}

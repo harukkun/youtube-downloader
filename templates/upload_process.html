@@ -52,6 +52,16 @@
 <label for="uploadedYoutubeUrl">유튜브 링크 (선택)</label>
 <input type="url" id="uploadedYoutubeUrl" maxlength="2000" placeholder="https://www.youtube.com/watch?v=..." aria-describedby="uploadedYoutubeHint">
 <p id="uploadedYoutubeHint" class="hint">입력하면 현황판의 업로드 플랫폼에서 유튜브를 체크하고 유튜브 링크를 저장합니다. 비워두면 기존 값을 유지합니다.</p>
+<div class="card">
+<label><input type="checkbox" id="cookEnabled" checked> 요리사전 비공개 초안도 준비하기</label>
+<p class="hint">확정한 설명글의 재료·만드는 순서와 글씨 없는 요리 사진을 현황판에 함께 저장합니다. 요리사전에서 검토 후 공개할 수 있습니다.</p>
+<button type="button" id="prepareCook" class="secondary">레시피 정보 준비</button>
+<p id="cookStatus" role="status"></p>
+<details><summary>추출한 레시피 확인</summary><pre id="cookPreview"></pre></details>
+<label for="cookPhoto">글씨 없는 요리 사진 (기존 썸네일 사용 시 선택)</label>
+<input type="file" id="cookPhoto" accept="image/jpeg,image/png,image/webp">
+<img id="cookPhotoPreview" alt="글씨 없는 요리 사진" hidden style="max-width:180px;max-height:240px;object-fit:contain">
+</div>
 <button type="button" id="submitProcess" class="big">현황판에 제출</button>
 </section>
 <div id="stepActions" class="step-actions" hidden><button type="button" id="previousStep" class="secondary">← 이전</button><button type="button" id="nextStep">다음 →</button></div>

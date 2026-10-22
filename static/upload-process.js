@@ -46,7 +46,7 @@ if (typeof document !== 'undefined') (async () => {
     const main=document.querySelector('main');main.inert=active;main.setAttribute('aria-busy',String(active));
     $('submitProcess').textContent=submitting?'저장 중…':'현황판에 제출';
   }
-  let saveQueue=Promise.resolve(), unsaved=false, persistFailed=false, selectedGeneration=0, previewURL=null;
+  let saveQueue=Promise.resolve(), unsaved=false, persistFailed=false, selectedGeneration=0, previewURL=null, cookPhotoURL=null;
   function message(text, error=false) { $('processMessage').textContent=text; $('processMessage').className='msg '+(error?'err':'ok')+(text?'':' hidden'); }
   function fields() { return {title:$('videoTitle').value,src_url:$('sourceUrl').value,ref_urls:$('referenceUrls').value,memo:$('videoMemo').value,youtube_url:$('uploadedYoutubeUrl').value}; }
   function fillFields(f) { for(const [id,key] of Object.entries({videoTitle:'title',sourceUrl:'src_url',referenceUrls:'ref_urls',videoMemo:'memo',uploadedYoutubeUrl:'youtube_url'})) $(id).value=f[key] || ''; }
@@ -58,7 +58,7 @@ if (typeof document !== 'undefined') (async () => {
     if(!response.ok || body.error) throw Object.assign(new Error(body.error || '요청에 실패했습니다.'),{code:body.code || 'commit_unknown'});
     return body;
   }
-  function snapshot() { return {...state,fields:fields(),recipe:recipe.snapshot(),step,version:1}; }
+  function snapshot() { return {...state,fields:fields(),recipe:recipe.snapshot(),cookEnabled:$('cookEnabled').checked,step,version:1}; }
   function persist() {
     if(!state || restoring) return saveQueue;
     const saved=snapshot(), sequence=++saveSequence; state=saved;unsaved=true;
@@ -82,7 +82,7 @@ if (typeof document !== 'undefined') (async () => {
     if(!reachable(n)) return;
     step=n;document.querySelectorAll('[data-step]').forEach(el=>el.hidden=Number(el.dataset.step)!==n);
     $('stepActions').hidden=n===0;$('nextStep').hidden=n===4;
-    if(n===4) review();updateNav();persist();
+    if(n===4) { review(); renderCook(); }updateNav();persist();
     const panel=document.querySelector('[data-step="'+n+'"]');
     panel.setAttribute('tabindex','-1');panel.focus({preventScroll:true});panel.scrollIntoView({block:'start'});
   }
@@ -172,7 +172,7 @@ if (typeof document !== 'undefined') (async () => {
       restoring=true;
       const item=data?.item || draft.item;
       state=draft || {version:1,connection,item,revision:data.revision,fields:{title:item.video.title,src_url:item.source.url,ref_urls:item.ref_urls||item.reference_shorts.map(r=>r.url).join('\n'),memo:item.memo},recipeConfirmed:false,thumb:null,pending:null,step:1};
-      fillFields(state.fields);await recipe.restore(state.recipe);editor.reset();
+      $('cookEnabled').checked=state.cookEnabled!==false;fillFields(state.fields);await recipe.restore(state.recipe);editor.reset();
       if(data?.submitted && state.pending){restoring=false;await finish(data);return;}
       blocked=!!error||item.status==='uploaded'||(!!draft&&data.revision!==draft.revision);
       if(error && ['row_mismatch','connection_changed','request_mismatch'].includes(error.code))state.pending=null;
@@ -211,7 +211,7 @@ if (typeof document !== 'undefined') (async () => {
     if(!state?.pending||busy) return;
     busy=true;setLoading('submit');showRecovery();$('checkSubmission').disabled=$('retrySubmission').disabled=true;
     try{
-      const form=new FormData();form.append('payload',JSON.stringify(state.pending.payload));if(state.pending.blob)form.append('file',state.pending.blob,'thumbnail.jpg');
+      const form=new FormData();form.append('payload',JSON.stringify(state.pending.payload));if(state.pending.blob)form.append('file',state.pending.blob,'thumbnail.jpg');if(state.pending.cookPhoto)form.append('cook_photo',state.pending.cookPhoto,'recipe.jpg');
       const data=await json('/api/upload-process/submit',{method:'POST',body:form});await finish(data);
     }catch(e){
       message(e.message,true);
@@ -239,27 +239,62 @@ if (typeof document !== 'undefined') (async () => {
   $('submitProcess').onclick=async()=>{
     if(busy||blocked||state?.pending||!reachable(4)||!recipe.valid())return;
     if(!$('uploadedYoutubeUrl').reportValidity())return;
+    if($('cookEnabled').checked && (!state.cookDict || state.cookDescription!==recipe.snapshot().results.youtube || !state.cookPhoto)) { message('레시피 정보를 준비하고 글씨 없는 요리 사진을 선택해 주세요.',true);return; }
     if(!confirm('이 내용과 썸네일을 현황판에 저장하고 상태를 ✅ 업로드 완료로 변경할까요?'))return;
     const payload={connection,item_id:state.item.item_id,revision:state.revision,request_id:crypto.randomUUID(),fields:{...fields(),desc:recipe.snapshot().results.youtube,affiliate:recipe.snapshot().productLinks.trim()},thumbnail_mode:state.thumb.mode};
-    state.pending={payload,blob:state.thumb.blob || null};setLoading('submit');showRecovery();
+    if($('cookEnabled').checked)payload.cook_dict={...state.cookDict,version:1,sourceChannel:recipe.snapshot().sourceChannel};
+    state.pending={payload,blob:state.thumb.blob || null,cookPhoto:$('cookEnabled').checked?state.cookPhoto:null};setLoading('submit');showRecovery();
     try{await persist();}catch(e){state.pending=null;setLoading();showRecovery();message('제출 내용을 임시 보관하지 못했습니다. 브라우저 저장 공간을 확인한 뒤 다시 제출해 주세요.',true);return;}
     await sendPending();
+  };
+  function renderCook() {
+    $('cookStatus').textContent=state?.cookDict?'레시피 정보 준비됨 · 요리사전에서 검토 후 공개됩니다.':'레시피 정보 준비를 눌러 주세요.';
+    const cook=state?.cookDict;
+    $('cookPreview').textContent=cook?[
+      cook.title,
+      `레시피 인물: ${cook.author||'요리사전에서 확인해 주세요'}`,
+      `인분: ${cook.baseServings?`${cook.baseServings}인분`:'요리사전에서 확인해 주세요'}`,
+      '', '재료',
+      ...cook.ingredients.map(r=>`• ${r.name} ${[r.amount,r.unit].filter(Boolean).join(' ')}${r.note?` (${r.note})`:''}`),
+      '', '만드는 순서', ...cook.steps.map((s,i)=>`${i+1}. ${s}`),
+    ].join('\n'):'';
+    if(cookPhotoURL)URL.revokeObjectURL(cookPhotoURL);
+    cookPhotoURL=state?.cookPhoto?URL.createObjectURL(state.cookPhoto):null;
+    $('cookPhotoPreview').hidden=!cookPhotoURL;
+    if(cookPhotoURL)$('cookPhotoPreview').src=cookPhotoURL;
+  }
+  $('cookEnabled').onchange=()=>persist();
+  $('cookPhoto').onchange=async e=>{
+    const file=e.target.files[0]; if(!file||!state||busy||state.pending)return;
+    if(!['image/jpeg','image/png','image/webp'].includes(file.type)||file.size>8*1024*1024){message('8 MB 이하의 JPG·PNG·WebP 사진을 선택해 주세요.',true);return;}
+    state.cookPhoto=file;renderCook();await persist();
+  };
+  $('prepareCook').onclick=async()=>{
+    if(!state||busy||state.pending)return;
+    busy=true;updateNav();$('prepareCook').disabled=true;$('cookStatus').textContent='확정한 설명글에서 재료와 순서를 정리하고 있습니다…';
+    const generation=selectedGeneration,description=recipe.snapshot().results.youtube;
+    try {
+      const data=await json('/api/upload-process/cook-dict',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({description})});
+      if(generation!==selectedGeneration||description!==recipe.snapshot().results.youtube)throw Error('설명글이 바뀌었습니다. 다시 준비해 주세요.');
+      state.cookDict=data.recipe;state.cookDescription=description;await persist();renderCook();
+    } catch(e){message(e.message,true);$('cookStatus').textContent='레시피 정보를 준비하지 못했습니다. 다시 시도해 주세요.';}
+    finally {busy=false;$('prepareCook').disabled=false;updateNav();}
   };
   $('checkSubmission').onclick=checkSubmission;$('retrySubmission').onclick=sendPending;
   $('refreshItems').onclick=()=>loadList();$('itemSearch').oninput=renderItems;
   document.querySelectorAll('[data-goto]').forEach(b=>b.onclick=()=>showStep(Number(b.dataset.goto)));
   $('previousStep').onclick=()=>showStep(step-1);$('nextStep').onclick=()=>showStep(step+1);
   $('confirmRecipe').onclick=()=>{if(recipe.valid()){state.recipeConfirmed=true;showStep(3);}};
-  document.addEventListener('recipe:changed',()=>{if(!state||restoring||state.pending)return;state.recipeConfirmed=false;updateNav();persist();});
+  document.addEventListener('recipe:changed',()=>{if(!state||restoring||state.pending)return;state.recipeConfirmed=false;state.cookDict=null;updateNav();persist();});
   document.querySelector('[data-step="1"]').addEventListener('input',()=>{if(state&&!restoring){updateNav();persist();}});
   $('uploadedYoutubeUrl').addEventListener('input',()=>{if(state&&!restoring&&!state.pending)persist();});
-  document.addEventListener('thumbnail:changed',()=>{if(!state||restoring||state.pending)return;state.thumb=null;updateThumbnail();updateNav();persist();});
+  document.addEventListener('thumbnail:changed',()=>{if(!state||restoring||state.pending)return;state.thumb=null;state.cookPhoto=null;updateThumbnail();updateNav();persist();});
   document.addEventListener('thumbnail:state',()=>{if(state)updateNav();});
   $('confirmThumbnail').onclick=async()=>{
     if(busy||!editor.canExport())return;
     const generation=selectedGeneration;$('confirmThumbnail').disabled=true;busy=true;updateNav();
     ++saveSequence;unsaved=true;$('draftStatus').textContent='썸네일 확정 중…';
-    try{const blob=await editor.exportImage('jpg',.9);if(generation!==selectedGeneration)return;state.thumb={mode:'new',blob};updateThumbnail();updateNav();await persist();message('썸네일을 확정했습니다.');showStep(4);}
+    try{const photo=await editor.exportBackground();const blob=await editor.exportImage('jpg',.9);if(generation!==selectedGeneration)return;state.thumb={mode:'new',blob};state.cookPhoto=photo;updateThumbnail();updateNav();await persist();message('썸네일을 확정했습니다.');showStep(4);}
     catch(e){message(e.message,true);persist();}finally{busy=false;updateNav();}
   };
   $('useExisting').onclick=()=>{if(busy)return;state.thumb={mode:'existing',url:state.item.video.thumbnail};updateThumbnail();updateNav();persist();};
