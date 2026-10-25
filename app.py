@@ -857,15 +857,15 @@ class AppsScriptTransportError(RuntimeError):
         self.status = status
 
 
-def apps_script_read_curl(url, body, executable):
-    """Read-only fallback transport; secrets stay on stdin, never process arguments."""
+def apps_script_read_curl(url, body, executable, timeout=25):
+    """Single-attempt transport; secrets stay on stdin, never process arguments."""
     try:
         result = subprocess.run(
             [executable, '--silent', '--show-error', '--location', '--max-redirs', '5',
-             '--proto', '=https', '--proto-redir', '=https', '--max-time', '25',
+             '--proto', '=https', '--proto-redir', '=https', '--max-time', str(timeout),
              '--header', 'Content-Type: application/json', '--data-binary', '@-',
              '--write-out', '\n%{http_code}', url],
-            input=body, capture_output=True, timeout=30)
+            input=body, capture_output=True, timeout=timeout+5)
     except (subprocess.TimeoutExpired, OSError) as exc:
         raise AppsScriptTransportError('Google 웹 앱 조회 연결이 지연되었습니다.', 408) from exc
     if result.returncode:
@@ -887,10 +887,10 @@ def apps_script_post(url: str, payload: dict, timeout: int = SHORTS_UPLOAD_TIMEO
     """Apps Script 웹 앱에 JSON 을 POST 한다. 웹 앱은 302 로 script.googleusercontent.com 에 응답을 두는데
     urllib 기본 핸들러가 GET 으로 따라가므로 본문을 그대로 받는다. 실패는 RuntimeError."""
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-    if payload.get('action') in ('cook_backfill_list', 'cook_backfill_get'):
+    if payload.get('action') in ('cook_backfill_list', 'cook_backfill_get', 'upload_get', 'upload_submit'):
         curl = shutil.which('curl')
         if curl:
-            return apps_script_read_curl(url, body, curl)
+            return apps_script_read_curl(url, body, curl, timeout=timeout if payload.get('action') == 'upload_submit' else 25)
     headers = {"Content-Type": "application/json", "User-Agent": "youtube-downloader/1.0"}
     if payload.get('action') in ('cook_backfill_list', 'cook_backfill_get'):
         headers['Cache-Control'] = 'no-cache'

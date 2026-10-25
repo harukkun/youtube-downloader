@@ -47,7 +47,7 @@ if (typeof document !== 'undefined') (async () => {
     $('submitProcess').textContent=submitting?'저장 중…':'현황판에 제출';
   }
   let saveQueue=Promise.resolve(), unsaved=false, persistFailed=false, selectedGeneration=0, previewURL=null, cookPhotoURL=null;
-  function message(text, error=false) { $('processMessage').textContent=text; $('processMessage').className='msg '+(error?'err':'ok')+(text?'':' hidden'); }
+  function message(text, error=false) { $('processMessage').textContent=text; $('processMessage').className='msg '+(error?'err':'ok')+(text?'':' hidden'); if(text && error) $('processMessage').scrollIntoView({block:'center'}); }
   function fields() { return {title:$('videoTitle').value,src_url:$('sourceUrl').value,ref_urls:$('referenceUrls').value,memo:$('videoMemo').value,youtube_url:$('uploadedYoutubeUrl').value}; }
   function fillFields(f) { for(const [id,key] of Object.entries({videoTitle:'title',sourceUrl:'src_url',referenceUrls:'ref_urls',videoMemo:'memo',uploadedYoutubeUrl:'youtube_url'})) $(id).value=f[key] || ''; }
   async function json(url, options) {
@@ -221,7 +221,7 @@ if (typeof document !== 'undefined') (async () => {
   }
   async function checkSubmission() {
     if(!state?.pending||busy)return;
-    busy=true;$('checkSubmission').disabled=true;$('retrySubmission').hidden=true;
+    busy=true;$('checkSubmission').disabled=true;$('checkSubmission').textContent='저장 결과 확인 중…';$('recoveryText').textContent='Google의 저장 기록을 확인하고 있습니다. 잠시 기다려 주세요.';$('retrySubmission').hidden=true;
     try{
       const p=state.pending.payload,q=new URLSearchParams({request_id:p.request_id,connection:p.connection});
       const data=await json('/api/upload-process/items/'+encodeURIComponent(p.item_id)+'?'+q);
@@ -234,7 +234,7 @@ if (typeof document !== 'undefined') (async () => {
     }catch(e){message(e.message,true);
       if(['row_mismatch','connection_changed','request_mismatch'].includes(e.code)){state.pending=null;blocked=true;$('conflictBox').classList.remove('hidden');await persist().catch(()=>{});showRecovery();}
     }
-    finally{busy=false;$('checkSubmission').disabled=false;updateNav();}
+    finally{busy=false;$('checkSubmission').disabled=false;$('checkSubmission').textContent='저장 결과 확인';updateNav();}
   }
   $('submitProcess').onclick=async()=>{
     if(busy||blocked||state?.pending||!reachable(4)||!recipe.valid())return;
@@ -304,7 +304,7 @@ if (typeof document !== 'undefined') (async () => {
     try{await store.remove(connection,id);}catch(e){message('초안을 지우지 못했습니다.',true);return;}
     state=null;blocked=false;await select(id,true);
   };
-  $('nextItem').onclick=()=>{$('completed').classList.add('hidden');$('processWork').hidden=false;showStep(0);loadList();};
+  $('nextItem').onclick=()=>{$('completed').classList.add('hidden');$('processWork').hidden=false;$('itemSearch').value='';renderItems();showStep(0);loadList();};
   window.addEventListener('beforeunload',e=>{if(unsaved||persistFailed){e.preventDefault();e.returnValue='';}});
   await recipe.ready;updateNav();await loadList(true);
 })();

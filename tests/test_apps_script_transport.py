@@ -25,3 +25,11 @@ class AppsScriptTransportTest(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 m.apps_script_post('https://example.com', {'action':'cook_backfill_save'})
             read.assert_not_called()
+
+    def test_upload_transport_does_not_replay_uncertain_writes(self):
+        result = subprocess.CompletedProcess([], 0, b'not found\n404', b'')
+        with patch.object(m.shutil, 'which', return_value='/usr/bin/curl'), patch.object(m.subprocess, 'run', return_value=result) as run:
+            with self.assertRaises(m.AppsScriptTransportError):
+                m.apps_script_post('https://script.google.com/macros/s/test/exec', {'action':'upload_submit'})
+            self.assertEqual(run.call_count, 1)
+            self.assertEqual(run.call_args.kwargs['timeout'], m.SHORTS_UPLOAD_TIMEOUT + 5)

@@ -13,7 +13,7 @@ const base=process.env.UPLOAD_FIXTURE_URL || 'http://127.0.0.1:8877';
  const setup=await context();let {c,p}=setup;
  const control=data=>p.request.post(base+'/_test/control',{data});
  const status=async()=> (await p.request.get(base+'/_test/control')).json();
- async function choose(index=0){await p.goto(base+'/upload-process');await p.locator('.item-option').nth(index).click();await p.locator('#videoTitle').fill('완성한 김치볶음밥');}
+ async function choose(index=0,query=''){await p.goto(base+'/upload-process');await p.locator('#itemSearch').fill(query);await p.locator('.item-option').nth(index).click();await p.locator('#videoTitle').fill('완성한 김치볶음밥');}
  async function generate(){await p.locator('#nextStep').click();assert.equal(await p.locator('#productLinks').inputValue(),'기존 팬: https://link.coupang.com/a/old');await p.locator('#productLinks').fill('라면: https://link.coupang.com/a/new');await p.locator('#srcText').fill('김치 100g과 밥 1공기를 식용유 1T에 3분간 볶는다.');await p.locator('#genBtn').click();await p.waitForFunction(()=>RecipeEditor.valid());await p.locator('#confirmRecipe').click();await p.locator('[data-step="3"]').waitFor({state:'visible'});}
  async function navigationInViewport(){
   for(const bottom of [false,true]){
@@ -89,7 +89,7 @@ const base=process.env.UPLOAD_FIXTURE_URL || 'http://127.0.0.1:8877';
  await p.locator('#nextItem').click();await p.waitForFunction(()=>document.querySelectorAll('.item-option').length===1);
  await c.close();
  // Mobile + clarification + existing thumbnail + conflict recovery.
- ({c,p}=await context({width:390,height:844}));await control({reset:true,mode:'questions'});await choose(1);
+ ({c,p}=await context({width:390,height:844}));await control({reset:true,mode:'questions'});await choose(0,'토마토');
  await p.locator('#nextStep').click();await p.locator('#srcText').fill('김치와 밥을 볶는다.');await p.locator('#genBtn').click();
  await navigationInViewport();await p.locator('#answer-0').waitFor({state:'visible'});assert.equal(await p.locator('#confirmRecipe').isDisabled(),true);
  await p.screenshot({path:'/tmp/upload-process-recipe-mobile.png',fullPage:true});
@@ -105,6 +105,10 @@ const base=process.env.UPLOAD_FIXTURE_URL || 'http://127.0.0.1:8877';
  await control({mode:'unknown'});p.once('dialog',d=>d.accept());await p.locator('#submitProcess').click();
  await p.waitForFunction(()=>!document.getElementById('checkSubmission').disabled);await p.locator('#checkSubmission').click();await p.locator('#retrySubmission').waitFor({state:'visible'});
  await control({mode:''});await p.locator('#retrySubmission').click();await p.locator('#completed').waitFor({state:'visible'});assert.equal((await status()).posts,2);
+ await p.locator('#nextItem').click();await p.locator('[data-step="0"]').waitFor({state:'visible'});
+ assert.equal(await p.locator('#itemSearch').inputValue(),'');
+ await p.waitForFunction(()=>document.querySelectorAll('.item-option').length===1);
+ assert.ok((await p.locator('.item-option').innerText()).includes('주말 김치볶음밥'));
  await c.close();
  ({c,p}=await context());await control({reset:true});await choose();await p.waitForFunction(()=>document.getElementById('draftStatus').textContent.includes('저장했습니다'));
  await control({change:true});await p.reload();await p.locator('#conflictBox').waitFor({state:'visible'});
