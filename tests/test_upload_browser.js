@@ -24,6 +24,28 @@ const base=process.env.UPLOAD_FIXTURE_URL || 'http://127.0.0.1:8877';
    assert.equal(await p.locator('#nextStep').evaluate(el=>{const r=el.getBoundingClientRect();return el.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2));}),true);
   }
  }
+ // Thumbnail work and backward navigation remain available during AI generation.
+ await control({reset:true});await choose(1);await p.locator('#nextStep').click();
+ await p.locator('#srcText').fill('김치 100g과 밥 1공기를 식용유 1T에 3분간 볶는다.');
+ let releaseGeneration;const generationWait=new Promise(resolve=>releaseGeneration=resolve);
+ await p.route('**/api/helper/recipe-description',async route=>{await generationWait;await route.continue();});
+ await Promise.all([p.waitForRequest(r=>r.url().endsWith('/api/helper/recipe-description')),p.locator('#genBtn').click()]);
+ await p.locator('#nextStep').click();await p.locator('[data-step="3"]').waitFor({state:'visible'});
+ await p.locator('#useExisting').click();
+ assert.equal(await p.locator('#nextStep').isDisabled(),true);
+ assert.equal(await p.locator('[data-goto="4"]').isDisabled(),true);
+ await p.locator('#previousStep').click();await p.locator('[data-step="2"]').waitFor({state:'visible'});
+ assert.equal(await p.locator('#confirmRecipe').isDisabled(),true);
+ await p.locator('[data-goto="3"]').click();
+ releaseGeneration();await p.waitForFunction(()=>RecipeEditor.valid());
+ assert.equal(await p.locator('[data-step="3"]').isVisible(),true);
+ assert.equal(await p.locator('#nextStep').isDisabled(),true);
+ await p.locator('[data-goto="2"]').click();await p.locator('#confirmRecipe').click();
+ await p.locator('#nextStep').click();await p.locator('[data-step="4"]').waitFor({state:'visible'});
+ await p.locator('[data-goto="2"]').click();await p.locator('#youtubeOut').fill('');
+ assert.equal(await p.locator('[data-goto="4"]').isDisabled(),true);
+ await p.locator('[data-goto="3"]').click();assert.equal(await p.locator('#nextStep').isDisabled(),true);
+ await c.close();({c,p}=await context());
  await control({reset:true});await choose();await navigationInViewport();await generate();await navigationInViewport();
  // Confirmation stays disabled until an image is loaded.
  assert.equal(await p.locator('#confirmThumbnail').isDisabled(),true);
@@ -62,6 +84,16 @@ const base=process.env.UPLOAD_FIXTURE_URL || 'http://127.0.0.1:8877';
  await p.reload();await p.waitForFunction(()=>!document.getElementById('confirmedThumb').hidden);
  assert.equal(await p.locator('#title').inputValue(),''); // Only the finalized image is restored, not the source frame.
  await p.locator('#reviewDescription').waitFor({state:'visible'});
+ // Review text shares the copy buttons' behavior, including keyboard access.
+ await p.evaluate(()=>{window.reviewCopies=[];window.originalReviewCopy=RecipeTags.copy;RecipeTags.copy=async text=>{window.reviewCopies.push(text);return true;};});
+ for(const selector of ['#reviewFields dd.review-copy-text','#reviewDescription','#reviewTags']){
+  const field=p.locator(selector),text=await field.innerText();
+  assert.equal(await field.evaluate(el=>getComputedStyle(el).cursor),'pointer');
+  await field.click();assert.equal(await p.evaluate(()=>window.reviewCopies.at(-1)),text);
+  await field.press('Enter');assert.equal(await p.evaluate(()=>window.reviewCopies.at(-1)),text);
+ }
+ assert.equal(await p.evaluate(()=>window.reviewCopies.length),6);
+ await p.evaluate(()=>{RecipeTags.copy=window.originalReviewCopy;});
  // Drafts follow the saved template unless they kept unsaved template edits.
  const savedTemplate=(await (await p.request.get(base+'/api/helper/settings')).json()).recipe.template;
  assert.equal(await p.locator('#tplText').inputValue(),savedTemplate);

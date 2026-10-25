@@ -4,7 +4,7 @@ const UploadProcessData = (() => {
   function basicValid(fields) { return ['title','src_url','ref_urls'].every(k => typeof fields[k] === 'string' && fields[k].trim()) &&
     Object.entries({title:500,src_url:2000,ref_urls:5000,memo:5000}).every(([k,n]) => Array.from(fields[k] || '').length <= n); }
   function canReach(step, state) { return step === 0 || !!state.item && (step <= 1 || basicValid(state.fields)) &&
-    (step <= 2 || state.recipeConfirmed) && (step <= 3 || !!state.thumb?.mode); }
+    (step <= 3 || state.recipeConfirmed && !!state.thumb?.mode); }
   function key(connection, itemId) { return connection + ':' + itemId; }
   function open() {
     return new Promise((resolve,reject) => {
@@ -69,7 +69,7 @@ if (typeof document !== 'undefined') (async () => {
     }).catch(e=>{persistFailed=true;$('draftStatus').textContent='초안을 보관하지 못했습니다. 페이지를 닫으면 작업이 사라질 수 있습니다.';throw e;});
     saveQueue.catch(()=>{}); return saveQueue;
   }
-  function reachable(n) { return canReach(n,{...state,fields:fields()}); }
+  function reachable(n) { return canReach(n,{...state,fields:fields()}) && (n < 4 || recipe.valid()); }
   function updateNav() {
     document.querySelectorAll('[data-goto]').forEach(b=>{ const n=Number(b.dataset.goto);b.disabled=busy||switching||!!state?.pending||!reachable(n);b.setAttribute('aria-current',n===step?'step':'false'); });
     $('nextStep').disabled=busy||switching||blocked||!!state?.pending||!reachable(step+1);
@@ -104,6 +104,7 @@ if (typeof document !== 'undefined') (async () => {
       if(key==='title'){
         const button=document.createElement('button');button.type='button';button.className='secondary review-copy';button.textContent='복사';button.setAttribute('aria-label','영상 제목 복사');
         dt.classList.add('review-heading');dt.append(button);button.onclick=()=>copyReview(dd.textContent,label,button,dd);
+        bindCopyText(dd,button,label);
       }
     }
     const affiliateDt=document.createElement('dt'),affiliateDd=document.createElement('dd');
@@ -112,9 +113,18 @@ if (typeof document !== 'undefined') (async () => {
     const tags=recipe.tagState();
     $('reviewTags').textContent=tags.youtube.join(', ');
     $('copyReviewTags').disabled=!tags.current||!tags.youtube.length||tags.length>500;
+    bindCopyText($('reviewDescription'),$('copyReviewDescription'),'유튜브 설명글');
+    bindCopyText($('reviewTags'),$('copyReviewTags'),'유튜브 Studio 태그');
     $('reviewTagHint').textContent=!tags.current?'태그를 다시 생성해 주세요.':tags.length>500?'태그가 500자를 초과했습니다. SNS 설명글 단계에서 줄여 주세요.':
       !tags.youtube.length?'태그가 없습니다. SNS 설명글 단계에서 입력하거나 다시 생성할 수 있습니다.':'YouTube Studio → 세부정보 → 자세히 보기 → 태그에 붙여넣으세요.';
     if(previewURL)$('reviewThumbnail').src=previewURL;
+  }
+  function bindCopyText(field,button,label) {
+    field.classList.add('review-copy-text');field.tabIndex=button.disabled?-1:0;
+    field.setAttribute('role','button');field.setAttribute('aria-label',label+' 복사');
+    field.setAttribute('aria-disabled',String(button.disabled));field.title='클릭하여 복사';
+    field.onclick=()=>button.click();
+    field.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();button.click();}};
   }
   async function copyReview(text,label,button,field) {
     const status=$('reviewCopyStatus');status.textContent='';button.disabled=true;
