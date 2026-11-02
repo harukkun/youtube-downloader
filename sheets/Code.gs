@@ -96,10 +96,15 @@ const COLUMNS = [
   {key:'cookPhoto',header:'요리사전 사진 URL',width:200,group:'cook'},
   {key:'cookVersion',header:'요리사전 데이터 버전',width:100,group:'cook'},
   {key:'cookUpdated',header:'요리사전 데이터 수정일',width:180,group:'cook'},
+  // 요리 분류 열: 웹 현황판 동기화(알쿡 성장일기)가 헤더 이름('인플루언서'·'카테고리')으로 읽는다.
+  // COLUMNS 에 넣어 필터/정렬 범위(LAST_COL)에 포함시킨다. 범위 밖이면 정렬할 때 이 두 열만 제자리에 남아 행과 어긋난다.
+  {key:'influencer',header:'👤 인플루언서',width:120,group:'label'},
+  {key:'category',header:'🍽️ 카테고리',width:120,group:'label'},
 ];
 // 그룹 띠 색: strong = 1행 배경(흰 글자), light/dark = 2행 열 이름 배경/글자
 const GROUPS = {
   cook: {label:'🍳 요리사전',strong:'#047857',light:'#d1fae5',dark:'#065f46'},
+  label:    { label: '요리 분류',        strong: '#be185d', light: '#fce7f3', dark: '#9d174d' },
   basic:    { label: '📋 기본',          strong: '#4f46e5', light: '#e0e7ff', dark: '#3730a3' },
   source:   { label: '🎬 원본 영상',     strong: '#0284c7', light: '#e0f2fe', dark: '#075985' },
   ref:      { label: '🔎 참고 쇼츠',     strong: '#0d9488', light: '#ccfbf1', dark: '#115e59' },
@@ -1314,7 +1319,7 @@ function regenerateUploadToken() {
 }
 
 // 현황판 편집 웹 앱. ID와 계산 열은 일반 편집에서 제외한다.
-const BOARD_EDITABLE = new Set(COLUMNS.filter(c => !c.date && !['thumb', 'thumbUrl', 'itemId'].includes(c.key)).map(c => c.key));
+const BOARD_EDITABLE = new Set(COLUMNS.filter(c => !c.date && !['thumb', 'thumbUrl', 'itemId', 'influencer', 'category'].includes(c.key)).map(c => c.key));   // 요리 분류 열은 시트에서 직접 고친다(웹 편집 API 범위 밖)
 const BOARD_LIMITS = {dish:200, srcUrl:2000, srcTitle:500, srcChannel:200, srcDesc:20000, srcPinned:20000, refUrls:5000, refChannels:2000,
   title:500, desc:20000, pinned:20000, affiliate:5000, memo:5000,
   ...Object.fromEntries(PLATFORMS.map(p => [p.key + 'Url', 2000]))};
@@ -1330,7 +1335,7 @@ function boardReadRow(sheet, row) {
   return Object.fromEntries(COLUMNS.filter(c => c.key !== 'thumb').map(c => [c.key, boardCellText(vals[COL[c.key] - 1])]));
 }
 function boardHasContent(vals) {
-  return COLUMNS.some((c, i) => !['itemId', 'updatedAt'].includes(c.key) && c.key !== 'thumb' &&
+  return COLUMNS.some((c, i) => !['itemId', 'updatedAt', 'influencer', 'category'].includes(c.key) && c.key !== 'thumb' &&
     vals[i] !== false && vals[i] != null && String(vals[i]).trim() !== '');
 }
 function ensureBoardIds(sheet) {
