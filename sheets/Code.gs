@@ -1511,7 +1511,7 @@ function uploadAction(body) {
     if (youtubeUrl && !/^https:\/\/(?:(?:www\.|m\.)?youtube\.com\/(?:watch\?v=[\w-]{11}(?:&[^\s]*)?|(?:shorts|live|embed)\/[\w-]{11}(?:[?][^\s]*)?)|(?:www\.)?youtu\.be\/[\w-]{11}(?:[?][^\s]*)?)$/.test(youtubeUrl)) return jsonOut({ok:false,error:'bad_fields'});
     const optional = UPLOAD_OPTIONAL.filter(k => k in fields);
     const valid = boardValidateFields(Object.fromEntries([...UPLOAD_FIELDS, ...optional].map(k => [k, fields[k]])),before);
-    if (valid.error || ['title','srcUrl','refUrls','desc'].some(k => !fields[k].trim().replace(/^=+/,'')))
+    if (valid.error || ['title','srcUrl','desc'].some(k => !fields[k].trim().replace(/^=+/,'')))
       return jsonOut({ok:false,error:valid.error || 'bad_fields'});
     let bytes = null;
     if (body.thumbnailMode === 'new') {

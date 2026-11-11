@@ -2159,8 +2159,8 @@ def api_upload_process_submit():
             return jsonify(error=str(e), code='bad_fields'), 400
         fields = {**fields, 'affiliate': "\n".join(f"{name}: {url}" for name, url in products)}
     clean, error = _board_patch(fields)
-    if error or any(not clean.get(k) for k in ('title', 'srcUrl', 'refUrls', 'desc')):
-        return jsonify(error=error or '제목·원본 링크·참고 링크·유튜브 설명이 필요합니다.', code='bad_fields'), 400
+    if error or any(not clean.get(k) for k in ('title', 'srcUrl', 'desc')):
+        return jsonify(error=error or '제목·원본 링크·유튜브 설명이 필요합니다.', code='bad_fields'), 400
     youtube_url = clean.get('youtubeUrl', '')
     if youtube_url and not re.fullmatch(r'https://(?:(?:www\.|m\.)?youtube\.com/(?:watch\?v=[\w-]{11}(?:&[^\s]*)?|(?:shorts|live|embed)/[\w-]{11}(?:\?[^\s]*)?)|(?:www\.)?youtu\.be/[\w-]{11}(?:\?[^\s]*)?)', youtube_url, re.ASCII):
         return jsonify(error='올바른 유튜브 영상 링크를 입력해 주세요.', code='bad_fields'), 400

@@ -1,7 +1,7 @@
 'use strict';
 // The state machine and persistence are independent of the recipe/thumbnail editors.
 const UploadProcessData = (() => {
-  function basicValid(fields) { return ['title','src_url','ref_urls'].every(k => typeof fields[k] === 'string' && fields[k].trim()) &&
+  function basicValid(fields) { return ['title','src_url'].every(k => typeof fields[k] === 'string' && fields[k].trim()) &&
     Object.entries({title:500,src_url:2000,ref_urls:5000,memo:5000}).every(([k,n]) => Array.from(fields[k] || '').length <= n); }
   function canReach(step, state) { return step === 0 || !!state.item && (step <= 1 || basicValid(state.fields)) &&
     (step <= 3 || state.recipeConfirmed && !!state.thumb?.mode); }

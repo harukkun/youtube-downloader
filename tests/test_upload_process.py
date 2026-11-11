@@ -49,6 +49,17 @@ class UploadProcessTest(unittest.TestCase):
                 self.assertEqual(self.post(payload).status_code, 400)
                 post.assert_not_called()
 
+    def test_reference_links_are_optional(self):
+        payload = self.payload()
+        payload['fields']['ref_urls'] = ''
+        with patch.object(m, 'apps_script_post', return_value=self.result) as post:
+            self.assertEqual(self.post(payload).status_code, 200)
+            post.assert_called_once()
+        payload['fields']['title'] = ''
+        with patch.object(m, 'apps_script_post') as post:
+            self.assertEqual(self.post(payload).status_code, 400)
+            post.assert_not_called()
+
     def test_optional_affiliate_links_are_normalized(self):
         payload = self.payload()
         payload['fields']['affiliate'] = '- 육개장 사발면 : https://link.coupang.com/a/one\n\n초록매실: https://link.coupang.com/a/two'

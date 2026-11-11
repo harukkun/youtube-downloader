@@ -3,6 +3,7 @@ const {basicValid,canReach,key}=require('../static/upload-process.js');
 const fields={title:'title',src_url:'https://source',ref_urls:'https://ref',memo:''};
 assert.equal(basicValid(fields),true);
 assert.equal(basicValid({...fields,title:''}),false);
+assert.equal(basicValid({...fields,ref_urls:''}),true);
 assert.equal(basicValid({...fields,title:'😀'.repeat(501)}),false);
 assert.equal(canReach(0,{}),true);
 assert.equal(canReach(1,{}),false);
