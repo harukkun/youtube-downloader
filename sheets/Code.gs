@@ -1757,7 +1757,9 @@ function cookDictList(body) {
       if(c.status!==UPLOADED||!c.cookVersion)return;
       try {
         if(!c.itemId||counts[c.itemId]!==1||!c.cookUpdated)throw Error('missing');
-        items.push({itemId:c.itemId,updatedAt:c.cookUpdated,recipe:{...JSON.parse(c.cookBasic),version:Number(c.cookVersion),
+        // The posted description is the reusable source text. Older cookBasic JSON may contain a flattened copy.
+        const basic=JSON.parse(c.cookBasic);
+        items.push({itemId:c.itemId,updatedAt:c.cookUpdated,recipe:{...basic,description:c.desc||basic.description,version:Number(c.cookVersion),
           ingredients:JSON.parse(c.cookIngredients),steps:JSON.parse(c.cookSteps),photoUrl:c.cookPhoto,
           sourceUrl:c.srcUrl||'',youtubeUrl:c.youtubeUrl||'',instagramUrl:c.instagramUrl||'',tiktokUrl:c.tiktokUrl||''}});
       } catch (_) { errors.push({itemId:c.itemId||String(start+index),error:'레시피 컬럼을 확인해 주세요.'}); }
