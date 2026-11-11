@@ -126,11 +126,18 @@ if (typeof document !== 'undefined') (async () => {
     field.onclick=()=>button.click();
     field.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();button.click();}};
   }
+  let copyToastTimer=0;
+  function showCopyToast() {
+    const el=$('toast');if(!el)return;
+    el.textContent='클립보드에 복사되었습니다';el.className='show';
+    clearTimeout(copyToastTimer);copyToastTimer=setTimeout(()=>{el.className='';},2000);
+  }
   async function copyReview(text,label,button,field) {
     const status=$('reviewCopyStatus');status.textContent='';button.disabled=true;
     try {
       const copied=await window.RecipeTags.copy(text,field);
       status.textContent=copied?label+'을 복사했습니다.':'자동 복사에 실패했습니다. 선택된 텍스트를 ⌘C 또는 Ctrl+C로 복사해 주세요.';
+      if(copied)showCopyToast();
     } finally { button.disabled=false; }
   }
   $('copyReviewDescription').onclick=()=>copyReview($('reviewDescription').textContent,'유튜브 설명글',$('copyReviewDescription'),$('reviewDescription'));
