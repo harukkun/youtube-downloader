@@ -76,7 +76,7 @@ if (typeof document !== 'undefined') (async () => {
     $('submitProcess').disabled=busy||switching||blocked||!reachable(4)||!recipe.valid();
     $('confirmRecipe').disabled=!recipe.valid();
     $('confirmThumbnail').disabled=busy||!editor.canExport();
-    $('recipeState').textContent=state?.recipeConfirmed?'설명글 확정됨':'설명글을 생성·수정한 뒤 확정하세요.';
+    $('recipeState').textContent=state?.recipeConfirmed?'설명글 확정됨':'설명글을 생성하거나 유튜브 탭에 직접 작성한 뒤 확정하세요.';
   }
   function showStep(n) {
     if(!reachable(n)) return;
