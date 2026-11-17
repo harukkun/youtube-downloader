@@ -61,10 +61,12 @@ LLM_MODELS = {
     "sonnet": {"label": "Claude Sonnet (빠름, 기본)", "cli": "sonnet", "api": "claude-sonnet-5"},
     "opus": {"label": "Claude Opus (품질 우선)", "cli": "opus", "api": "claude-opus-5"},
 }
-DEFAULT_CODEX_MODEL = "gpt-5.6-sol"
-CODEX_MODELS = ("gpt-5.6-sol", "gpt-6-astra", "gpt-5.6-terra", "gpt-5.6-luna")
+DEFAULT_CODEX_MODEL = "gpt-5.6-luna"
+# ChatGPT 계정의 Codex가 허용하는 모델만 둔다. 첫 항목이 기본값이다.
+CODEX_MODELS = (DEFAULT_CODEX_MODEL, "gpt-6-luna", "gpt-5.6-terra")
 for _model in CODEX_MODELS:
-    LLM_MODELS[_model] = {"label": _model + (" (기본)" if _model == DEFAULT_CODEX_MODEL else ""), "codex": _model}
+    LLM_MODELS[_model] = {"label": _model + (" (기본)" if _model == DEFAULT_CODEX_MODEL else ""),
+                          "codex": _model, "default": _model == DEFAULT_CODEX_MODEL}
 
 LLM_TIMEOUT_SEC = 300
 LLM_MAX_INPUT_CHARS = 30000
@@ -2244,8 +2246,9 @@ def normalize_recipe_settings(data: dict, base: dict | None = None) -> dict:
         cur["instructions"] = _s(data.get("instructions"), 5000)
     if "model" in data:
         m = data.get("model")
-        # 이전 저장값과 열린 브라우저의 선택값을 호환 가능한 기본값으로 옮긴다.
-        if m == "gpt-5.5" and data.get("backend", cur["backend"]) == "codex":
+        # 목록에서 빠진 GPT 모델(이전 저장값, 열린 브라우저의 선택값)은 기본 모델로 옮긴다.
+        if (data.get("backend", cur["backend"]) == "codex" and isinstance(m, str)
+                and m.startswith("gpt-") and m not in CODEX_MODELS):
             m = DEFAULT_CODEX_MODEL
         if m not in LLM_MODELS:
             raise ValueError(f"알 수 없는 모델입니다: {m!r}")
@@ -2607,8 +2610,8 @@ def get_article_settings():
             **{k: get_recipe_settings()[k] for k in ("backend", "model")}}
     try:
         cfg = article_document.settings(load_helper().get("article") or {}, base)
-        normalize_recipe_settings({k: cfg[k] for k in ("backend", "model")})
-        return cfg
+        checked = normalize_recipe_settings({k: cfg[k] for k in ("backend", "model")})
+        return {**cfg, "backend": checked["backend"], "model": checked["model"]}
     except ValueError:
         return base
 
@@ -2639,8 +2642,8 @@ def api_helper_settings_save():
         if "article" in data:
             try:
                 cfg = article_document.settings(data["article"], get_article_settings())
-                normalize_recipe_settings({k: cfg[k] for k in ("backend", "model")})
-                store["article"] = cfg
+                checked = normalize_recipe_settings({k: cfg[k] for k in ("backend", "model")})
+                store["article"] = {**cfg, "backend": checked["backend"], "model": checked["model"]}
             except ValueError as e:
                 return jsonify(error=str(e)), 400
         _write_json_atomic(HELPER_FILE, store)

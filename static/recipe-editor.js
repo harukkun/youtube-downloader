@@ -2,6 +2,7 @@
 window.RecipeEditor = (() => {
   const $ = id => document.getElementById(id);
   const MODELS = JSON.parse(document.getElementById('helperModels').textContent);
+  const DEFAULT_CODEX_MODEL = Object.keys(MODELS).find(k => MODELS[k].codex && MODELS[k].default);
   const tagTools = window.RecipeTags;
   let generating = false, tagsCurrent = true;
   const processMode = document.body.dataset.uploadProcess === 'true';
@@ -19,7 +20,7 @@ window.RecipeEditor = (() => {
   }
   function fillRecipeSettings(s) {
     $('tplText').value = s.template || ''; $('insText').value = s.instructions || '';
-    $('modelSel').value = s.model || 'gpt-5.6-sol'; $('backendSel').value = s.backend || 'codex';
+    $('modelSel').value = s.model || DEFAULT_CODEX_MODEL; $('backendSel').value = s.backend || 'codex';
     filterModels(); updateTplState();
   }
   function isDirty() {
@@ -42,7 +43,7 @@ window.RecipeEditor = (() => {
     for (const option of $('modelSel').options) {
       option.hidden = option.disabled = !!MODELS[option.value].codex !== codex;
     }
-    if ($('modelSel').selectedOptions[0]?.disabled) $('modelSel').value = codex ? 'gpt-5.6-sol' : 'sonnet';
+    if ($('modelSel').selectedOptions[0]?.disabled) $('modelSel').value = codex ? DEFAULT_CODEX_MODEL : 'sonnet';
   }
   $('backendSel').addEventListener('change', () => { filterModels(); updateTplState(); });
   function renderEnv(env) {

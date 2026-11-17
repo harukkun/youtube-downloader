@@ -24,10 +24,32 @@ class RecipeHelperTest(unittest.TestCase):
                 self.assertEqual(self.post(source_channel=channel).status_code, 400)
             llm.assert_not_called()
 
+    RETIRED_CODEX_MODELS = ("gpt-5.5", "gpt-5.6-sol", "gpt-6-astra")
+
     def test_legacy_codex_model_is_removed_from_choices(self):
         response = self.client.get("/upload-process")
-        self.assertNotIn(b'gpt-5.5', response.data)
+        for model in self.RETIRED_CODEX_MODELS:
+            self.assertNotIn(model.encode(), response.data)
         self.assertIn(appmod.DEFAULT_CODEX_MODEL.encode(), response.data)
+
+    def test_default_codex_model_is_supported_luna(self):
+        self.assertEqual(appmod.DEFAULT_CODEX_MODEL, "gpt-5.6-luna")
+        self.assertEqual(appmod.CODEX_MODELS[0], appmod.DEFAULT_CODEX_MODEL)
+        defaults = [k for k, m in appmod.LLM_MODELS.items() if m.get("default")]
+        self.assertEqual(defaults, [appmod.DEFAULT_CODEX_MODEL])
+
+    def test_saved_retired_models_move_to_default(self):
+        for model in self.RETIRED_CODEX_MODELS:
+            saved = {**appmod.recipe_defaults(), "model": model,
+                     "template": "내 템플릿", "instructions": "내 지시사항"}
+            store = {"recipe": saved, "article": {"backend": "codex", "model": model, "instructions": "아티클 지시"}}
+            with self.subTest(model=model), patch.object(appmod, "load_helper", return_value=store):
+                recipe = appmod.get_recipe_settings()
+                article = appmod.get_article_settings()
+                self.assertEqual(recipe["model"], appmod.DEFAULT_CODEX_MODEL)
+                self.assertEqual(recipe["template"], "내 템플릿")
+                self.assertEqual(article["model"], appmod.DEFAULT_CODEX_MODEL)
+                self.assertEqual(article["instructions"], "아티클 지시")
 
     def test_saved_legacy_model_keeps_custom_recipe_settings(self):
         saved = {**appmod.recipe_defaults(), "model": "gpt-5.5",
