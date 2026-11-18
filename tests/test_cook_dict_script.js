@@ -16,6 +16,14 @@ page=cookDictList({token:'reader',sheetId:'sheet'});
 assert.equal(page.items[0].recipe.description,'첫 줄\\n\\n다음 줄');
 assert.equal(JSON.parse(sheet.rows[2][COL.cookBasic-1]).description,'설명');
 sheet.rows[3][COL.itemId-1]='item';page=cookDictList({token:'reader',sheetId:'sheet'});assert.equal(page.items.length,0);assert.equal(page.errors.length,1);
+// Pages count recipes, not rows: non-recipe rows between them do not end a page.
+sheet.rows[3][COL.itemId-1]='';
+for(const r of [5,12,19]){sheet.rows[r]=[...sheet.rows[2]];sheet.rows[r][COL.itemId-1]='item'+r;}
+page=cookDictList({token:'reader',sheetId:'sheet'});assert.equal(page.items.length,4);assert.equal(page.nextCursor,null);
+page=cookDictList({token:'reader',sheetId:'sheet',limit:2});assert.deepEqual(page.items.map(i=>i.itemId),['item','item5']);assert.equal(page.nextCursor,7);
+page=cookDictList({token:'reader',sheetId:'sheet',limit:2,cursor:7});assert.deepEqual(page.items.map(i=>i.itemId),['item12','item19']);assert.equal(page.nextCursor,null);
+assert.equal(cookDictList({token:'reader',sheetId:'sheet',limit:0}).error,'bad_limit');
+assert.equal(cookDictList({token:'reader',sheetId:'sheet',limit:1000}).items.length,4);
 reset();cb=cookBody();mode='invalid';cr=uploadAction(cb);assert.equal(cr.error,'commit_failed');assert.ok(files.every(f=>f.trashed));assert.equal(boardReadRow(sheet,3).cookVersion,'');
 reset();cb=cookBody();mode='timeoutBefore';cr=uploadAction(cb);assert.equal(cr.error,'commit_unknown');assert.ok(files.every(f=>!f.trashed));
 mode='';cr=uploadAction(cb);assert.ok(cr.submitted);assert.equal(files.length,2);

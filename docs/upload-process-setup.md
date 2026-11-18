@@ -151,3 +151,12 @@ node tests/test_upload_browser.js
 이 기능은 유틸의 기존 쓰기 연결을 사용합니다. 요리사전 읽기 토큰으로는 보완 작업을 수행할 수 없습니다. 자동 가져오기는 기존처럼 6시간 간격이며, AI 일괄 처리는 버튼으로 시작할 때만 실행합니다.
 
 검증: `.venv/bin/python -m unittest tests.test_cook_backfill -q`, `node tests/test_cook_backfill.js`, `node tests/test_cook_backfill_script.js`.
+
+## v19: 요리사전 가져오기 속도 개선
+
+요리사전 읽기(`cook_dict_list`)를 시트 50행 단위가 아니라 **레시피 수 단위**로 나눕니다. 한 번 호출할 때 시트를 한 번만 읽고, 요리사전이 요청하면 최대 200개까지 돌려줍니다. 대부분 한 번 호출로 현황판 전체를 가져옵니다. 요리사전 컬럼 확인도 헤더를 칸마다 읽지 않고 한 번에 읽습니다.
+
+1. `sheets/Code.gs` v19를 저장하고 웹 앱을 **배포 관리 → 새 버전**으로 재배포합니다. `/exec` 응답의 `version`이 `19`인지 확인합니다. 시트 초기 설정은 다시 실행하지 않아도 됩니다.
+2. cook-dict와 배포 순서는 상관없습니다. 요리사전이 `limit`을 보내지 않으면 기존처럼 한 번에 최대 50개를 돌려주고, 이전 버전 스크립트는 `limit`을 무시합니다.
+
+검증: `node tests/test_cook_dict_script.js`.

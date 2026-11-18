@@ -38,7 +38,7 @@ const ROW_HEIGHT = 64;      // 썸네일이 보이는 데이터 행 높이
 const PROP_TOKEN = 'UPLOAD_TOKEN';
 const PROP_FOLDER = 'THUMB_FOLDER_ID';
 const THUMB_FOLDER_NAME = '쇼츠 현황판 썸네일';
-const UPLOAD_VERSION = 18;
+const UPLOAD_VERSION = 19;
 const thumbUrlFor = (id) => `https://lh3.googleusercontent.com/d/${id}`;   // IMAGE() 와 <img> 모두에서 열리는 형식
 const SOURCE_THUMB_RE = /i\.ytimg\.com|img\.youtube\.com/;                 // 예전 버전이 넣던 원본 영상 썸네일
 
@@ -1712,8 +1712,11 @@ function showCookDictInfo() {
     'COOK_DICT_SHEET_ID=' + SpreadsheetApp.getActiveSpreadsheet().getId() + '\nCOOK_DICT_READ_TOKEN=' + token +
     '\nCOOK_DICT_SHEETS_URL에는 기존 Apps Script 웹 앱 /exec 주소를 사용하세요. 서버 환경변수에만 저장하세요.',SpreadsheetApp.getUi().ButtonSet.OK);
 }
+const COOK_DICT_PAGE_MAX = 200;
 function cookDictReady(sheet) {
-  return sheet.getMaxColumns() >= COL.cookUpdated && COOK_KEYS.every(k=>String(sheet.getRange(HEADER_ROW,COL[k]).getValue())===COLUMNS[COL[k]-1].header);
+  if (sheet.getMaxColumns() < COL.cookUpdated) return false;
+  const hdr = sheet.getRange(HEADER_ROW, 1, 1, COL.cookUpdated).getValues()[0];   // one read instead of one per column
+  return COOK_KEYS.every(k=>String(hdr[COL[k]-1])===COLUMNS[COL[k]-1].header);
 }
 function cookRecipeValidate(c) {
   const text=(v,n,empty=false)=>typeof v==='string'&&v.length<=n&&(empty||!!v.trim());
@@ -1739,33 +1742,37 @@ function cookDictValidate(body, sheet) {
   if (!bytes.length||bytes.length>8*1024*1024||mime!==p.mime) throw Error('bad photo');
   return {bytes,basic};
 }
+// Pages by recipe count, not by rows: one board read per call, so a single call usually covers the whole board.
+// `limit` defaults to 50 so an older cook-dict server (which accepts at most 50 per page) keeps working.
 function cookDictList(body) {
   const token=PropertiesService.getScriptProperties().getProperty('COOK_DICT_READ_TOKEN');
   if (!token || body.token!==token) return jsonOut({ok:false,error:'unauthorized'});
   const ss=SpreadsheetApp.getActiveSpreadsheet(),sheet=ss.getSheetByName(SHEET_NAME);
   if (body.sheetId!==ss.getId()) return jsonOut({ok:false,error:'wrong_sheet'});
   if (!sheet||!cookDictReady(sheet)) return jsonOut({ok:false,error:'upgrade_required'});
-  const start=body.cursor===undefined?FIRST_DATA_ROW:Number(body.cursor),limit=50;
+  const start=body.cursor===undefined?FIRST_DATA_ROW:Number(body.cursor);
   if (!Number.isInteger(start)||start<FIRST_DATA_ROW) return jsonOut({ok:false,error:'bad_cursor'});
-  const end=Math.min(sheet.getLastRow()+1,start+limit),items=[],errors=[];
-  const counts={};
-  if(sheet.getLastRow()>=FIRST_DATA_ROW)sheet.getRange(FIRST_DATA_ROW,COL.itemId,sheet.getLastRow()-FIRST_DATA_ROW+1,1).getValues().forEach(r=>{const id=String(r[0]||'');counts[id]=(counts[id]||0)+1;});
-  if(end>start) {
-    const rows=sheet.getRange(start,1,end-start,LAST_COL).getValues();
-    rows.forEach((values,index)=>{
-      const c=Object.fromEntries(COLUMNS.map((col,i)=>[col.key,boardCellText(values[i])]));
-      if(c.status!==UPLOADED||!c.cookVersion)return;
-      try {
-        if(!c.itemId||counts[c.itemId]!==1||!c.cookUpdated)throw Error('missing');
-        // The posted description is the reusable source text. Older cookBasic JSON may contain a flattened copy.
-        const basic=JSON.parse(c.cookBasic);
-        items.push({itemId:c.itemId,updatedAt:c.cookUpdated,recipe:{...basic,description:c.desc||basic.description,version:Number(c.cookVersion),
-          ingredients:JSON.parse(c.cookIngredients),steps:JSON.parse(c.cookSteps),photoUrl:c.cookPhoto,
-          sourceUrl:c.srcUrl||'',youtubeUrl:c.youtubeUrl||'',instagramUrl:c.instagramUrl||'',tiktokUrl:c.tiktokUrl||''}});
-      } catch (_) { errors.push({itemId:c.itemId||String(start+index),error:'레시피 컬럼을 확인해 주세요.'}); }
-    });
+  const requested=body.limit===undefined?50:Number(body.limit);
+  if (!Number.isInteger(requested)||requested<1) return jsonOut({ok:false,error:'bad_limit'});
+  const limit=Math.min(requested,COOK_DICT_PAGE_MAX),last=sheet.getLastRow(),items=[],errors=[],counts={};
+  const all=last>=FIRST_DATA_ROW?sheet.getRange(FIRST_DATA_ROW,1,last-FIRST_DATA_ROW+1,LAST_COL).getValues():[];
+  all.forEach(r=>{const id=String(r[COL.itemId-1]||'');counts[id]=(counts[id]||0)+1;});
+  let row=start;
+  // Errors share the budget so a page never exceeds `limit` entries of either kind.
+  for(;row<=last&&items.length+errors.length<limit;row++) {
+    const values=all[row-FIRST_DATA_ROW];
+    const c=Object.fromEntries(COLUMNS.map((col,i)=>[col.key,boardCellText(values[i])]));
+    if(c.status!==UPLOADED||!c.cookVersion)continue;
+    try {
+      if(!c.itemId||counts[c.itemId]!==1||!c.cookUpdated)throw Error('missing');
+      // The posted description is the reusable source text. Older cookBasic JSON may contain a flattened copy.
+      const basic=JSON.parse(c.cookBasic);
+      items.push({itemId:c.itemId,updatedAt:c.cookUpdated,recipe:{...basic,description:c.desc||basic.description,version:Number(c.cookVersion),
+        ingredients:JSON.parse(c.cookIngredients),steps:JSON.parse(c.cookSteps),photoUrl:c.cookPhoto,
+        sourceUrl:c.srcUrl||'',youtubeUrl:c.youtubeUrl||'',instagramUrl:c.instagramUrl||'',tiktokUrl:c.tiktokUrl||''}});
+    } catch (_) { errors.push({itemId:c.itemId||String(row),error:'레시피 컬럼을 확인해 주세요.'}); }
   }
-  return jsonOut({ok:true,version:1,sheetId:ss.getId(),items,errors,nextCursor:end<=sheet.getLastRow()?end:null});
+  return jsonOut({ok:true,version:1,sheetId:ss.getId(),items,errors,nextCursor:row<=last?row:null});
 }
 
 
